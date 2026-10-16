@@ -1,0 +1,107 @@
+export interface ScanRunFacts {
+  status: string;
+  kind: string;
+  isComplete: boolean;
+  errorCode: string | null;
+  error: string | null;
+  productsSaved: number;
+  estimatedTotal: number | null;
+  requestsMade: number;
+  requestBudget: number | null;
+  urlsDiscovered: number;
+  urlsFetched: number;
+  errorsCount: number;
+}
+
+export interface ScanExplanation {
+  /** One sentence: what this run achieved. */
+  summary: string;
+  completeness: 'complete' | 'partial' | 'none';
+  /** Why the catalogue is not complete, or null when it is. */
+  reason: string | null;
+  /** What the customer (or the next run) can do about it, or null. */
+  nextStep: string | null;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Plain-language account of a collection run: what was collected, whether that is the whole catalogue, and — when it is not — the real
+ * reason and the next step. It never claims completeness the run did not establish.
+ */
+export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = {}): ScanExplanation {
+  const saved = plural(r.productsSaved, 'product');
+  const of = r.estimatedTotal ? ` of about ${r.estimatedTotal}` : '';
+  const failed = queue['failed'] ?? 0;
+  const pending = queue['pending'] ?? 0;
+  const skipped = queue['skipped'] ?? 0;
+
+  if (r.status === 'queued') return { summary: 'Waiting to start.', completeness: 'none', reason: null, nextStep: null };
+  if (r.status === 'running') return { summary: `Running now: ${saved}${of} collected so far${pending ? `, ${pending} pages still to read` : ''}.`, completeness: 'none', reason: null, nextStep: null };
+
+  if (r.status === 'blocked') {
+    const robots = r.errorCode === 'robots';
+    return {
+      summary: 'Nothing was collected: the website does not allow automated access.',
+      completeness: 'none',
+      reason: robots ? 'Its robots.txt file asks automated tools to stay away.' : 'It refused access (a login, bot protection, or an explicit denial). Shelfwatch stops when told no and never works around it.',
+      nextStep: 'Ask the website’s owner for a product feed or an authorised connection, or remove this competitor.',
+    };
+  }
+  if (r.status === 'cancelled') {
+    return { summary: `Cancelled after collecting ${saved}.`, completeness: r.productsSaved ? 'partial' : 'none', reason: 'The run was cancelled (for example because permission was withdrawn).', nextStep: 'Start a new collection when you are ready.' };
+  }
+  if (r.status === 'failed') {
+    const byCode: Record<string, [string, string]> = {
+      site_unreachable: ['The website could not be reached.', 'This is usually temporary. Try again later.'],
+      unsupported_site: ['No supported way of reading this website’s products was found.', 'Ask the owner for a product feed or an authorised platform connection.'],
+      empty_feed: ['The website’s product feed answered but listed no products.', 'Check that the shop has products published, or try again later.'],
+      no_products_extracted: ['Pages were fetched but no product data could be read from them.', 'The pages may need JavaScript rendering, or the layout is not supported yet.'],
+      all_pages_failed: ['None of the product pages could be read.', 'Check the details below for the errors, then try again.'],
+      feed_unavailable: ['The product feed was unavailable.', 'Try again later.'],
+      worker_lost: ['The collection stopped responding several times in a row and was abandoned. Everything collected before that is kept.', 'Try again. If it keeps happening, the website may be too large or too slow to read in one run.'],
+    };
+    const [reason, next] = byCode[r.errorCode ?? ''] ?? [r.error ?? 'The collection failed.', 'Try again; if it keeps failing, see the errors below.'];
+    return { summary: `Failed: ${r.productsSaved ? `${saved} saved before the failure` : 'no products were saved'}. This is a failure, not an empty catalogue.`, completeness: r.productsSaved ? 'partial' : 'none', reason, nextStep: next };
+  }
+
+  // succeeded or partial
+  if (r.isComplete) {
+    return {
+      summary: `The whole accessible catalogue was collected: ${saved}.${failed ? ` ${plural(failed, 'page')} could not be read and ${failed === 1 ? 'is' : 'are'} listed below.` : ''}`,
+      completeness: 'complete',
+      reason: null,
+      nextStep: null,
+    };
+  }
+  let reason: string;
+  let next: string | null = 'Run the collection again to continue where it stopped.';
+  switch (r.errorCode) {
+    case 'request_budget':
+      reason = `The request budget for one run${r.requestBudget ? ` (${r.requestBudget} requests)` : ''} was used up. The rest is collected on the next run.`;
+      break;
+    case 'deadline':
+      reason = 'The run stopped at its time limit so the daily report could be ready on time.';
+      break;
+    case 'page_limit':
+      reason = 'The run stopped at its page limit.';
+      break;
+    default:
+      if (r.kind === 'sample') {
+        reason = 'This was a small sample on purpose, not a full collection.';
+        next = 'Start a full collection to gather the whole catalogue.';
+      } else if (failed > 0 && r.urlsDiscovered > 0 && failed / Math.max(1, r.urlsFetched) > 0.05) {
+        reason = `${plural(failed, 'page')} could not be read (${Math.round((failed / Math.max(1, r.urlsFetched)) * 100)}% of those fetched).`;
+      } else if (pending > 0) {
+        reason = `${plural(pending, 'page')} still waiting to be read.`;
+      } else {
+        reason = r.error ?? 'Coverage could not be confirmed as complete.';
+      }
+  }
+  return {
+    summary: `Partly collected: ${saved}${of}.${skipped ? ` ${plural(skipped, 'page')} skipped (not product pages).` : ''}`,
+    completeness: 'partial',
+    reason,
+    nextStep: next,
+  };
+}

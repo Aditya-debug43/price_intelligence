@@ -1,0 +1,1 @@
+ALTER TABLE "sites" ADD COLUMN "currency_source" text DEFAULT 'detected' NOT NULL;

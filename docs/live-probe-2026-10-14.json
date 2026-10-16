@@ -1,0 +1,479 @@
+[
+  {
+    "url": "https://shop.superfoodaruba.com/",
+    "probedAt": "2026-10-14T04:48:02.931Z",
+    "profile": {
+      "status": "limited",
+      "summary": "We could reach the website (freshop) but could not find product prices on the sampled pages. Only general information, promotions and social links are available.",
+      "site": {
+        "requestedUrl": "https://shop.superfoodaruba.com/",
+        "finalUrl": "https://shop.superfoodaruba.com/",
+        "origin": "https://shop.superfoodaruba.com",
+        "canonicalHost": "shop.superfoodaruba.com",
+        "title": "Super Food Plaza",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 1249,
+        "redirectChain": []
+      },
+      "platform": {
+        "id": "freshop",
+        "confidence": 0.7,
+        "evidence": [
+          "Freshop online-grocery storefront assets"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": 10,
+          "sitemaps": [
+            "https://shop.superfoodaruba.com/wp-sitemap.xml",
+            "https://shop.superfoodaruba.com/wp-content/uploads/freshop_sitemap.xml.gz",
+            "https://shop.superfoodaruba.com/sitemap.xml",
+            "https://shop.superfoodaruba.com/sitemap.html"
+          ],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://shop.superfoodaruba.com/wp-sitemap.xml",
+            "kind": "other",
+            "urlCount": null,
+            "failed": true
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/wp-content/uploads/freshop_sitemap.xml.gz",
+            "kind": "products",
+            "urlCount": null,
+            "failed": true
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/sitemap.xml",
+            "kind": "index",
+            "urlCount": 3
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/sitemap-misc.xml",
+            "kind": "other",
+            "urlCount": 2
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/post-sitemap.xml",
+            "kind": "pages",
+            "urlCount": 3
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/page-sitemap.xml",
+            "kind": "pages",
+            "urlCount": 31
+          }
+        ],
+        "productUrlSample": [],
+        "estimatedProducts": 2,
+        "estimateBasis": "Sum of 1 product sitemap(s)",
+        "publicApis": [
+          {
+            "kind": "woocommerce_store_api",
+            "url": "https://shop.superfoodaruba.com/wp-json/wc/store/v1/products",
+            "usable": false,
+            "total": null,
+            "notes": "The Store API returned HTTP 404; it is disabled or restricted on this site."
+          }
+        ]
+      },
+      "fields": {
+        "title": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "price": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "compare_at_price": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "currency": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null
+        },
+        "availability": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "brand": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "sku": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "gtin": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "description": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "category": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "image": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "variants": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "size_or_weight": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "shipping_cost": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "stock_quantity": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        }
+      },
+      "currency": {
+        "detected": null,
+        "candidates": [],
+        "evidence": [],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": false,
+        "evidence": "2683 characters of server-rendered text"
+      },
+      "promotions": {
+        "bannerTexts": [],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": "https://www.facebook.com/superfoodaruba",
+        "instagram": null,
+        "youtube": "https://www.youtube.com/channel/UCNobOat9itzCZBNOClj-Dtg",
+        "other": []
+      },
+      "strategy": {
+        "recommended": [],
+        "primary": null,
+        "reason": "No reliable collection method was found for this site"
+      },
+      "effort": {
+        "requestsEstimate": 8,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 10000,
+        "maxRequestsPerRun": 2000,
+        "notes": "Each product page is one request; large catalogues are refreshed on a rolling basis within the request budget."
+      },
+      "sampledProducts": [],
+      "limitations": [
+        {
+          "code": "crawl_delay",
+          "severity": "info",
+          "message": "The site asks crawlers to wait 10 s between requests; this is applied."
+        },
+        {
+          "code": "currency_unknown",
+          "severity": "warning",
+          "message": "The currency of the prices could not be determined, so prices cannot be converted for comparison until you confirm it."
+        },
+        {
+          "code": "freshop_storefront",
+          "severity": "warning",
+          "message": "Products are served by a Freshop online-grocery storefront. Its product data is loaded by JavaScript from the vendor’s own service, so plain page requests contain no prices. Collecting it would need browser rendering or access arranged with the store/vendor — we do not reverse-engineer private APIs."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        },
+        {
+          "code": "few_samples",
+          "severity": "info",
+          "message": "Fewer than two product pages could be sampled, so field coverage is a rough indication only."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 9,
+      "durationMs": 72056
+    }
+  },
+  {
+    "url": "https://doit.aw/",
+    "probedAt": "2026-10-14T04:48:15.509Z",
+    "profile": {
+      "status": "limited",
+      "summary": "This shop builds its pages with JavaScript, so prices are not visible to a plain request. Only promotions, social links and general site information could be gathered.",
+      "site": {
+        "requestedUrl": "https://doit.aw/",
+        "finalUrl": "https://doit.aw/",
+        "origin": "https://doit.aw",
+        "canonicalHost": "doit.aw",
+        "title": "Do It Center Aruba",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 397,
+        "redirectChain": []
+      },
+      "platform": {
+        "id": "unknown",
+        "confidence": 0,
+        "evidence": [
+          "No known e-commerce platform signature found"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": null,
+          "sitemaps": [
+            "https://doit.aw/sitemap.xml"
+          ],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://doit.aw/sitemap.xml",
+            "kind": "other",
+            "urlCount": 24
+          }
+        ],
+        "productUrlSample": [
+          "https://doit.aw/shop?itemCode=AUTO",
+          "https://doit.aw/shop?itemCode=HSWR",
+          "https://doit.aw/shop?itemCode=SPGD"
+        ],
+        "estimatedProducts": 24,
+        "estimateBasis": "Sum of 1 product sitemap(s)",
+        "publicApis": []
+      },
+      "fields": {
+        "title": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "price": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "compare_at_price": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages",
+          "note": "Present only on items currently on sale"
+        },
+        "currency": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null
+        },
+        "availability": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "brand": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "sku": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "gtin": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "description": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "category": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "image": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "variants": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": "sampled product pages"
+        },
+        "size_or_weight": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages",
+          "note": "Parsed from titles and descriptions"
+        },
+        "shipping_cost": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "stock_quantity": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages",
+          "note": "Only explicit “only N left” statements count"
+        }
+      },
+      "currency": {
+        "detected": null,
+        "candidates": [],
+        "evidence": [],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": true,
+        "evidence": "Sampled product pages contain no server-rendered product data"
+      },
+      "promotions": {
+        "bannerTexts": [],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": null,
+        "instagram": null,
+        "youtube": null,
+        "other": []
+      },
+      "strategy": {
+        "recommended": [],
+        "primary": null,
+        "reason": "No reliable collection method was found for this site"
+      },
+      "effort": {
+        "requestsEstimate": 25,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 1500,
+        "maxRequestsPerRun": 2000,
+        "notes": "Each product page is one request; large catalogues are refreshed on a rolling basis within the request budget."
+      },
+      "sampledProducts": [
+        {
+          "url": "https://doit.aw/shop?itemCode=AUTO",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        },
+        {
+          "url": "https://doit.aw/shop?itemCode=HSWR",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        },
+        {
+          "url": "https://doit.aw/shop?itemCode=SPGD",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        }
+      ],
+      "limitations": [
+        {
+          "code": "currency_unknown",
+          "severity": "warning",
+          "message": "The currency of the prices could not be determined, so prices cannot be converted for comparison until you confirm it."
+        },
+        {
+          "code": "js_required",
+          "severity": "warning",
+          "message": "Products appear only after the page is rendered with JavaScript. Headless-browser rendering is not enabled, so product data is unavailable."
+        },
+        {
+          "code": "no_gtin",
+          "severity": "info",
+          "message": "Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        },
+        {
+          "code": "no_brand",
+          "severity": "info",
+          "message": "Brands are not published, which makes product matching less certain."
+        },
+        {
+          "code": "weak_structured_data",
+          "severity": "info",
+          "message": "Some product pages publish no structured data, so layout-based extraction (lower confidence) is used."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 9,
+      "durationMs": 12575
+    }
+  }
+]

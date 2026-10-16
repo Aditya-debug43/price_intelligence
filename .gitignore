@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.data/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+apps/web/dist/
+.vite/
+playwright-report/
+test-results/
+deploy.env
+
+# archives of the project made by the user
+*.zip

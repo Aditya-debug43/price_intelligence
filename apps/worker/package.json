@@ -1,0 +1,22 @@
+{
+    "name":  "@ci/worker",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "tsx watch src/main.ts",
+                    "start":  "node dist/main.js",
+                    "build":  "tsup",
+                    "typecheck":  "tsc --noEmit -p tsconfig.json"
+                },
+    "dependencies":  {
+                         "@ci/core":  "*",
+                         "@ci/shared":  "*",
+                         "@ci/database":  "*",
+                         "@ci/connectors":  "*",
+                         "@ci/services":  "*"
+                     },
+    "devDependencies":  {
+                            "tsup":  "^8.5.0"
+                        }
+}

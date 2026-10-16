@@ -1,0 +1,58 @@
+# Single-host production-style stack: PostgreSQL + one-off database job + API (serving the web app) + worker.
+# UNTESTED: written without Docker available. Copy deploy.env.example to deploy.env, fill every CHANGE_ME, then:
+#   docker compose --env-file deploy.env up -d --build
+# Put a TLS-terminating reverse proxy (Caddy, nginx, a cloud load balancer) in front of port 4000; session cookies are Secure in production.
+
+x-app: &app
+  build: .
+  env_file: deploy.env
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgres://ci_app:${APP_DB_PASSWORD}@db:5432/competitor_intel
+    WORKER_DATABASE_URL: postgres://ci_worker:${WORKER_DB_PASSWORD}@db:5432/competitor_intel
+    DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/competitor_intel
+  volumes:
+    - app-data:/app/.data
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: competitor_intel
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d competitor_intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: ["sh", "-c", "npx tsx scripts/db-setup.ts"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    ports:
+      - "4000:4000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["node", "apps/worker/dist/main.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pg-data:
+  app-data:

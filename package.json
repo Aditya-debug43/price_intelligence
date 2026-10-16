@@ -1,0 +1,52 @@
+{
+  "name": "competitor-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-tenant competitor intelligence platform: universal site profiler, adaptive catalogue connectors, product matching, price/offer/stock intelligence, scheduled reports.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "dev:demo": "tsx scripts/dev.ts --demo",
+    "dev:db": "tsx scripts/dev-db.ts",
+    "dev:api": "npm run dev -w @ci/api",
+    "dev:worker": "npm run dev -w @ci/worker",
+    "dev:web": "npm run dev -w @ci/web",
+    "fixtures:serve": "tsx scripts/fixtures-serve.ts",
+    "db:setup": "tsx scripts/db-setup.ts",
+    "db:generate": "drizzle-kit generate --config packages/database/drizzle.config.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "bootstrap:dev": "tsx scripts/bootstrap-dev.ts",
+    "demo:setup": "tsx scripts/demo-setup.ts",
+    "demo:fixtures": "tsx scripts/demo-fixtures.ts",
+    "live:probe": "tsx scripts/live-probe.ts",
+    "build": "npm run build -w @ci/web && npm run build -w @ci/api && npm run build -w @ci/worker",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "eslint": "^10.12.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.9.0",
+    "tsx": "^4.23.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.0"
+  }
+}

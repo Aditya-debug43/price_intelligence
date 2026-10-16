@@ -1,0 +1,6 @@
+node_modules
+dist
+.data
+drizzle
+coverage
+package-lock.json
