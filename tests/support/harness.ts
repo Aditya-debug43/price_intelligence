@@ -56,7 +56,7 @@ export interface Tenant {
 
 let seq = 0;
 
-export async function createHarness(opts: { now?: string; extraEnv?: Record<string, string>; /** 'none' = a server with no mail server configured. */ mail?: 'capture' | 'none' } = {}): Promise<Harness> {
+export async function createHarness(opts: { now?: string; extraEnv?: Record<string, string>; /** 'none' = a server with no mail server configured. */ mail?: 'capture' | 'none'; /** The real internet: real DNS, the production fetch policy and pacing, the real clock — no fictional websites involved. Only for the live test procedure. */ real?: boolean } = {}): Promise<Harness> {
   const urls = inject('testDb');
   const db = connectTestDb();
   const storage = new MemoryStorage();
@@ -70,7 +70,7 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
     WORKER_DATABASE_URL: urls.workerUrl,
     TOKEN_ENCRYPTION_KEY: generateKeyRingSpec('t1'),
     APP_BASE_URL: 'http://localhost:5173',
-    COLLECTOR_DEFAULT_DELAY_MS: '250',
+    COLLECTOR_DEFAULT_DELAY_MS: opts.real ? '1500' : '250',
     LOG_LEVEL: process.env.TEST_LOG ? 'debug' : 'silent',
     ...(opts.extraEnv ?? {}),
   } as unknown as NodeJS.ProcessEnv);
@@ -80,11 +80,15 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
     storage,
     queue,
     log,
-    clock: () => now,
-    limiter,
-    // Every ".test" name is "public"; anything else resolves to a private address, so the production host screening refuses it.
-    resolver: async (host) => (host.endsWith('.test') ? [{ address: '93.184.216.34' }] : [{ address: '10.0.0.7' }]),
-    makeFetcher: (over) => new SafeFetcher({ ...fetchPolicyFrom(config), maxRetries: 1, timeoutMs: 8000, ...(over ?? {}) }, { limiter, resolver: fixtures.resolver, transport: fixtures.transport }),
+    ...(opts.real
+      ? {} // real clock, real pacing, real DNS, the production fetch policy
+      : {
+          clock: () => now,
+          limiter,
+          // Every ".test" name is "public"; anything else resolves to a private address, so the production host screening refuses it.
+          resolver: async (host: string) => (host.endsWith('.test') ? [{ address: '93.184.216.34' }] : [{ address: '10.0.0.7' }]),
+          makeFetcher: (over: { maxRetries?: number } | undefined) => new SafeFetcher({ ...fetchPolicyFrom(config), maxRetries: 1, timeoutMs: 8000, ...(over ?? {}) }, { limiter, resolver: fixtures.resolver, transport: fixtures.transport }),
+        }),
     mailerFactory: (base) => new OutboxMailer(db.worker, () => queue, { smtp: config.smtp, from: config.emailFrom, ...(opts.mail === 'none' ? {} : { transport: mail }) }, base.log),
   });
   queue.svc = svc;

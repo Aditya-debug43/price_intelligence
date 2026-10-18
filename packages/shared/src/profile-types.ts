@@ -69,6 +69,8 @@ export interface SiteProfileData {
   summary: string;
   site: {
     requestedUrl: string;
+    /** The page the customer pointed at when it was not the home page ("/shop"); null for a bare address. Absent in profiles made before this existed. */
+    entryPath?: string | null;
     finalUrl: string | null;
     origin: string | null;
     canonicalHost: string | null;
@@ -84,6 +86,8 @@ export interface SiteProfileData {
       fetched: boolean;
       httpStatus: number | null;
       allowsHome: boolean;
+      /** Whether robots.txt permits the page the customer pointed at (only when it was not the home page). */
+      entryAllowed?: boolean;
       disallowsAll: boolean;
       crawlDelaySeconds: number | null;
       sitemaps: string[];
@@ -100,6 +104,8 @@ export interface SiteProfileData {
     estimatedProducts: number | null;
     estimateBasis: string;
     publicApis: PublicApiProbe[];
+    /** Product listing pages (grids of product cards), found by reading the site's own pages. Absent in profiles made before this existed. */
+    listing?: { found: boolean; pageUrl: string | null; cardsOnPage: number; hasPagination: boolean; categoryLinks: number; totalHint: number | null };
   };
   fields: Record<FieldKey, FieldCapability>;
   currency: { detected: string | null; candidates: string[]; evidence: string[]; conflicting: boolean };

@@ -393,6 +393,12 @@ export class SafeFetcher {
     const u = new URL(url);
     const info = await this.robots(u.origin);
     const d = robotsDecision(info.parsed, this.policy.userAgent, u.pathname + u.search);
+    if (d.allowed && u.pathname.length > 1 && !u.pathname.endsWith('/')) {
+      // Our URLs are normalised without a trailing slash, while many sites treat "/shop" and "/shop/" as the same page. A rule written for
+      // "/shop/" must therefore also stop "/shop": normalising a link must never turn a forbidden page into an allowed one.
+      const slash = robotsDecision(info.parsed, this.policy.userAgent, `${u.pathname}/${u.search}`);
+      if (!slash.allowed) return { allowed: false, rule: `${slash.matchedRule} (applies to this page written with a trailing slash)`, info };
+    }
     return { allowed: d.allowed, rule: d.matchedRule, info };
   }
 

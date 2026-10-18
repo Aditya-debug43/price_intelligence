@@ -86,13 +86,14 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
   const availabilityChanges = await loadAvailabilityChanges(db, orgId, competitorIds, siteName, now);
 
   // ── assortment (an unmatched product means "no equivalent found", not "absent from the market")
-  const assortmentAll = await loadAssortment(db, orgId, maps);
+  const assortmentAll = await loadAssortment(db, orgId, maps, activeCoverage);
   const competitorOnlyAll = assortmentAll.competitorOnly;
   const sourceOnlyAll = assortmentAll.sourceOnly;
   const assortment = {
     competitorOnly: competitorOnlyAll.slice(0, 60),
     sourceOnly: sourceOnlyAll.slice(0, 60),
-    note: 'Unmatched means no equivalent product was found among collected catalogues; it does not prove the product is absent elsewhere. Counts depend on collection coverage and match quality.',
+    note: assortmentAll.note,
+    basis: assortmentAll.basis,
   };
 
   const basket = computeBasket(comparisons, siteName, reporting, sourceVariantCount);

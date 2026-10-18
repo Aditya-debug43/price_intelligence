@@ -34,6 +34,7 @@ export const CONNECTOR_IDS = [
   'woocommerce-store-api',
   'sitemap-structured-data',
   'html-generic',
+  'listing-crawl',
   'browser-rendered',
   'llm-fallback',
 ] as const;
@@ -46,6 +47,7 @@ export const EXTRACTION_METHODS = [
   'microdata',
   'opengraph',
   'html_heuristic',
+  'listing_card',
   'site_rule',
   'browser_rendered',
   'llm_fallback',
@@ -249,7 +251,7 @@ export type SiteState = (typeof SITE_STATES)[number];
 export const SITE_STATE_LABELS: Record<SiteState, string> = {
   inactive: 'Not in use',
   not_profiled: 'Not checked yet',
-  awaiting_permission: 'Awaiting permission',
+  awaiting_permission: 'Collection rules not confirmed',
   access_denied: 'Access denied',
   unsupported: 'Not supported by this website',
   not_collected: 'Not yet collected',

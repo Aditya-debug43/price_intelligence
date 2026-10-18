@@ -228,7 +228,7 @@ describe('profiling, consent and collection', () => {
     for (const k of Object.keys(sites)) {
       const r = await owner.post(`${base()}/sites/${sites[k]}/consent`, { status: 'confirmed', attest: true, note: 'owner approval on file' });
       expect(r.status).toBe(200);
-      expect(r.body.site.consentNote).toMatch(/\[v1\]/);
+      expect(r.body.site.consentNote).toMatch(/\[v2\]/);
     }
   });
 
@@ -313,7 +313,10 @@ describe('intelligence endpoints', () => {
     expect(mk.activity.length).toBeGreaterThan(0);
     expect(mk.activity.every((m: { paidStatus: string }) => m.paidStatus === 'not_determined')).toBe(true);
     const as = (await owner.get(`${base()}/assortment?side=competitor&pageSize=5`)).body;
-    expect(as.note).toMatch(/not that none exists/);
+    // the wording depends on how much of each catalogue was actually read, and the basis says which competitors fall short
+    expect(as.note).toMatch(/read completely/);
+    expect(as.basis).toMatchObject({ competitorsComplete: expect.any(Boolean), competitorGaps: expect.any(Array), sourceComplete: expect.any(Boolean) });
+    expect(as.note.includes('Every competitor catalogue was read completely')).toBe(as.basis.competitorsComplete);
   });
 
   it('lists products with filters, shows product detail with history, matches, offers and evidence', async () => {

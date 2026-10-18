@@ -1,7 +1,7 @@
 import type { ConnectorId, SiteProfileData } from '@ci/shared';
 import { shopifyConnector } from './shopify.ts';
 import { woocommerceConnector } from './woocommerce.ts';
-import { browserConnector, htmlGenericConnector, llmFallbackConnector, structuredDataConnector } from './page-crawl.ts';
+import { browserConnector, htmlGenericConnector, listingConnector, llmFallbackConnector, structuredDataConnector } from './page-crawl.ts';
 import type { AnyConnector } from './types.ts';
 
 /** Every connector is registered here. Adding a site-specific connector means adding one file and one line. */
@@ -10,6 +10,7 @@ export const CONNECTORS: AnyConnector[] = [
   woocommerceConnector,
   structuredDataConnector,
   htmlGenericConnector,
+  listingConnector,
   browserConnector,
   llmFallbackConnector,
 ];

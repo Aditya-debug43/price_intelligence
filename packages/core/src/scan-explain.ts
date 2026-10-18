@@ -49,7 +49,7 @@ export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = 
     };
   }
   if (r.status === 'cancelled') {
-    return { summary: `Cancelled after collecting ${saved}.`, completeness: r.productsSaved ? 'partial' : 'none', reason: 'The run was cancelled (for example because permission was withdrawn).', nextStep: 'Start a new collection when you are ready.' };
+    return { summary: `Cancelled after collecting ${saved}.`, completeness: r.productsSaved ? 'partial' : 'none', reason: 'The run was cancelled (for example because collection from the website was stopped).', nextStep: 'Start a new collection when you are ready.' };
   }
   if (r.status === 'failed') {
     const byCode: Record<string, [string, string]> = {

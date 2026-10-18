@@ -21,7 +21,7 @@ import { collectFlyers, expireOffers, sweepMissingSaleOffers } from './promotion
 import { recordCollectionOutcome } from './stock.ts';
 
 export class ConsentRequiredError extends Error {
-  constructor(message = 'Record consent for this website before collecting from it.') {
+  constructor(message = 'Confirm the collection rules for this website before collecting from it.') {
     super(message);
     this.name = 'ConsentRequiredError';
   }
@@ -175,12 +175,17 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
 
   const [{ n: queued } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(crawlQueue).where(eq(crawlQueue.scanRunId, run.id));
   let discoveryComplete = run.cursor?.['discoveryComplete'] === true;
+  // Pages the crawl found but could not queue because the request budget was full: a run that left some behind is partial, never complete.
+  let dropped = Number(run.cursor?.['droppedDiscovered'] ?? 0);
+  const byDiscovery = connector.refreshByDiscovery === true;
+  const queueCap = Math.max(1, run.requestBudget ?? site.maxRequestsPerRun);
+  const kinds = new Map<string, 'product' | 'listing'>();
   if (!queued) {
     // Plan the frontier once; a resumed run reuses the persisted queue.
-    const known = await plannedKnownUrls(db, site.id, Math.max(budget, 1));
+    const known = byDiscovery ? [] : await plannedKnownUrls(db, site.id, Math.max(budget, 1));
     const planned = new Map<string, number>(known.map((k) => [k.url, k.priority]));
     let discoveredTotal: number | null = null;
-    if (run.kind === 'discovery' || known.length === 0) {
+    if (run.kind === 'discovery' || known.length === 0 || byDiscovery) {
       try {
         const d = await connector.discover(ctx);
         notes.push(...d.warnings);
@@ -189,9 +194,10 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
           const url = canonicalizeUrl(u.url);
           const prev = planned.get(url);
           // Never-seen URLs get a mid priority so discovery proceeds without starving matched products.
-          if (prev === undefined) planned.set(url, 45 + (u.lastmod ? 5 : 0));
+          if (prev === undefined) planned.set(url, u.priority ?? 45 + (u.lastmod ? 5 : 0));
+          if (u.kind) kinds.set(url, u.kind);
         }
-        discoveryComplete = d.estimatedTotal !== null;
+        discoveryComplete = d.crawlsToCompletion === true || d.estimatedTotal !== null;
         estimated = d.estimatedTotal ?? null;
       } catch (e) {
         const c = classify(e);
@@ -208,20 +214,20 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
       notes.push(`Request budget allows ${cap} pages this run (of ${planned.size} known); the remainder is refreshed on later runs.`);
     }
     for (const part of Array.from({ length: Math.ceil(urls.length / 500) }, (_, i) => urls.slice(i * 500, (i + 1) * 500))) {
-      await db.insert(crawlQueue).values(part.map(([url, priority]) => ({ orgId: run.orgId, siteId: site.id, scanRunId: run.id, url, priority, kind: 'product' as const }))).onConflictDoNothing();
+      await db.insert(crawlQueue).values(part.map(([url, priority]) => ({ orgId: run.orgId, siteId: site.id, scanRunId: run.id, url, priority, kind: kinds.get(url) ?? ('product' as const) }))).onConflictDoNothing();
     }
     // "Complete" means the planned frontier covers everything we set out to cover. A discovery run must also have
     // enumerated the whole site; a refresh only has to re-check every known product; a sample is never complete.
-    if (run.kind === 'discovery') discoveryComplete = discoveryComplete && !truncated;
+    if (run.kind === 'discovery' || byDiscovery) discoveryComplete = run.kind !== 'sample' && discoveryComplete && !truncated;
     else discoveryComplete = run.kind === 'refresh' && !truncated;
     estimated = discoveredTotal ?? planned.size;
-    await heartbeat(svc, run.id, { urlsDiscovered: urls.length, estimatedTotal: estimated, cursor: { discoveryComplete }, requestsMade: env.fetcher.requestsMade });
+    await heartbeat(svc, run.id, { urlsDiscovered: urls.length, estimatedTotal: estimated, cursor: { discoveryComplete, droppedDiscovered: dropped }, requestsMade: env.fetcher.requestsMade });
   }
 
   let saved = run.productsSaved;
   let failures = 0;
   for (;;) {
-    if (env.deadline && svc.clock() >= env.deadline) return await pagesOutcome(env, saved, failures, discoveryComplete, estimated, [...notes, 'Stopped at the time limit; the run can be resumed.'], 'deadline');
+    if (env.deadline && svc.clock() >= env.deadline) return await pagesOutcome(env, saved, failures, discoveryComplete && dropped === 0, estimated, [...notes, 'Stopped at the time limit; the run can be resumed.'], 'deadline');
     const pending = await db.select().from(crawlQueue).where(and(eq(crawlQueue.scanRunId, run.id), eq(crawlQueue.status, 'pending'))).orderBy(desc(crawlQueue.priority), asc(crawlQueue.url)).limit(10);
     if (!pending.length) break;
     for (const item of pending) {
@@ -238,6 +244,20 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
           run.variantsSaved += r.variants;
         }
         notes.push(...batch.warnings.filter((w) => !/HTTP 404|HTTP 410/.test(w)).slice(0, 2));
+        if (batch.discoveredUrls?.length) {
+          // The page led to more pages (next page of a listing, categories): queue the ones not seen yet, within the request budget.
+          const fresh = [...new Map(batch.discoveredUrls.map((d) => [canonicalizeUrl(d.url), d])).entries()].slice(0, 300);
+          const have = new Set((await db.select({ url: crawlQueue.url }).from(crawlQueue).where(and(eq(crawlQueue.scanRunId, run.id), inArray(crawlQueue.url, fresh.map(([u]) => u))))).map((r) => r.url));
+          const unseen = fresh.filter(([u]) => !have.has(u));
+          const [{ n: rows } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(crawlQueue).where(eq(crawlQueue.scanRunId, run.id));
+          const room = Math.max(0, queueCap - rows);
+          const add = unseen.slice(0, room);
+          if (add.length) await db.insert(crawlQueue).values(add.map(([url, d]) => ({ orgId: run.orgId, siteId: site.id, scanRunId: run.id, url, priority: d.priority, kind: d.kind }))).onConflictDoNothing();
+          if (unseen.length > add.length) {
+            dropped += unseen.length - add.length;
+            if (!notes.some((n) => n.startsWith('The request budget'))) notes.push('The request budget was reached while pages were still being found; the remaining pages are read on later runs.');
+          }
+        }
         await db.update(crawlQueue).set({ status: 'done', attempts: item.attempts + 1, updatedAt: svc.clock() }).where(eq(crawlQueue.id, item.id));
       } catch (e) {
         const c = classify(e);
@@ -252,9 +272,9 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
       }
       if (limit && saved >= limit) return await pagesOutcome(env, saved, failures, false, estimated, [...notes, `Small live refresh: stopped after ${saved} products by design.`], undefined);
     }
-    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, urlsFetched: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id} and status <> 'pending')` as unknown as number, requestsMade: env.fetcher.requestsMade, errorsCount: failures });
+    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, urlsFetched: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id} and status <> 'pending')` as unknown as number, requestsMade: env.fetcher.requestsMade, errorsCount: failures, cursor: { discoveryComplete, droppedDiscovered: dropped } });
   }
-  return await pagesOutcome(env, saved, failures, discoveryComplete, estimated, notes, undefined);
+  return await pagesOutcome(env, saved, failures, discoveryComplete && dropped === 0, estimated, notes, undefined);
 }
 
 async function pagesOutcome(env: RunEnv, saved: number, failures: number, discoveryComplete: boolean, estimated: number | null, notes: string[], code: string | undefined): Promise<Outcome> {
@@ -319,7 +339,7 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
   const run = run0;
   const [site] = await svc.db.select().from(sites).where(eq(sites.id, run.siteId));
   if (!site || !site.active || site.consentStatus !== 'confirmed') {
-    await svc.db.update(scanRuns).set({ status: 'cancelled', finishedAt: svc.clock(), error: 'Cancelled: website removed, switched off, or consent not confirmed' }).where(eq(scanRuns.id, run.id));
+    await svc.db.update(scanRuns).set({ status: 'cancelled', finishedAt: svc.clock(), error: 'Cancelled: website removed, switched off, or collection rules not confirmed' }).where(eq(scanRuns.id, run.id));
     return { scanRunId, status: 'cancelled', productsSaved: 0, isComplete: false, connector: null };
   }
   const now = svc.clock();
@@ -329,7 +349,7 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
   const finish = async (status: ScanStatus, o: { productsSaved: number; errorCode?: string; error?: string; notes: string[]; complete: boolean; connector: string | null; connectorVersion?: string | null; estimatedTotal?: number | null; requests?: number }) => {
     await svc.db
       .update(scanRuns)
-      .set({ status, finishedAt: svc.clock(), isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}) })
+      .set({ status, finishedAt: svc.clock(), productsSaved: o.productsSaved, isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}) })
       .where(eq(scanRuns.id, run.id));
     return { scanRunId: run.id, status, productsSaved: o.productsSaved, isComplete: o.complete, connector: o.connector } as ScanResult;
   };
@@ -412,7 +432,9 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
 
     // ── post-processing
     // Only a full enumeration may be used to infer that unseen products are gone.
-    const complete = outcome.state === 'complete' && run.kind === 'discovery';
+    // A listing crawl re-reads every listing on a refresh, so a completed refresh is as full an enumeration as a discovery run.
+    const enumeratesAll = run.kind === 'discovery' || (run.kind === 'refresh' && used.kind === 'pages' && used.refreshByDiscovery === true);
+    const complete = outcome.state === 'complete' && enumeratesAll;
     if (complete) {
       await markMissing(svc.db, site.id, run.id, svc.clock());
       await sweepMissingSaleOffers(svc.db, site.id, run.id, svc.clock());

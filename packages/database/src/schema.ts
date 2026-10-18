@@ -167,6 +167,8 @@ export const sites = pgTable(
     orgId: orgId(),
     url: text('url').notNull(),
     origin: text('origin').notNull(),
+    /** The page the customer pointed at when it was not the home page ("/shop"): where robots.txt is checked and listings are looked for first. */
+    entryPath: text('entry_path'),
     hostname: text('hostname').notNull(),
     name: text('name').notNull(),
     role: text('role').$type<SiteRole>().notNull(),

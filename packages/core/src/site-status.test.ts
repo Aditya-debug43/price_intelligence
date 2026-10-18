@@ -55,11 +55,11 @@ describe('site collection status — one honest answer per website', () => {
     expect(state({ productCount: 50, lastRun: { status: 'succeeded', isComplete: false, kind: 'refresh' }, newestObservationAt: hoursAgo(1) }).state).toBe('collected'); // a refresh that re-checked everything known is a full cycle
   });
 
-  it('inactive sites and withdrawn permission are explicit', () => {
+  it('inactive sites and a collection the customer stopped are explicit', () => {
     expect(state({ active: false }).state).toBe('inactive');
     const revoked = state({ consentStatus: 'revoked' });
     expect(revoked.state).toBe('awaiting_permission');
-    expect(revoked.detail).toMatch(/withdrawn/);
+    expect(revoked.detail).toMatch(/stopped collection/);
   });
 
   it('a cancelled first collection is not a failure and not a success', () => {

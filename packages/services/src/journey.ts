@@ -35,7 +35,7 @@ export async function loadJourney(svc: Pick<Services, 'config' | 'clock' | 'mail
   const profiled = coverage.filter((c) => c.status?.state !== 'not_profiled');
   // Websites that refuse automated access cannot be given permission to; they are reported, not blocking.
   const collectable = coverage.filter((c) => c.status?.state !== 'access_denied' && c.status?.state !== 'unsupported');
-  // Permission is judged from the recorded consent itself — a website that has not been checked yet can still be waiting for it.
+  // Whether the collection rules are confirmed is judged from the recorded confirmation itself — a website that has not been checked yet can still be waiting for it.
   const awaitingPermission = collectable.filter((c) => c.consent !== 'confirmed');
   const collecting = coverage.filter((c) => c.status?.state === 'collecting');
   const haveData = coverage.filter((c) => c.productsKnown > 0);
@@ -82,14 +82,14 @@ export async function loadJourney(svc: Pick<Services, 'config' | 'clock' | 'mail
   add(
     {
       id: 'permissions',
-      title: 'Record permission to collect',
+      title: 'Confirm the collection rules',
       detail:
         profiled.length < coverage.length || coverage.length === 0
           ? 'Runs after the websites have been checked.'
           : awaitingPermission.length
-            ? `${awaitingPermission.length} website${awaitingPermission.length === 1 ? '' : 's'} still need${awaitingPermission.length === 1 ? 's' : ''} permission. Nothing is collected without it.`
-            : 'Permission is recorded for every website that can be collected.',
-      action: awaitingPermission.length && profiled.length === coverage.length ? { label: 'Record permission', to: 'websites' } : null,
+            ? `${awaitingPermission.length} website${awaitingPermission.length === 1 ? '' : 's'} still need${awaitingPermission.length === 1 ? 's' : ''} your confirmation of the collection rules. Nothing is collected without it.`
+            : 'The collection rules are confirmed for every website that can be collected.',
+      action: awaitingPermission.length && profiled.length === coverage.length ? { label: 'Confirm collection rules', to: 'websites' } : null,
     },
     collectable.length > 0 && awaitingPermission.length === 0 && profiled.length === coverage.length,
   );
@@ -104,7 +104,7 @@ export async function loadJourney(svc: Pick<Services, 'config' | 'clock' | 'mail
           ? `Collected from ${haveData.length} website${haveData.length === 1 ? '' : 's'}.${cannot.length ? ` ${cannot.length} could not be collected and is reported as such.` : ''}`
           : needData.length
             ? `${needData.length} website${needData.length === 1 ? '' : 's'} not collected yet.`
-            : 'Runs after permission is recorded.',
+            : 'Runs after the collection rules are confirmed.',
       action: !collectionDone && !collecting.length && awaitingPermission.length === 0 && needData.length ? { label: 'Start collection', to: 'websites' } : null,
     },
     collectionDone,

@@ -21,6 +21,9 @@ export const FIXTURE_HOSTNAMES: Record<string, string> = {
   woo: 'rival-woo.test',
   jsonld: 'rival-ld.test',
   html: 'rival-html.test',
+  listing: 'rival-listing.test',
+  homegrid: 'rival-storefront.test',
+  catblocked: 'rival-closed.test',
   blocked: 'rival-robots.test',
   challenge: 'rival-challenge.test',
   failing: 'rival-down.test',
@@ -229,6 +232,7 @@ async function route(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, 
 
   if (path === '/robots.txt') {
     if (s.kind === 'blocked') return send(h, req, res, 200, 'User-agent: *\nDisallow: /\n', 'text/plain');
+    if (s.kind === 'catblocked') return send(h, req, res, 200, 'User-agent: *\nDisallow: /shop/\n', 'text/plain');
     const lines = s.kind === 'login' ? ['User-agent: *', 'Disallow: /cart', ''] : ['User-agent: *', 'Disallow: /cart', 'Disallow: /checkout', 'Disallow: /account', 'Disallow: /admin', ''];
     if (s.kind === 'jsonld' || s.kind === 'html' || s.kind === 'shopify') lines.push(`Sitemap: ${h.origin}/sitemap.xml`);
     return send(h, req, res, 200, lines.join('\n'), 'text/plain');
@@ -251,6 +255,9 @@ async function route(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, 
   if (s.kind === 'woocommerce') return wooRoutes(h, req, res, url);
   if (s.kind === 'jsonld') return jsonldRoutes(h, req, res, url, now);
   if (s.kind === 'html') return htmlRoutes(h, req, res, url);
+  if (s.kind === 'listing') return listingRoutes(h, req, res, url);
+  if (s.kind === 'homegrid') return homeGridRoutes(h, req, res, url);
+  if (s.kind === 'catblocked') return catBlockedRoutes(h, req, res, url);
   return send(h, req, res, 404, 'Not found', 'text/plain');
 }
 
@@ -442,6 +449,93 @@ async function htmlRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, res: 
     const body = `<div class="product"><h1>${esc(p.title)}</h1><p class="product-price"><span class="price">US$ ${money(p.price)}</span></p>${p.compareAt ? `<del class="was-price">US$ ${money(p.compareAt)}</del>` : ''}${stock}<span class="sku">${p.sku}</span>${p.available ? '<button>Add to cart</button>' : ''}</div>`;
     return send(h, req, res, 200, shell(h, p.title, body));
   }
+  return send(h, req, res, 404, 'Not found', 'text/plain');
+}
+
+/** A plain shop with no feed, sitemap or structured data: a landing page with category links, paginated category listings, and product pages. */
+const CARDS_PER_PAGE = 6;
+const categoriesOf = (h: FixtureSiteHandle) => {
+  const by = new Map<string, FixtureProduct[]>();
+  for (const p of live(h)) {
+    const slug = p.category.split(' > ')[0]!.toLowerCase().replace(/[^a-z]+/g, '-');
+    by.set(slug, [...(by.get(slug) ?? []), p]);
+  }
+  return by;
+};
+const card = (p: FixtureProduct) =>
+  `<li class="product-card"><a href="/item/${p.handle}"><img src="/img/${p.handle}.jpg" alt=""></a><h3><a href="/item/${p.handle}" title="${esc(p.title)}">${esc(p.title.slice(0, 18))}...</a></h3><span class="price">£${money(p.price)}</span><p class="avail">${p.available ? 'In stock' : 'Out of stock'}</p></li>`;
+
+async function listingRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, url: URL) {
+  const path = url.pathname;
+  const cats = categoriesOf(h);
+  const nav = `<aside class="side-categories"><ul class="nav">${[...cats.keys()].map((k) => `<li><a href="/c/${k}">${k}</a></li>`).join('')}</ul></aside>`;
+  if (path === '/') return send(h, req, res, 200, shell(h, h.spec.label, `<main><h1>${esc(h.spec.label)}</h1><p>Welcome. Pick a department.</p>${nav}</main>`));
+  const m = path.match(/^\/c\/([a-z-]+)$/);
+  if (m) {
+    const items = cats.get(m[1]!);
+    if (!items) return send(h, req, res, 404, 'Not found', 'text/plain');
+    const page = Math.max(1, Number(url.searchParams.get('page') ?? 1));
+    const slice = items.slice((page - 1) * CARDS_PER_PAGE, page * CARDS_PER_PAGE);
+    const pages = Math.ceil(items.length / CARDS_PER_PAGE);
+    const pager = pages > 1 ? `<ul class="pager"><li class="current">Page ${page} of ${pages}</li>${page < pages ? `<li class="next"><a href="/c/${m[1]}?page=${page + 1}">next</a></li>` : ''}</ul>` : '';
+    return send(h, req, res, 200, shell(h, m[1]!, `${nav}<main><ol class="cards">${slice.map(card).join('')}</ol>${pager}</main>`));
+  }
+  const d = path.match(/^\/item\/([^/]+)$/);
+  if (d) {
+    const p = live(h).find((x) => x.handle === d[1]);
+    if (!p) return send(h, req, res, 404, 'Not found', 'text/plain');
+    return send(h, req, res, 200, shell(h, p.title, `<div class="product"><h1>${esc(p.title)}</h1><p class="product-price">£${money(p.price)}</p></div>`));
+  }
+  return send(h, req, res, 404, 'Not found', 'text/plain');
+}
+
+/**
+ * A storefront built like a plain bookshop: the home page IS the first page of the whole catalogue, later pages sit under /catalogue/ with a
+ * relative "next" link, categories (some very small) have their own pages, and product pages live under /catalogue/<name>/index.html. No feed,
+ * no sitemap, no structured data, no category-page link from the home page other than the sidebar.
+ */
+const GRID_PER_PAGE = 10;
+const gridCard = (p: FixtureProduct) =>
+  `<li class="col-xs-6"><article class="product_pod"><div class="image_container"><a href="/catalogue/${p.handle}/index.html"><img src="/media/${p.handle}.jpg" alt="${esc(p.title)}"></a></div><h3><a href="/catalogue/${p.handle}/index.html" title="${esc(p.title)}">${esc(p.title.slice(0, 20))}...</a></h3><div class="product_price"><p class="price_color">£${money(p.price)}</p><p class="instock availability">${p.available ? 'In stock' : 'Out of stock'}</p></div></article></li>`;
+
+async function homeGridRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, url: URL) {
+  const path = url.pathname;
+  const all = live(h);
+  const cats = categoriesOf(h);
+  const nav = `<div class="side_categories"><ul class="nav"><li><a href="/catalogue/category/all/index.html">All</a><ul>${[...cats.keys()].map((k) => `<li><a href="/catalogue/category/${k}/index.html">${k}</a></li>`).join('')}</ul></li></ul></div>`;
+  const pages = Math.ceil(all.length / GRID_PER_PAGE);
+  const gridPage = (n: number) => {
+    const slice = all.slice((n - 1) * GRID_PER_PAGE, n * GRID_PER_PAGE);
+    const next = n < pages ? `<li class="next"><a href="${n === 1 ? 'catalogue/' : ''}page-${n + 1}.html">next</a></li>` : '';
+    const prev = n > 1 ? `<li class="previous"><a href="${n === 2 ? '../index.html' : `page-${n - 1}.html`}">previous</a></li>` : '';
+    return shell(h, h.spec.label, `${nav}<main><form><strong>${all.length}</strong> results - showing ${(n - 1) * GRID_PER_PAGE + 1} to ${(n - 1) * GRID_PER_PAGE + slice.length}.</form><ol class="row">${slice.map(gridCard).join('')}</ol><ul class="pager">${prev}<li class="current">Page ${n} of ${pages}</li>${next}</ul></main>`);
+  };
+  if (path === '/' || path === '/index.html') return send(h, req, res, 200, gridPage(1));
+  const pg = path.match(/^\/catalogue\/page-(\d+)\.html$/);
+  if (pg) {
+    const n = Number(pg[1]);
+    return n >= 1 && n <= pages ? send(h, req, res, 200, gridPage(n)) : send(h, req, res, 404, 'Not found', 'text/plain');
+  }
+  const cat = path.match(/^\/catalogue\/category\/([a-z-]+)\/index\.html$/);
+  if (cat) {
+    const items = cat[1] === 'all' ? all : cats.get(cat[1]!);
+    if (!items) return send(h, req, res, 404, 'Not found', 'text/plain');
+    return send(h, req, res, 200, shell(h, cat[1]!, `${nav}<main><form><strong>${items.length}</strong> results.</form><ol class="row">${items.slice(0, GRID_PER_PAGE).map(gridCard).join('')}</ol></main>`));
+  }
+  const d = path.match(/^\/catalogue\/([^/]+)\/index\.html$/);
+  if (d) {
+    const p = all.find((x) => x.handle === d[1]);
+    if (!p) return send(h, req, res, 404, 'Not found', 'text/plain');
+    return send(h, req, res, 200, shell(h, p.title, `<div class="product_main"><h1>${esc(p.title)}</h1><p class="price_color">£${money(p.price)}</p></div>`));
+  }
+  return send(h, req, res, 404, 'Not found', 'text/plain');
+}
+
+/** The home page is open, but robots.txt forbids everything under /shop/ — where all the products are. */
+async function catBlockedRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, url: URL) {
+  const path = url.pathname;
+  if (path === '/') return send(h, req, res, 200, shell(h, h.spec.label, `<main><h1>${esc(h.spec.label)}</h1><nav><ul class="nav"><li><a href="/shop/">Shop</a></li><li><a href="/shop/drinks">Drinks</a></li></ul></nav><a href="/shop/item/${live(h)[0]?.handle}">Featured</a></main>`));
+  if (path.startsWith('/shop/')) return send(h, req, res, 200, shell(h, 'Shop', `<ul>${live(h).map(card).join('')}</ul>`));
   return send(h, req, res, 404, 'Not found', 'text/plain');
 }
 

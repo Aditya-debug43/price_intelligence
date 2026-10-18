@@ -31,6 +31,8 @@ export interface SiteItem {
   id: string;
   name: string;
   url: string;
+  /** The page typed instead of the home page ("/shop"), or null. */
+  entryPath: string | null;
   hostname: string;
   role: SiteRole;
   active: boolean;

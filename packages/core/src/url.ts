@@ -50,7 +50,15 @@ export interface NormalizedSiteUrl {
   /** Host name without port. */
   bareHostname: string;
   protocol: 'http:' | 'https:';
+  /**
+   * The page the customer pointed at when it was not the home page ("/shop/", "/en/store?lang=en"): path and query only, no fragment, null
+   * for a bare address. A website is tracked as a whole (the origin is its identity), but the page the customer named is where the shop
+   * starts — it is what robots.txt is checked against and where product listings are looked for first.
+   */
+  entryPath: string | null;
 }
+
+const MAX_ENTRY_PATH = 512;
 
 /**
  * Normalise a customer-typed site URL ("shop.example.com", "https://Shop.Example.com/foo?x=1#y")
@@ -86,12 +94,17 @@ export function normalizeSiteUrl(input: string): NormalizedSiteUrl {
   if (!isIpLiteral && !hostname.includes('.') && hostname !== 'localhost') {
     throw new UrlValidationError('Hostname must be a fully-qualified domain', 'host');
   }
+  // Tracking parameters are noise; the rest of the query may be what selects the shop section ("?lang=en"), so it is kept.
+  const typed = canonicalizeUrl(u.toString());
+  const t = new URL(typed);
+  const entry = `${t.pathname}${t.search}`;
   return {
     href: `${u.protocol}//${u.host}/`,
     origin: u.origin,
     hostname: u.host.toLowerCase(),
     bareHostname: hostname,
     protocol: u.protocol as 'http:' | 'https:',
+    entryPath: entry === '/' || entry.length > MAX_ENTRY_PATH ? null : entry,
   };
 }
 

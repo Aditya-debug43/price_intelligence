@@ -16,12 +16,12 @@ export class SiteError extends Error {
   }
 }
 
-export const CONSENT_TEXT_VERSION = 'v1';
+export const CONSENT_TEXT_VERSION = 'v2';
 export const CONSENT_TEXT = {
   source:
-    'I own this business or am authorised by its owner to collect and store this website’s public information for competitive analysis.',
+    'This is my own business website, or I am authorised by its owner to have it analysed. Shelfwatch will read its public pages; exact stock counts need a separate connection that the store itself authorises.',
   competitor:
-    'I confirm that collecting this website’s publicly available product information for my own business analysis is permitted, and I accept responsibility for complying with the site’s terms. Collection respects robots.txt, rate limits and access controls and stops if access is denied.',
+    'I understand that Shelfwatch will collect only what this website shows to every visitor, at a polite pace, following its robots.txt, without signing in, solving challenges or bypassing protections, and that it stops if the website refuses. This is my confirmation, not the website owner’s approval. I have checked that the website’s terms of use and the law that applies to me allow me to use this information for my own business analysis, and I accept responsibility for that.',
 } as const;
 
 function isLoopback(host: string): boolean {
@@ -85,6 +85,7 @@ export async function addSite(svc: Services, db: DbLike, orgId: string, actorUse
       orgId,
       url: norm.href,
       origin: norm.origin,
+      entryPath: norm.entryPath,
       hostname: norm.hostname,
       name: input.name?.trim() || norm.bareHostname.replace(/^www\./, ''),
       role: input.role,
@@ -127,7 +128,7 @@ export async function updateSite(
     // Same website (for example http → https, or a different start page): the address can change; the checks still apply.
     await assertPublicHost(svc, norm.bareHostname);
     assertStandardPort(norm.href);
-    Object.assign(set, { url: norm.href, origin: norm.origin });
+    Object.assign(set, { url: norm.href, origin: norm.origin, entryPath: norm.entryPath });
   }
   if (patch.name !== undefined) set.name = patch.name.trim();
   if (patch.active !== undefined) set.active = patch.active;
@@ -159,9 +160,9 @@ export async function setConsent(
 ) {
   const [site] = await db.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.orgId, orgId)));
   if (!site) throw new SiteError('Website not found.', 'not_found', 404);
-  if (input.status === 'confirmed' && !input.attest) throw new SiteError('Please tick the confirmation to record consent.', 'bad_request');
+  if (input.status === 'confirmed' && !input.attest) throw new SiteError('Please tick the confirmation to continue.', 'bad_request');
   const text = site.role === 'source' ? CONSENT_TEXT.source : CONSENT_TEXT.competitor;
-  const note = input.status === 'confirmed' ? `${text} [${CONSENT_TEXT_VERSION}]${input.note ? ` — ${input.note}` : ''}` : (input.note ?? 'Consent revoked');
+  const note = input.status === 'confirmed' ? `${text} [${CONSENT_TEXT_VERSION}]${input.note ? ` — ${input.note}` : ''}` : (input.note ?? 'Collection stopped by the customer');
   const now = svc.clock();
   const [row] = await db
     .update(sites)
@@ -171,7 +172,7 @@ export async function setConsent(
   await db.insert(consentLog).values({ orgId, siteId, kind: 'collect_site', status: input.status, note, actorUserId });
   await db.insert(auditEvents).values({ orgId, userId: actorUserId, action: `consent.${input.status}`, target: siteId });
   if (input.status === 'revoked') {
-    await db.update(scanRuns).set({ status: 'cancelled', finishedAt: now, error: 'Cancelled: consent was revoked' }).where(and(eq(scanRuns.siteId, siteId), inArray(scanRuns.status, ['queued', 'running'])));
+    await db.update(scanRuns).set({ status: 'cancelled', finishedAt: now, error: 'Cancelled: the customer stopped collection from this website' }).where(and(eq(scanRuns.siteId, siteId), inArray(scanRuns.status, ['queued', 'running'])));
   }
   return row!;
 }
@@ -180,6 +181,8 @@ export interface SiteListItem {
   id: string;
   name: string;
   url: string;
+  /** The page the customer pointed at when it was not the home page; null for a bare address. */
+  entryPath: string | null;
   hostname: string;
   role: SiteRole;
   active: boolean;
@@ -212,7 +215,7 @@ export async function listSites(db: DbLike, orgId: string): Promise<SiteListItem
   return rows.map((s) => {
     const r = lastBy.get(s.id);
     return {
-      id: s.id, name: s.name, url: s.url, hostname: s.hostname, role: s.role, active: s.active,
+      id: s.id, name: s.name, url: s.url, entryPath: s.entryPath, hostname: s.hostname, role: s.role, active: s.active,
       consentStatus: s.consentStatus, consentAt: s.consentAt, platform: s.platform, currency: s.currency, currencySource: s.currencySource,
       capabilityStatus: s.capabilityStatus, lastProfiledAt: s.lastProfiledAt, crawlDelayMs: s.crawlDelayMs, maxRequestsPerRun: s.maxRequestsPerRun,
       productCount: countBy.get(s.id) ?? 0,

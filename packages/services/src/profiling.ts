@@ -26,7 +26,7 @@ function handleFromUrl(platform: SocialPlatform, url: string): string {
 /**
  * Inspects a website and stores a timestamped capability report. Profiling is a light, polite look
  * (robots.txt, homepage, sitemaps, a few sample pages — typically 10–20 requests). Catalogue collection is a
- * separate action that requires recorded consent.
+ * separate action that requires the customer's confirmed collection rules.
  */
 export async function runProfile(svc: Services, orgId: string, siteId: string, over: Partial<ProfilerOptions> = {}): Promise<SiteProfileData> {
   const [site] = await svc.db.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.orgId, orgId)));
@@ -35,7 +35,7 @@ export async function runProfile(svc: Services, orgId: string, siteId: string, o
   const started = svc.clock();
   let data: SiteProfileData;
   try {
-    data = await profileSite(site.url, {
+    data = await profileSite(`${site.origin}${site.entryPath ?? ''}`, {
       fetcher,
       capabilities: capabilitiesOf(svc),
       defaultCrawlDelayMs: site.crawlDelayMs,

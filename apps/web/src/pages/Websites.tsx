@@ -102,7 +102,7 @@ export function SiteDetailPage() {
         eyebrow={site.role === 'source' ? 'Your website' : 'Competitor website'}
         docTitle={site.name}
         title={<>{site.name}</>}
-        subtitle={<><a href={site.url} target="_blank" rel="noreferrer noopener">{site.url} <ArrowIcon /></a></>}
+        subtitle={<><a href={site.entryPath ? new URL(site.entryPath, site.url).href : site.url} target="_blank" rel="noreferrer noopener">{site.entryPath ? new URL(site.entryPath, site.url).href : site.url} <ArrowIcon /></a>{site.entryPath && <span className="muted"> · the shop starts at this page</span>}</>}
         actions={isAdmin && (
           <>
             <button className="btn" onClick={() => runProfile.mutate(undefined)} disabled={runProfile.isPending || !!waitingSince}>{waitingSince ? <Spinner label="Checking…" /> : 'Re-check capabilities'}</button>

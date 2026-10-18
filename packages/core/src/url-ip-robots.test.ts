@@ -9,6 +9,14 @@ describe('normalizeSiteUrl', () => {
     expect(n.origin).toBe('https://shop.example.com');
     expect(n.hostname).toBe('shop.example.com');
   });
+  it('keeps the page the customer pointed at as the entry path (path and query only), and none for a bare address', () => {
+    expect(normalizeSiteUrl('Shop.Example.com/products/x?y=1#z').entryPath).toBe('/products/x?y=1');
+    expect(normalizeSiteUrl('https://shop.example.com/en/store/?utm_source=a&lang=en').entryPath).toBe('/en/store?lang=en');
+    expect(normalizeSiteUrl('shop.example.com').entryPath).toBeNull();
+    expect(normalizeSiteUrl('https://shop.example.com/').entryPath).toBeNull();
+    expect(normalizeSiteUrl('https://shop.example.com/?utm_campaign=x#top').entryPath).toBeNull();
+    expect(normalizeSiteUrl(`https://shop.example.com/${'a'.repeat(600)}`).entryPath).toBeNull(); // too long to be a shop section: the website is still accepted
+  });
   it.each(['ftp://example.com', 'file:///etc/passwd', 'javascript:alert(1)', 'gopher://example.com'])(
     'rejects unsafe protocol %s',
     (u) => {

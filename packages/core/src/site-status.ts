@@ -40,7 +40,7 @@ export function deriveSiteStatus(i: SiteStatusInput): SiteStatus {
     return make('access_denied', 'bad', 'The website does not allow automated collection (robots.txt, a login, or bot protection). Nothing was collected, and we will not work around it.', 'Ask the owner for a product feed, or remove this competitor');
   }
   if (i.consentStatus !== 'confirmed') {
-    return make('awaiting_permission', 'warn', i.consentStatus === 'revoked' ? 'Permission to collect was withdrawn, so collection is switched off.' : 'Collection starts only after permission to collect from this website is recorded.', 'Record permission');
+    return make('awaiting_permission', 'warn', i.consentStatus === 'revoked' ? 'You stopped collection from this website, so it is switched off.' : 'Collection starts only after you confirm the collection rules for this website.', 'Confirm collection rules');
   }
   if (i.lastRun?.status === 'blocked') {
     return make('access_denied', 'bad', 'The website refused access during collection. We stopped and will not retry around it.', 'Ask the owner for a product feed, or remove this competitor');

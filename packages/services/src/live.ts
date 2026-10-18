@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
-import { summariseMarketing, type MarketingSummary } from '@ci/core';
-import { DEFAULTS, type AssortmentEntry, type Availability, type MarketingRow, type OfferRow, type StockRow, type StockState } from '@ci/shared';
+import { assortmentBasis, assortmentNote, summariseMarketing, type MarketingSummary } from '@ci/core';
+import { DEFAULTS, type AssortmentBasis, type AssortmentEntry, type Availability, type MarketingRow, type OfferRow, type SiteCoverage, type StockRow, type StockState } from '@ci/shared';
 import { marketingActivities, offers, orgSettings, productMatches, products, sites, socialAccounts, stockStates, users, variants, type DbLike } from '@ci/database';
 
 /**
@@ -105,8 +105,10 @@ export async function loadMarketing(db: DbLike, orgId: string, now: Date, maps: 
  * Products with no confirmed-or-pending equivalent on the other side. "Unmatched" means no equivalent was FOUND among the
  * collected catalogues — it does not prove the product is absent from the market.
  */
-export async function loadAssortment(db: DbLike, orgId: string, maps: SiteMaps): Promise<{ competitorOnly: AssortmentEntry[]; sourceOnly: AssortmentEntry[] }> {
+export async function loadAssortment(db: DbLike, orgId: string, maps: SiteMaps, coverage: SiteCoverage[]): Promise<{ competitorOnly: AssortmentEntry[]; sourceOnly: AssortmentEntry[]; basis: AssortmentBasis; note: string }> {
   const competitorIds = maps.rows.filter((s) => s.role === 'competitor').map((s) => s.id);
+  // only the sites of this workspace that are being tracked count: a removed or paused competitor says nothing either way
+  const basis = assortmentBasis(coverage.filter((c) => maps.rows.some((s) => s.id === c.siteId)));
   const matched = await db
     .select({ s: productMatches.sourceVariantId, c: productMatches.competitorVariantId })
     .from(productMatches)
@@ -122,6 +124,8 @@ export async function loadAssortment(db: DbLike, orgId: string, maps: SiteMaps):
   return {
     competitorOnly: all.filter((v) => competitorIds.includes(v.siteId) && !matchedComp.has(v.id)).map(entry),
     sourceOnly: maps.source ? all.filter((v) => v.siteId === maps.source!.id && !matchedSource.has(v.id)).map(entry) : [],
+    basis,
+    note: assortmentNote(basis, competitorIds.length),
   };
 }
 

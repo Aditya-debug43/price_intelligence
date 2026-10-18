@@ -71,6 +71,13 @@
       "when": 1792331931214,
       "tag": "0009_email_delivery_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792347204441,
+      "tag": "0010_site_entry_path",
+      "breakpoints": true
     }
   ]
 }

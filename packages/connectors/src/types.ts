@@ -74,6 +74,8 @@ export interface ConnectorBatch {
   cursor: Record<string, unknown> | null;
   progress: { estimatedTotal: number | null; discovered: number };
   warnings: string[];
+  /** Further pages found while reading this one (the next page of a listing, category pages). The runner queues them within the request budget. */
+  discoveredUrls?: { url: string; kind: 'listing' | 'product'; priority: number }[];
 }
 
 export interface ConnectorContext {
@@ -126,8 +128,16 @@ export interface FeedConnector extends Connector {
 
 export interface PageConnector extends Connector {
   readonly kind: 'pages';
+  /** True when known product pages are not the unit of work (a listing crawl re-reads the listings instead), so a refresh runs discovery again. */
+  readonly refreshByDiscovery?: boolean;
   /** Discover candidate product URLs (sitemaps etc.) with optional last-modified hints. */
-  discover(ctx: ConnectorContext): Promise<{ urls: { url: string; lastmod?: string | null }[]; warnings: string[]; estimatedTotal: number | null }>;
+  discover(ctx: ConnectorContext): Promise<{
+    urls: { url: string; lastmod?: string | null; kind?: 'listing' | 'product'; priority?: number }[];
+    warnings: string[];
+    estimatedTotal: number | null;
+    /** True when the connector finds the rest of the catalogue itself while reading pages (listing crawl): the run is complete when its queue runs dry. */
+    crawlsToCompletion?: boolean;
+  }>;
   /** Extract products from one page. Returns [] when the page is not a product page. */
   extractPage(ctx: ConnectorContext, url: string): Promise<ConnectorBatch>;
 }

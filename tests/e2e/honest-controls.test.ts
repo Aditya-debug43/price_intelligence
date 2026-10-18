@@ -62,9 +62,9 @@ describe('actions with nothing to act on say so instead of pretending to work', 
     await owner.post(`${live()}/sites`, { url: 'https://rival-a.example.test', role: 'competitor' });
     const refresh = await owner.post(`${live()}/refresh`, {});
     expect(refresh.status).toBe(409);
-    expect(refresh.body.error.message).toMatch(/permission to collect has not been recorded/);
+    expect(refresh.body.error.message).toMatch(/collection rules have not been confirmed/);
     expect(refresh.body.error.details).toHaveLength(2);
-    expect(refresh.body.error.details[0]).toMatchObject({ reason: 'Consent not recorded' });
+    expect(refresh.body.error.details[0]).toMatchObject({ reason: 'Collection rules not confirmed' });
     // …and still nothing to report on, even though websites exist: nothing has been collected.
     const report = await owner.post(`${live()}/reports`, {});
     expect(report.status).toBe(409);
@@ -134,7 +134,7 @@ describe('the guided journey is computed from what really exists', () => {
     j = (await owner.get(`${demo()}/journey`)).body;
     expect(step(j, 'capabilities')).toBe('done');
     expect(step(j, 'permissions')).toBe('current');
-    expect(j.next.action).toMatchObject({ label: 'Record permission', to: 'websites' });
+    expect(j.next.action).toMatchObject({ label: 'Confirm collection rules', to: 'websites' });
 
     for (const id of [src, c1, c2, c3]) expect((await owner.post(`${demo()}/sites/${id}/consent`, { status: 'confirmed', attest: true })).status).toBe(200);
     j = (await owner.get(`${demo()}/journey`)).body;

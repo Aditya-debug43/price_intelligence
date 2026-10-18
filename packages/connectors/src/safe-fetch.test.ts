@@ -142,6 +142,17 @@ describe('SafeFetcher behaviour (scripted transport, no network)', () => {
     await expect(fetcher.fetch('https://shop.example.com/cart', { kind: 'html' })).rejects.toMatchObject({ code: 'robots' });
     expect(requested).not.toContain('https://shop.example.com/cart');
   });
+  it('a rule written for "/shop/" also stops "/shop": normalising a link (dropping its trailing slash) can never turn a forbidden page into an allowed one', async () => {
+    const closed = { 'https://shop.example.com/robots.txt': resp(200, 'User-agent: *\nDisallow: /shop/\n', { 'content-type': 'text/plain' }), 'https://shop.example.com/shop': resp(200, 'x'), 'https://shop.example.com/shop/': resp(200, 'x'), 'https://shop.example.com/other': resp(200, 'ok') };
+    const { fetcher, requested } = scripted(closed);
+    await expect(fetcher.fetch('https://shop.example.com/shop', { kind: 'html' })).rejects.toMatchObject({ code: 'robots' });
+    await expect(fetcher.fetch('https://shop.example.com/shop/', { kind: 'html' })).rejects.toMatchObject({ code: 'robots' });
+    expect(requested.filter((r) => r.includes('.com/shop'))).toEqual([]);
+    expect((await fetcher.fetch('https://shop.example.com/other', { kind: 'html' })).status).toBe(200); // unrelated pages are unaffected
+    const verdict = await fetcher.isAllowed('https://shop.example.com/shop');
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.rule).toMatch(/trailing slash/);
+  });
   it('treats an unreadable robots.txt (5xx) as closed, and 403 as closed', async () => {
     for (const status of [500, 403]) {
       const { fetcher, requested } = scripted({ 'https://shop.example.com/robots.txt': resp(status, 'x'), 'https://shop.example.com/': resp(200, 'ok') });

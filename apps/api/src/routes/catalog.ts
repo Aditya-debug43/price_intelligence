@@ -213,9 +213,9 @@ export async function catalogRoutes(app: FastifyInstance) {
     const q = parse(paginationSchema.extend({ side: z.enum(['competitor', 'source']).default('competitor'), siteId: uuid.optional() }), req.query);
     return req.tx(async (tx) => {
       const maps = await loadSiteMaps(tx, req.orgId!);
-      const a = await loadAssortment(tx, req.orgId!, maps);
+      const a = await loadAssortment(tx, req.orgId!, maps, await loadCoverage(tx, req.orgId!, app.svc.clock(), DEFAULTS.staleAfterHours));
       const list = (q.side === 'competitor' ? a.competitorOnly : a.sourceOnly).filter((x) => !q.siteId || x.siteId === q.siteId);
-      return { total: list.length, entries: list.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), counts: { competitorOnly: a.competitorOnly.length, sourceOnly: a.sourceOnly.length }, note: 'Unmatched means no equivalent was found among collected catalogues, not that none exists.' };
+      return { total: list.length, entries: list.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), counts: { competitorOnly: a.competitorOnly.length, sourceOnly: a.sourceOnly.length }, basis: a.basis, note: a.note };
     });
   });
 

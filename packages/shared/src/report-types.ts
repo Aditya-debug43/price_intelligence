@@ -292,6 +292,17 @@ export interface BasketResult {
   note: string;
 }
 
+/** What "no equivalent found" can honestly mean for this workspace right now (see `assortmentBasis` in core). */
+export interface AssortmentBasis {
+  /** At least one competitor is compared and every competitor's catalogue was read completely and recently. */
+  competitorsComplete: boolean;
+  /** Competitors whose catalogue is blocked, failed, not yet collected, stale or only partly read, with the reason in words. */
+  competitorGaps: { siteId: string; name: string; reason: string }[];
+  /** Whether your own catalogue was read completely and recently. */
+  sourceComplete: boolean;
+  sourceGap: string | null;
+}
+
 export interface AssortmentEntry {
   siteId: string;
   siteName: string;
@@ -345,7 +356,7 @@ export interface ReportData {
   stock: StockRow[];
   marketing: MarketingRow[];
   insights: InsightRow[];
-  assortment: { competitorOnly: AssortmentEntry[]; sourceOnly: AssortmentEntry[]; note: string };
+  assortment: { competitorOnly: AssortmentEntry[]; sourceOnly: AssortmentEntry[]; note: string; /** Absent in snapshots saved before it existed. */ basis?: AssortmentBasis };
   basket: BasketResult[];
   integrations: { provider: string; status: string; message: string }[];
   aiSummary: { text: string; validated: boolean; provider: string } | null;

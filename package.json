@@ -31,6 +31,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run --project unit",
+    "test:live": "node scripts/test-live.mjs",
     "test:integration": "vitest run --project integration",
     "check": "npm run lint && npm run typecheck && npm run test"
   },

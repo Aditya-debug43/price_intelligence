@@ -310,6 +310,13 @@ describe('config validation', () => {
   it('refuses unsafe production settings', () => {
     expect(() => loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgres://x' } as unknown as NodeJS.ProcessEnv)).toThrow(/Unsafe production configuration/);
   });
+  it('production needs a public https APP_BASE_URL, because emailed links are built from it', () => {
+    const prod = { NODE_ENV: 'production', DATABASE_URL: 'postgres://x', WORKER_DATABASE_URL: 'postgres://w', TOKEN_ENCRYPTION_KEY: 'k1:' + 'A'.repeat(43) + '=' };
+    for (const bad of [undefined, 'http://localhost:5173', 'http://app.example.com', 'https://localhost:5173', 'https://127.0.0.1:8443']) {
+      expect(() => loadConfig({ ...prod, ...(bad ? { APP_BASE_URL: bad } : {}) } as unknown as NodeJS.ProcessEnv), String(bad)).toThrow(/APP_BASE_URL must be the public https/);
+    }
+    expect(loadConfig({ ...prod, APP_BASE_URL: 'https://app.example.com' } as unknown as NodeJS.ProcessEnv).isProduction).toBe(true);
+  });
   it('has no switch that weakens URL screening or fakes data: the removed demo flags are not part of the configuration', () => {
     const c = loadConfig({ DATABASE_URL: 'postgres://x', ALLOW_LOCAL_FIXTURES: 'true', DEMO_AUTO_CONSENT: 'true', SCHEDULER_MODE: 'dev' } as unknown as NodeJS.ProcessEnv) as unknown as Record<string, unknown>;
     expect(c['ALLOW_LOCAL_FIXTURES']).toBeUndefined();

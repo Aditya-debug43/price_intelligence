@@ -66,7 +66,7 @@ export function fixtureGtin(id: number): string {
   return body + String((10 - (sum % 10)) % 10);
 }
 
-export type SiteKind = 'shopify' | 'woocommerce' | 'jsonld' | 'html' | 'blocked' | 'challenge' | 'failing' | 'jsrender' | 'login' | 'flaky';
+export type SiteKind = 'shopify' | 'woocommerce' | 'jsonld' | 'html' | 'listing' | 'homegrid' | 'catblocked' | 'blocked' | 'challenge' | 'failing' | 'jsrender' | 'login' | 'flaky';
 
 export interface FixtureProduct {
   itemId: number;
@@ -130,6 +130,15 @@ export const SITE_SPECS: SiteSpec[] = [
     key: 'html', kind: 'html', label: 'Fixture Express (plain HTML, USD)', currency: 'USD', factor: 1.06,
     items: [0, 1, 2, 3, 10, 13, 14, 17, 19, 20, 23, 28, 29, 31], titleStyle: 'upper', exposeGtin: [], outOfStock: [], claimedLeft: { 17: 4 },
   },
+  {
+    key: 'listing', kind: 'listing', label: 'Fixture Listing Shop (no feed, sitemap or structured data)', currency: 'GBP', factor: 0.79,
+    items: range(0, 25), titleStyle: 'full', exposeGtin: [], outOfStock: [3, 12],
+  },
+  {
+    key: 'homegrid', kind: 'homegrid', label: 'Fixture Storefront (home page is page 1 of the whole catalogue)', currency: 'GBP', factor: 0.74,
+    items: range(0, 27), titleStyle: 'full', exposeGtin: [], outOfStock: [5],
+  },
+  { key: 'catblocked', kind: 'catblocked', label: 'Fixture Closed Catalogue (robots.txt forbids the shop pages)', currency: 'USD', factor: 1, items: range(0, 8), titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'blocked', kind: 'blocked', label: 'Fixture Blocked (robots.txt disallows)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'challenge', kind: 'challenge', label: 'Fixture Protected (bot challenge)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'failing', kind: 'failing', label: 'Fixture Down (HTTP 500)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },

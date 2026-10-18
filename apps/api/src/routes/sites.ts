@@ -97,7 +97,7 @@ export async function siteRoutes(app: FastifyInstance) {
     for (const s of list) {
       if (!s.active) continue;
       if (s.consentStatus !== 'confirmed') {
-        skipped.push({ siteId: s.id, name: s.name, reason: 'Consent not recorded' });
+        skipped.push({ siteId: s.id, name: s.name, reason: 'Collection rules not confirmed' });
         continue;
       }
       const r = await req.tx((tx) => startScan(app.svc, tx, req.orgId!, s.id, { kind: 'sample', trigger: 'manual', limit: body.limit }));
@@ -107,7 +107,7 @@ export async function siteRoutes(app: FastifyInstance) {
       // Nothing was started: say why, instead of a success that did nothing.
       const active = list.filter((s) => s.active).length;
       throw new ActionNotPossibleError(
-        active === 0 ? 'There are no websites to refresh yet. Add your website and your competitors first.' : 'Nothing could be started: permission to collect has not been recorded for any website yet.',
+        active === 0 ? 'There are no websites to refresh yet. Add your website and your competitors first.' : 'Nothing could be started: the collection rules have not been confirmed for any website yet.',
         'nothing_to_refresh',
         skipped,
       );

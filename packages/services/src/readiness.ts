@@ -45,7 +45,7 @@ export function assertCanReport(r: DataReadiness): void {
     throw new ActionNotPossibleError(
       r.activeSites === 0
         ? 'There is nothing to report on yet. Add your website and your competitors first.'
-        : 'Nothing has been collected yet, so there is nothing to report on. Record permission for your websites and run a collection first.',
+        : 'Nothing has been collected yet, so there is nothing to report on. Confirm the collection rules for your websites and run a collection first.',
       'nothing_to_report',
     );
   }

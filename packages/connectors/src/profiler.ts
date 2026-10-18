@@ -14,6 +14,7 @@ import { AccessDeniedError, FetchError, type SafeFetcher } from './safe-fetch.ts
 import { detectChallenge, detectLoginWall } from './challenge.ts';
 import { extractFromHtml, looksJavaScriptRendered, titleOf } from './extract.ts';
 import { discoverFromSitemaps } from './sitemap.ts';
+import { extractListingPage } from './listing.ts';
 import { rankConnectors, type Capabilities } from './registry.ts';
 
 export const PROFILER_VERSION = '1.0';
@@ -193,6 +194,7 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   }
   profile.site.origin = site.origin;
   profile.site.canonicalHost = site.hostname;
+  profile.site.entryPath = site.entryPath;
 
   // ── 1. robots.txt
   let robots;
@@ -231,6 +233,19 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
     profile.access.barriers.push(robots.note ?? `robots.txt disallows automated access (${home.rule ?? 'rule'})`);
     limit('robots_disallow', 'blocking', robots.note ?? 'The site’s robots.txt does not permit automated collection, so we do not access it.');
     return finishWith(profile, 'blocked', 'The website’s robots.txt does not permit automated collection. Nothing was collected; competitor analysis for this site is unavailable unless the owner changes it.', started, fetcher, reqStart);
+  }
+
+  // the page the customer pointed at, when it is not the home page: robots.txt applies to it exactly as to any other page
+  const entryUrl = site.entryPath ? `${site.origin}${site.entryPath}` : null;
+  if (entryUrl) {
+    const entry = await fetcher.isAllowed(entryUrl);
+    profile.access.robots.entryAllowed = entry.allowed;
+    if (!entry.allowed) {
+      const rule = entry.rule ? ` (rule: ${entry.rule})` : '';
+      profile.access.barriers.push(`robots.txt does not permit automated access to ${site.entryPath}`);
+      limit('robots_disallow', 'blocking', `The website's robots.txt does not permit automated reading of the page you gave (${site.entryPath})${rule}, so it is not collected.`);
+      return finishWith(profile, 'blocked', `The website's robots.txt does not permit automated reading of the page you gave (${site.entryPath}). We respect that and do not collect it; nothing was collected from this website. If the shop is also reachable from another address that robots.txt allows, add that address instead.`, started, fetcher, reqStart);
+    }
   }
 
   // ── 2. homepage
@@ -301,6 +316,20 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   profile.rendering = { requiresJavaScript: js.rendered, evidence: js.evidence };
 
   const origin = profile.site.origin!;
+  // the page the customer pointed at is where the shop starts: read it too (it is allowed — checked above)
+  let entryPage: { html: string; url: string } | null = null;
+  if (entryUrl) {
+    try {
+      const r = await fetcher.fetch(entryUrl, { kind: 'html', allowCrossHostRedirect: false });
+      if (r.status === 200 && !detectChallenge(r.text(), r.headers, r.status).detected && !detectLoginWall(r.url, r.text())) entryPage = { html: r.text(), url: r.url };
+    } catch (e) {
+      if (e instanceof AccessDeniedError) {
+        profile.access.barriers.push(e.message);
+        limit('access_denied', 'blocking', e.message);
+      }
+      /* an entry page that cannot be read leaves the home page as the starting point */
+    }
+  }
   const currencyEvidence: { code: string; source: string }[] = detectCurrencyFromHtml(html).map((c) => ({ code: c, source: 'homepage metadata' }));
 
   // ── 3. public catalogue APIs
@@ -419,6 +448,17 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
         /* ignore */
       }
     });
+    if (entryPage) {
+      const $e = cheerio.load(entryPage.html);
+      $e('a[href]').each((_, el) => {
+        try {
+          const u = canonicalizeUrl($e(el).attr('href') ?? '', entryPage!.url);
+          if (new URL(u).hostname === new URL(origin).hostname && /\/(products?|item|p|shop)\/[^/]+/i.test(u)) links.add(u);
+        } catch {
+          /* ignore */
+        }
+      });
+    }
     sampleUrls = [...links].slice(0, opts.maxSampleProducts ?? 3);
     profile.catalogue.productUrlSample = [...links].slice(0, 10);
   }
@@ -439,6 +479,9 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   let claimCount = 0;
   let sampleChecked = 0;
   let sampleLowText = 0;
+  // pages the site's robots.txt told us not to read: a shop whose product pages are all disallowed is blocked, not "empty"
+  let robotsRefused = 0;
+  const refusedPaths = new Set<string>();
   for (const u of sampleUrls) {
     try {
       const r = await fetcher.fetch(u, { kind: 'html' });
@@ -482,12 +525,91 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
         limit('access_denied', 'blocking', e.message);
         break;
       }
+      if (e instanceof FetchError && e.code === 'robots') {
+        robotsRefused++;
+        try {
+          refusedPaths.add(new URL(u).pathname.split('/').slice(0, 2).join('/') || '/');
+        } catch {
+          /* ignore */
+        }
+        continue;
+      }
       limit('sample_failed', 'info', `A sample product page could not be read (${(e as Error).message}).`);
+    }
+  }
+
+  // ── 5b. product listing pages: the grids of products every shop shows. Found by structure, not by site-specific rules.
+  if (!apiUsable && withPriceCount(samples) === 0 && !profile.rendering.requiresJavaScript) {
+    try {
+      // the page the customer pointed at is looked at first, then the home page
+      const starts = [...(entryPage ? [{ html: entryPage.html, url: entryPage.url, listingUrl: entryPage.url }] : []), { html, url: profile.site.finalUrl ?? `${origin}/`, listingUrl: `${origin}/` }];
+      let page = extractListingPage(starts[0]!.html, starts[0]!.url);
+      let pageUrl = starts[0]!.listingUrl;
+      for (const start of starts.slice(1)) {
+        if (page.cards.length >= 3) break;
+        const alt = extractListingPage(start.html, start.url);
+        if (alt.cards.length >= 3 || alt.categories.length > page.categories.length) {
+          page = alt;
+          pageUrl = start.listingUrl;
+        }
+      }
+      if (page.cards.length < 3) {
+        // the start page may be a landing page: look at a couple of its category links (two extra requests at most)
+        for (const cat of page.categories.slice(0, 2)) {
+          try {
+            const r = await fetcher.fetch(cat, { kind: 'html' });
+            if (r.status !== 200) continue;
+            const p2 = extractListingPage(r.text(), r.url);
+            if (p2.cards.length >= 3) {
+              page = p2;
+              pageUrl = r.url;
+              break;
+            }
+          } catch (e) {
+            if (e instanceof FetchError && e.code === 'robots') {
+              robotsRefused++;
+              try {
+                refusedPaths.add(new URL(cat).pathname.split('/').slice(0, 2).join('/') || '/');
+              } catch {
+                /* ignore */
+              }
+            } else if (e instanceof AccessDeniedError) throw e;
+          }
+        }
+      }
+      if (page.cards.length >= 3) {
+        profile.catalogue.listing = {
+          found: true,
+          pageUrl: pageUrl === `${origin}/` ? null : pageUrl,
+          cardsOnPage: page.cards.length,
+          hasPagination: page.next.length > 0,
+          categoryLinks: page.categories.length,
+          totalHint: page.totalHint,
+        };
+        for (const card of page.cards.slice(0, 3)) {
+          samples.push({ url: card.url, title: card.title, price: card.amount, currency: card.currency, availability: card.availability, gtin: null, brand: null, method: 'listing_card' });
+          if (card.currency) currencyEvidence.push({ code: card.currency, source: 'prices on the listing page' });
+          if (card.availability !== 'unknown') availCount++;
+          if (card.imageUrl) imageCount++;
+          if (card.compareAt !== null) compareCount++;
+          if (parseQuantity(card.title, null).kind !== 'unknown') sizeCount++;
+        }
+        if (!profile.catalogue.estimatedProducts && page.totalHint) {
+          profile.catalogue.estimatedProducts = page.totalHint;
+          profile.catalogue.estimateBasis = 'The listing page reports its size';
+        }
+      }
+    } catch (e) {
+      if (e instanceof AccessDeniedError) {
+        profile.access.barriers.push(e.message);
+        limit('access_denied', 'blocking', e.message);
+      }
     }
   }
   profile.sampledProducts = samples;
   const withPrice = samples.filter((s) => s.price !== null).length;
   const n = samples.length;
+  const catalogueRefusedByRobots = robotsRefused > 0 && withPrice === 0 && !apiUsable;
 
   // ── 6. currency
   const codes = [...new Set(currencyEvidence.map((c) => c.code))];
@@ -594,7 +716,7 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   if (profile.promotions.flyerLinks.length) limit('flyers_found', 'info', `${profile.promotions.flyerLinks.length} promotional flyer PDF link(s) were found; text-based flyers can be read automatically.`);
 
   // ── 11. status + summary
-  const canEnumerate = !!apiUsable || sitemapUrlsFound > 0 || profile.catalogue.productUrlSample.length > 0;
+  const canEnumerate = !!apiUsable || sitemapUrlsFound > 0 || profile.catalogue.productUrlSample.length > 0 || !!profile.catalogue.listing?.found;
   const hasPrices = !!apiUsable || withPrice > 0;
   let status: CapabilityStatus;
   let summary: string;
@@ -602,6 +724,11 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   if (profile.access.challengeDetected) {
     status = 'blocked';
     summary = `Product pages are protected by ${profile.access.challengeKind}. We do not bypass bot protection, so product collection is not possible.`;
+  } else if (catalogueRefusedByRobots) {
+    status = 'blocked';
+    const where = [...refusedPaths].slice(0, 3).join(', ');
+    limit('robots_disallow', 'blocking', `The website's robots.txt does not permit automated reading of its product pages${where ? ` (${where})` : ''}, so they are not collected.`);
+    summary = `The website's robots.txt does not permit automated reading of its product pages${where ? ` (${where})` : ''}. We respect that and do not collect them; nothing was collected from this website.`;
   } else if (!hasPrices) {
     status = 'limited';
     summary = profile.rendering.requiresJavaScript
@@ -613,6 +740,9 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   } else if (!apiUsable && n > 0 && withPrice === n && structuredCount === n && canEnumerate && profile.currency.detected && !profile.currency.conflicting && availCount / n >= 0.5) {
     status = 'full';
     summary = `Full access: product pages publish structured prices and availability${profile.catalogue.estimatedProducts ? ` and about ${profile.catalogue.estimatedProducts} products are listed in sitemaps` : ''}.`;
+  } else if (!apiUsable && profile.catalogue.listing?.found && withPrice > 0 && structuredCount < n) {
+    status = 'partial';
+    summary = `Partial access: this shop has no product feed or structured product data, so its listing pages are read (names, prices and availability), following its own pagination and category links${profile.catalogue.listing.totalHint ? ` (it lists about ${profile.catalogue.listing.totalHint} products)` : ''}. Brands, barcodes and descriptions are not read from listings${profile.currency.detected ? '' : ', and the currency needs your confirmation'}.`;
   } else {
     status = 'partial';
     const gaps = [!profile.currency.detected && 'currency', fields.availability.availability !== 'available' && 'availability', !canEnumerate && 'a complete product list'].filter(Boolean);
@@ -620,6 +750,8 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   }
   return finishWith(profile, status, summary, started, fetcher, reqStart);
 }
+
+const withPriceCount = (samples: { price: number | null }[]) => samples.filter((s) => s.price !== null).length;
 
 function mostCommon(values: string[]): string | null {
   const counts = new Map<string, number>();

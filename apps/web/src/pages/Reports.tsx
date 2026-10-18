@@ -255,12 +255,12 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
 
         {tab === 'assortment' && (
           <div className="stack">
-            <div className="callout info">{data.assortment.note}</div>
+            <div className={`callout ${data.assortment.basis && (!data.assortment.basis.competitorsComplete || !data.assortment.basis.sourceComplete) ? 'warn' : 'info'}`}>{data.assortment.note}</div>
             <div className="grid2">
-              <Card title={`Competitors sell, you don’t (${data.assortment.competitorOnly.length})`} pad={false}>
+              <Card title={`At competitors, no equivalent found at your shop (${data.assortment.competitorOnly.length})`} pad={false}>
                 <table className="table"><tbody>{data.assortment.competitorOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.siteName}{a.category ? ` · ${a.category}` : ''}</div></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
               </Card>
-              <Card title={`You sell, no competitor does (${data.assortment.sourceOnly.length})`} pad={false}>
+              <Card title={`At your shop, no equivalent found at competitors (${data.assortment.sourceOnly.length})`} pad={false}>
                 <table className="table"><tbody>{data.assortment.sourceOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.category}</div></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
               </Card>
             </div>

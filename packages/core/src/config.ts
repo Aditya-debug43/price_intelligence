@@ -135,6 +135,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const problems: string[] = [];
     if (!c.TOKEN_ENCRYPTION_KEY) problems.push('TOKEN_ENCRYPTION_KEY is required in production');
     if (!c.WORKER_DATABASE_URL) problems.push('WORKER_DATABASE_URL is required in production (the worker needs a role that can span tenants)');
+    // Verification, reset and invitation links in emails are built from this address: a localhost or plain-http link would be useless or unsafe.
+    if (!/^https:\/\//i.test(c.APP_BASE_URL) || /^https:\/\/(localhost|127\.|\[::1\])/i.test(c.APP_BASE_URL)) {
+      problems.push('APP_BASE_URL must be the public https:// address of the app in production (it is used inside verification, password-reset and invitation emails)');
+    }
     if (problems.length) throw new ConfigError(`Unsafe production configuration:\n  - ${problems.join('\n  - ')}`);
   }
   if (c.STORAGE_DRIVER === 's3' && (!c.S3_BUCKET || !c.S3_REGION)) {
