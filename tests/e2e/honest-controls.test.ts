@@ -5,6 +5,7 @@ import { createOrganization, generateReport, runMatching, runProfile, startScan 
 import type { ReportData } from '@ci/shared';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * Controls must do what they say, and the app must say plainly when it cannot: an action with nothing to act on answers 409 with the
@@ -25,7 +26,7 @@ beforeAll(async () => {
   h = await createHarness();
   app = await buildApp({ svc: { ...h.svc, db: h.db.app }, rootDb: h.db.app, logger: false, authRateLimitMax: 1000 });
   owner = new ApiClient(app);
-  await owner.post('/api/v1/auth/register', { email: `honest-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Honest Owner' });
+  await signUp(owner, h, { email: `honest-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Honest Owner' });
   userId = (await owner.get('/api/v1/auth/me')).body.user.id as string;
   liveOrg = (await owner.post('/api/v1/orgs', { name: 'Honest Live Co' })).body.organization.id as string;
   demoOrg = (await createOrganization(h.db.app, userId, 'Honest Co')).id;
@@ -104,7 +105,7 @@ describe('the guided journey is computed from what really exists', () => {
 
   it('starts at "add your own website" in an empty workspace', async () => {
     const mine = new ApiClient(app); // a fresh user and an empty workspace
-    await mine.post('/api/v1/auth/register', { email: `journey-${Date.now()}@example.test`, password: PASSWORD, displayName: 'J' });
+    await signUp(mine, h, { email: `journey-${Date.now()}@example.test`, password: PASSWORD, displayName: 'J' });
     const org = (await mine.post('/api/v1/orgs', { name: 'Empty Co' })).body.organization.id as string;
     const j = (await mine.get(`/api/v1/orgs/${org}/journey`)).body;
     expect(step(j, 'workspace')).toBe('done');

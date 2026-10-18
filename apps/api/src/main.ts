@@ -17,7 +17,7 @@ const queue = new PgBossQueue(boss);
 const svc = createServices(config, rootDb, {
   queue,
   log,
-  mailerFactory: (base) => new OutboxMailer(rootDb, () => queue, { smtpUrl: config.SMTP_URL, from: config.EMAIL_FROM }, base.log),
+  mailerFactory: (base) => new OutboxMailer(rootDb, () => queue, { smtp: config.smtp, from: config.emailFrom }, base.log),
 });
 
 const app = await buildApp({ svc, rootDb });

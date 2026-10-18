@@ -4,6 +4,7 @@ import { buildApp } from '../../apps/api/src/app.ts';
 import { createOrganization, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * A customer must be able to see what each collection run did: what was collected, whether that is the whole catalogue, which pages
@@ -21,7 +22,7 @@ beforeAll(async () => {
   h = await createHarness();
   app = await buildApp({ svc: { ...h.svc, db: h.db.app }, rootDb: h.db.app, logger: false, authRateLimitMax: 1000 });
   owner = new ApiClient(app);
-  await owner.post('/api/v1/auth/register', { email: `observe-${Date.now()}@example.test`, password: 'Correct-Horse-9-Battery', displayName: 'Observer' });
+  await signUp(owner, h, { email: `observe-${Date.now()}@example.test`, password: 'Correct-Horse-9-Battery', displayName: 'Observer' });
   const me = (await owner.get('/api/v1/auth/me')).body;
   org = (await createOrganization(h.db.app, me.user.id, 'Observability')).id;
   for (const [key, role] of [['woo', 'source'], ['flaky', 'competitor'], ['blocked', 'competitor'], ['failing', 'competitor']] as const) {
@@ -86,7 +87,7 @@ describe('every collection run explains itself', () => {
     expect(d.failedUrls.length).toBeLessThanOrEqual(20);
     for (const f of d.failureReasons) expect(f.count).toBeGreaterThan(0);
     const stranger = new ApiClient(app);
-    await stranger.post('/api/v1/auth/register', { email: `stranger-${Date.now()}@example.test`, password: 'Correct-Horse-9-Battery', displayName: 'Stranger' });
+    await signUp(stranger, h, { email: `stranger-${Date.now()}@example.test`, password: 'Correct-Horse-9-Battery', displayName: 'Stranger' });
     expect((await stranger.get(`${base()}/scans/${runs.flaky}`)).status).toBe(404);
   });
 

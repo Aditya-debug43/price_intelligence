@@ -3,7 +3,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, errorMessage, fieldErrors } from '../api';
-import { useMe } from '../app-shell';
+import { useMe, useMeta } from '../app-shell';
 import { Field, Spinner, useDocumentTitle } from '../ui';
 import type { Me } from '../types';
 
@@ -76,8 +76,11 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const done = useAuthSuccess(next);
   const m = useMutation({ mutationFn: () => api.post<Me>('/api/v1/auth/login', { email, password }), onSuccess: done });
+  const unverified = m.error instanceof ApiError && m.error.code === 'unverified';
+  const resend = useMutation({ mutationFn: () => api.post('/api/v1/auth/resend-verification', { email }) });
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    resend.reset();
     m.mutate();
   };
   return (
@@ -85,7 +88,21 @@ export function LoginPage() {
       <form className="stack" onSubmit={submit}>
         <Field label="Email">{(id) => <input id={id} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />}</Field>
         <Field label="Password">{(id) => <input id={id} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />}</Field>
-        {m.error && <div className="callout bad" role="alert">{errorMessage(m.error)}</div>}
+        {m.error && (
+          <div className="callout bad" role="alert">
+            {errorMessage(m.error)}
+            {unverified && (
+              <div style={{ marginTop: 8 }}>
+                {resend.isSuccess ? (
+                  <span>If this address has an account that isn’t verified yet, a new link is being sent to it. The newest link is the only one that works.</span>
+                ) : (
+                  <button type="button" className="btn btn-sm" onClick={() => resend.mutate()} disabled={resend.isPending || !email}>Send the verification email again</button>
+                )}
+                {resend.isError && <div className="err" role="alert" style={{ marginTop: 6 }}>{errorMessage(resend.error)}</div>}
+              </div>
+            )}
+          </div>
+        )}
         <button className="btn btn-primary" disabled={m.isPending}>{m.isPending ? 'Signing in…' : 'Sign in'}</button>
         <div className="row between small">
           <Link to="/forgot">Forgot your password?</Link>
@@ -102,16 +119,29 @@ export function RegisterPage() {
   const invitedEmail = next ? (sp.get('email') ?? '') : '';
   const [form, setForm] = useState({ displayName: '', email: invitedEmail, password: '' });
   const [sent, setSent] = useState(false);
-  const done = useAuthSuccess(next);
+  const meta = useMeta();
   const m = useMutation({
-    mutationFn: () => api.post<{ user: Me['user']; verificationRequired: boolean }>('/api/v1/auth/register', form),
-    onSuccess: (r) => (r.verificationRequired ? setSent(true) : void done({ user: r.user, memberships: [] })),
+    mutationFn: () => api.post<{ verificationRequired: boolean; email: string }>('/api/v1/auth/register', form),
+    onSuccess: () => setSent(true),
   });
+  const resend = useMutation({ mutationFn: () => api.post('/api/v1/auth/resend-verification', { email: form.email }) });
   const fe = fieldErrors(m.error);
+  const signInLink = next ? `/login?next=${encodeURIComponent(next)}&email=${encodeURIComponent(form.email)}` : '/login';
   if (sent)
     return (
       <AuthFrame title="Check your email">
-        <div className="callout good">We sent a verification link to <b>{form.email}</b>. Open it, then <Link to={next ? `/login?next=${encodeURIComponent(next)}&email=${encodeURIComponent(form.email)}` : '/login'}>sign in</Link>{next ? ' to join the workspace you were invited to' : ''}.</div>
+        <div className="stack">
+          <div className="callout info">
+            We’re sending a verification link to <b>{form.email}</b>. It usually arrives within a minute and stays valid for 48 hours. Open it to activate your account, then <Link to={signInLink}>sign in</Link>{next ? ' to join the workspace you were invited to' : ''}.
+          </div>
+          <p className="small muted" style={{ margin: 0 }}>Nothing arrived? Check the spam folder, then ask for a new link. Only the newest link works.</p>
+          {resend.isSuccess ? (
+            <p className="small" role="status" style={{ margin: 0 }}>If that address has an account that isn’t verified yet, a new link is on its way (we send at most one a minute).</p>
+          ) : (
+            <div className="row"><button type="button" className="btn btn-sm" onClick={() => resend.mutate()} disabled={resend.isPending}>Send the verification email again</button></div>
+          )}
+          {resend.isError && <div className="callout bad" role="alert">{errorMessage(resend.error)}</div>}
+        </div>
       </AuthFrame>
     );
   return (
@@ -122,6 +152,7 @@ export function RegisterPage() {
         <Field label="Password" hint="At least 10 characters. Avoid common words." error={fe.password}>
           {(id) => <input id={id} type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={10} required />}
         </Field>
+        {meta.data && !meta.data.emailConfigured && <div className="callout warn"><b>This server can’t send email yet.</b> Accounts are verified by an emailed link, so registration will not work until the administrator sets up email delivery.</div>}
         {m.error && !Object.keys(fe).length && <div className="callout bad" role="alert">{errorMessage(m.error)}</div>}
         <button className="btn btn-primary" disabled={m.isPending}>{m.isPending ? 'Creating…' : 'Create account'}</button>
         <span className="small">Already registered? <Link to={next ? `/login?next=${encodeURIComponent(next)}&email=${encodeURIComponent(form.email)}` : '/login'}>Sign in</Link></span>
@@ -134,9 +165,9 @@ export function ForgotPage() {
   const [email, setEmail] = useState('');
   const m = useMutation({ mutationFn: () => api.post('/api/v1/auth/forgot-password', { email }) });
   return (
-    <AuthFrame title="Reset your password" subtitle="Enter your email and we’ll send a reset link if an account exists.">
+    <AuthFrame title="Reset your password" subtitle="Enter your email. If an account exists, we’ll email a link that works once and expires in an hour.">
       {m.isSuccess ? (
-        <div className="callout good">If an account exists for <b>{email}</b>, a reset link is on its way. It expires in one hour.</div>
+        <div className="callout info">If an account exists for <b>{email}</b>, we’re sending a reset link. It usually arrives within a minute and expires in one hour. Check the spam folder if nothing comes.</div>
       ) : (
         <form className="stack" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
           <Field label="Email">{(id) => <input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />}</Field>
@@ -178,10 +209,11 @@ export function VerifyEmailPage() {
   return (
     <AuthFrame title="Verify your email">
       {m.isSuccess ? (
-        <div className="callout good">Email verified. <Link to="/login">Sign in</Link></div>
+        <div className="callout good">Your email address is verified. <Link to="/login">Sign in</Link> to set up your workspace.</div>
       ) : (
         <div className="stack">
-          <p>Confirm that this is your email address.</p>
+          <p>Confirm that this is your email address to activate your account.</p>
+          {!token && <div className="callout bad">This link is missing its token. Open the link from the email again, or request a new one from the sign-in page.</div>}
           {m.error && <div className="callout bad" role="alert">{errorMessage(m.error)}</div>}
           <button className="btn btn-primary" disabled={m.isPending || !token} onClick={() => m.mutate()}>{m.isPending ? <Spinner /> : 'Verify my email'}</button>
         </div>

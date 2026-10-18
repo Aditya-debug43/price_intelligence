@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, ne, sql } from 'drizzle-orm';
 import { hashPassword, randomToken, sha256Hex, verifyPassword } from '@ci/core';
 import { DEFAULTS, type MemberRole } from '@ci/shared';
 import {
   alertRules,
+  emailOutbox,
   emailTokens,
   memberships,
   orgSettings,
@@ -15,12 +16,12 @@ import {
   type DbLike,
 } from '@ci/database';
 import type { Services } from './context.ts';
-import { resetEmail, verificationEmail } from './mailer.ts';
+import { accountExistsEmail, resetEmail, verificationEmail } from './mailer.ts';
 
 export class AuthError extends Error {
   constructor(
     message: string,
-    readonly code: 'invalid_credentials' | 'locked' | 'email_taken' | 'weak_password' | 'unverified' | 'invalid_token' | 'forbidden' | 'not_found' | 'conflict' | 'wrong_account',
+    readonly code: 'invalid_credentials' | 'locked' | 'email_taken' | 'weak_password' | 'unverified' | 'invalid_token' | 'forbidden' | 'not_found' | 'conflict' | 'wrong_account' | 'email_not_configured',
     readonly status = 400,
   ) {
     super(message);
@@ -65,37 +66,102 @@ export interface OrgMembership {
   role: MemberRole;
 }
 
-export async function register(svc: Services, db: DbLike, input: { email: string; password: string; displayName: string }): Promise<SessionUser> {
+const TOKEN_THROTTLE_MS = 60_000;
+const VERIFY_TOKEN_TTL_MS = 48 * 3_600_000;
+const RESET_TOKEN_TTL_MS = 3_600_000;
+
+/** A real account cannot be created, verified or recovered without a working way to email its owner. Say so instead of pretending. */
+function requireEmail(svc: Services): void {
+  if (!svc.mailer.configured) {
+    throw new AuthError(
+      'This server cannot send email yet, and an account must be verified by email. The administrator needs to configure SMTP (see docs/integrations.md), then try again.',
+      'email_not_configured',
+      503,
+    );
+  }
+}
+
+export type RegisterOutcome = { created: true; user: SessionUser } | { created: false };
+
+/**
+ * Creates an unverified account and emails the verification link. The caller is told the same thing whether or not the address was already
+ * registered (the real owner of an existing address gets an "you already have an account" email instead), so registration cannot be used to
+ * find out who has an account.
+ */
+export async function registerAccount(svc: Services, db: DbLike, input: { email: string; password: string; displayName: string }): Promise<RegisterOutcome> {
   const email = normalizeEmail(input.email);
   const weak = checkPasswordStrength(input.password, email);
   if (weak) throw new AuthError(weak, 'weak_password');
-  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
-  // Same response shape either way would be ideal for enumeration resistance; registration necessarily reveals duplicates.
-  if (existing.length) throw new AuthError('An account with this email already exists.', 'email_taken', 409);
-  const passwordHash = await hashPassword(input.password);
-  const [u] = await db.insert(users).values({ email, passwordHash, displayName: input.displayName.trim() }).returning();
+  requireEmail(svc);
+  const passwordHash = await hashPassword(input.password); // always done, so the response time does not reveal an existing account
+  const [existing] = await db.select().from(users).where(eq(users.email, email));
+  if (existing) {
+    await notifyAccountExists(svc, db, existing);
+    return { created: false };
+  }
+  let u;
+  try {
+    [u] = await db.insert(users).values({ email, passwordHash, displayName: input.displayName.trim() }).returning();
+  } catch (e) {
+    // Two registrations for one address raced: the loser behaves like any other duplicate.
+    if ((e as { code?: string; cause?: { code?: string } }).code === '23505' || (e as { cause?: { code?: string } }).cause?.code === '23505') return { created: false };
+    throw e;
+  }
   await sendVerification(svc, db, u!);
-  return { id: u!.id, email: u!.email, displayName: u!.displayName, emailVerified: false };
+  return { created: true, user: { id: u!.id, email: u!.email, displayName: u!.displayName, emailVerified: false } };
 }
 
-async function sendVerification(svc: Services, db: DbLike, u: { id: string; email: string; displayName: string }) {
+/** Same as registerAccount, but a duplicate address is an error. For code that needs the new user (tests, internal callers); the API uses registerAccount. */
+export async function register(svc: Services, db: DbLike, input: { email: string; password: string; displayName: string }): Promise<SessionUser> {
+  const r = await registerAccount(svc, db, input);
+  if (!r.created) throw new AuthError('An account with this email already exists.', 'email_taken', 409);
+  return r.user;
+}
+
+async function notifyAccountExists(svc: Services, db: DbLike, u: { id: string; email: string; displayName: string }): Promise<void> {
+  // At most one such notice an hour per address, so registering over and over cannot be used to flood someone's inbox.
+  const [recent] = await db
+    .select({ id: emailOutbox.id })
+    .from(emailOutbox)
+    .where(and(eq(emailOutbox.kind, 'account-exists'), eq(emailOutbox.relatedId, u.id), gt(emailOutbox.createdAt, sql`now() - interval '1 hour'`)));
+  if (recent) return;
+  const m = accountExistsEmail(u.displayName, `${svc.config.APP_BASE_URL}/login`, `${svc.config.APP_BASE_URL}/forgot`);
+  await svc.mailer.queue(db, { orgId: null, to: [u.email], subject: m.subject, html: m.html, text: m.text, kind: 'account-exists', relatedId: u.id });
+}
+
+/** Issues a fresh single-use link (older unused ones stop working) and emails it. At most one a minute per account. */
+async function issueToken(svc: Services, db: DbLike, userId: string, kind: 'verify' | 'reset'): Promise<string | null> {
+  const now = svc.clock();
+  const [recent] = await db
+    .select({ id: emailTokens.id })
+    .from(emailTokens)
+    .where(and(eq(emailTokens.userId, userId), eq(emailTokens.kind, kind), gt(emailTokens.createdAt, new Date(now.getTime() - TOKEN_THROTTLE_MS))));
+  if (recent) return null;
+  await db.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, userId), eq(emailTokens.kind, kind), isNull(emailTokens.usedAt)));
   const token = randomToken(32);
-  await db.insert(emailTokens).values({ userId: u.id, kind: 'verify', tokenHash: sha256Hex(token), expiresAt: new Date(svc.clock().getTime() + 48 * 3_600_000) });
-  const link = `${svc.config.APP_BASE_URL}/verify-email?token=${token}`;
-  const m = verificationEmail(u.displayName, link);
+  await db.insert(emailTokens).values({ userId, kind, tokenHash: sha256Hex(token), createdAt: now, expiresAt: new Date(now.getTime() + (kind === 'verify' ? VERIFY_TOKEN_TTL_MS : RESET_TOKEN_TTL_MS)) });
+  return token;
+}
+
+async function sendVerification(svc: Services, db: DbLike, u: { id: string; email: string; displayName: string }): Promise<void> {
+  const token = await issueToken(svc, db, u.id, 'verify');
+  if (!token) return;
+  const m = verificationEmail(u.displayName, `${svc.config.APP_BASE_URL}/verify-email?token=${token}`);
   await svc.mailer.queue(db, { orgId: null, to: [u.email], subject: m.subject, html: m.html, text: m.text, kind: 'verify-email', relatedId: u.id });
 }
 
-export async function resendVerification(svc: Services, db: DbLike, userId: string): Promise<void> {
-  const [u] = await db.select().from(users).where(eq(users.id, userId));
+/** "Send the verification email again". Answers the same way for unknown, verified and unverified addresses. */
+export async function resendVerification(svc: Services, db: DbLike, emailRaw: string): Promise<void> {
+  requireEmail(svc);
+  const [u] = await db.select().from(users).where(eq(users.email, normalizeEmail(emailRaw)));
   if (u && !u.emailVerifiedAt) await sendVerification(svc, db, u);
 }
 
 export async function verifyEmail(svc: Services, db: DbLike, token: string): Promise<void> {
   const [t] = await db.select().from(emailTokens).where(and(eq(emailTokens.tokenHash, sha256Hex(token)), eq(emailTokens.kind, 'verify')));
-  if (!t || t.usedAt || t.expiresAt < svc.clock()) throw new AuthError('This verification link is invalid or has expired.', 'invalid_token');
+  if (!t || t.usedAt || t.expiresAt < svc.clock()) throw new AuthError('This verification link is invalid or has expired. Request a new one from the sign-in page.', 'invalid_token');
   await db.update(emailTokens).set({ usedAt: svc.clock() }).where(eq(emailTokens.id, t.id));
-  await db.update(users).set({ emailVerifiedAt: svc.clock() }).where(eq(users.id, t.userId));
+  await db.update(users).set({ emailVerifiedAt: svc.clock() }).where(and(eq(users.id, t.userId), isNull(users.emailVerifiedAt)));
 }
 
 export async function login(
@@ -115,7 +181,8 @@ export async function login(
     }
     throw new AuthError('Email or password is incorrect.', 'invalid_credentials', 401);
   }
-  if (svc.config.SMTP_URL && !u.emailVerifiedAt) throw new AuthError('Please verify your email address first. Check your inbox.', 'unverified', 403);
+  // Signing in needs a verified address — always, whether or not this server can currently send the verification email.
+  if (!u.emailVerifiedAt) throw new AuthError('Please verify your email address before signing in. Check your inbox for the verification link, or ask for a new one.', 'unverified', 403);
   await db.update(users).set({ failedLogins: 0, lockedUntil: null, lastLoginAt: now }).where(eq(users.id, u.id));
   const token = randomToken(32);
   const expiresAt = new Date(now.getTime() + svc.config.SESSION_TTL_DAYS * 86_400_000);
@@ -139,26 +206,35 @@ export async function logout(db: DbLike, token: string | undefined): Promise<voi
 }
 
 export async function requestPasswordReset(svc: Services, db: DbLike, emailRaw: string): Promise<void> {
+  requireEmail(svc);
   const [u] = await db.select().from(users).where(eq(users.email, normalizeEmail(emailRaw)));
   if (!u) return; // identical outcome for unknown emails: no enumeration
-  const token = randomToken(32);
-  await db.insert(emailTokens).values({ userId: u.id, kind: 'reset', tokenHash: sha256Hex(token), expiresAt: new Date(svc.clock().getTime() + 3_600_000) });
+  const token = await issueToken(svc, db, u.id, 'reset');
+  if (!token) return;
   const m = resetEmail(u.displayName, `${svc.config.APP_BASE_URL}/reset-password?token=${token}`);
   await svc.mailer.queue(db, { orgId: null, to: [u.email], subject: m.subject, html: m.html, text: m.text, kind: 'password-reset', relatedId: u.id });
 }
 
 export async function resetPassword(svc: Services, db: DbLike, token: string, newPassword: string): Promise<void> {
   const [t] = await db.select().from(emailTokens).where(and(eq(emailTokens.tokenHash, sha256Hex(token)), eq(emailTokens.kind, 'reset')));
-  if (!t || t.usedAt || t.expiresAt < svc.clock()) throw new AuthError('This reset link is invalid or has expired.', 'invalid_token');
+  if (!t || t.usedAt || t.expiresAt < svc.clock()) throw new AuthError('This reset link is invalid or has expired. Request a new one.', 'invalid_token');
   const [u] = await db.select().from(users).where(eq(users.id, t.userId));
   const weak = checkPasswordStrength(newPassword, u?.email);
   if (weak) throw new AuthError(weak, 'weak_password');
-  // Following the reset link proves the person controls the inbox — but only when email is really delivered. With no email service the
-  // link only ever sat in the development outbox, which proves nothing, so the account stays unverified.
-  const verifiedNow = u?.emailVerifiedAt ?? (svc.config.SMTP_URL ? svc.clock() : null);
-  await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedLogins: 0, lockedUntil: null, emailVerifiedAt: verifiedNow }).where(eq(users.id, t.userId));
+  // The link only ever reached the person through their inbox, so using it also proves the address is theirs.
+  await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedLogins: 0, lockedUntil: null, emailVerifiedAt: u?.emailVerifiedAt ?? svc.clock() }).where(eq(users.id, t.userId));
   await db.update(emailTokens).set({ usedAt: svc.clock() }).where(eq(emailTokens.id, t.id));
   await db.delete(sessions).where(eq(sessions.userId, t.userId)); // sign out everywhere
+}
+
+/** Changes the password of a signed-in user (who must supply the current one) and signs every other session out. */
+export async function changePassword(svc: Services, db: DbLike, userId: string, currentSessionId: string, current: string, next: string): Promise<void> {
+  const [u] = await db.select().from(users).where(eq(users.id, userId));
+  if (!u || !(await verifyPassword(current, u.passwordHash))) throw new AuthError('The current password is incorrect.', 'invalid_credentials', 403);
+  const weak = checkPasswordStrength(next, u.email);
+  if (weak) throw new AuthError(weak, 'weak_password');
+  await db.update(users).set({ passwordHash: await hashPassword(next), failedLogins: 0, lockedUntil: null }).where(eq(users.id, userId));
+  await db.delete(sessions).where(and(eq(sessions.userId, userId), ne(sessions.id, currentSessionId)));
 }
 
 export async function purgeExpiredAuth(db: DbLike, now: Date): Promise<void> {

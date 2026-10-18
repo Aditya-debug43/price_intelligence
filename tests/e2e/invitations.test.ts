@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { desc, eq, sql } from 'drizzle-orm';
-import { auditEvents, emailOutbox, invitations, memberships } from '@ci/database';
+import { hashPassword } from '@ci/core';
+import { auditEvents, emailOutbox, invitations, memberships, users } from '@ci/database';
 import { buildApp } from '../../apps/api/src/app.ts';
 import { MAX_PENDING_INVITATIONS } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * Inviting people: nobody is put into a workspace without accepting; the link is single-use, expires, and is useless to anyone who is not
@@ -24,11 +26,19 @@ const base = (o = orgId) => `/api/v1/orgs/${o}`;
 const addr = (label: string) => `${label}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.test`;
 const tokenOf = (link: string) => new URL(link).searchParams.get('token')!;
 
+/** The invitation token, the way the invited person gets it: in the email (the inviter is only handed a link when no email can be sent). */
+async function tokenFrom(r: { body: { link: string | null; invitation: { email: string } } }): Promise<string> {
+  if (r.body.link) return await tokenFrom(r);
+  await h.queue.drain();
+  const link = h.mail.linkIn(r.body.invitation.email, 'invite');
+  expect(link, `an invitation email to ${r.body.invitation.email}`).toBeTruthy();
+  return tokenOf(link!);
+}
+
 async function register(label: string, name = label) {
   const c = new ApiClient(app);
   const email = addr(label);
-  const r = await c.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: name });
-  expect(r.status).toBe(201);
+  await signUp(c, h, { email, password: PASSWORD, displayName: name });
   return { c, email };
 }
 
@@ -66,8 +76,8 @@ describe('inviting someone who has no account yet', () => {
     const r = await admin.post(`${base()}/invitations`, { email: invited.toUpperCase(), role: 'staff' }); // addresses are matched case-insensitively
     expect(r.status).toBe(201);
     expect(r.body.invitation).toMatchObject({ email: invited, role: 'staff', status: 'pending' });
-    expect(r.body.link).toMatch(/\/invite\?token=/);
-    first = { id: r.body.invitation.id, token: tokenOf(r.body.link) };
+    expect(r.body.link).toBeNull(); // delivered by email, not handed to the inviter
+    first = { id: r.body.invitation.id, token: await tokenFrom(r) };
     expect(first.token.length).toBeGreaterThan(30);
   });
 
@@ -99,7 +109,7 @@ describe('inviting someone who has no account yet', () => {
     const r = await admin.post(`${base()}/invitations`, { email: invited, role: 'staff' });
     expect(r.status).toBe(200);
     expect(r.body.resent).toBe(true);
-    const fresh = tokenOf(r.body.link);
+    const fresh = await tokenFrom(r);
     expect(fresh).not.toBe(first.token);
     expect((await new ApiClient(app).get(`/api/v1/invitations/preview?token=${first.token}`)).status).toBe(404);
     expect((await new ApiClient(app).get(`/api/v1/invitations/preview?token=${fresh}`)).status).toBe(200);
@@ -109,7 +119,7 @@ describe('inviting someone who has no account yet', () => {
 
   it('they register with that address, open the link, and accept: now a member with the invited role', async () => {
     const c = new ApiClient(app);
-    expect((await c.post('/api/v1/auth/register', { email: invited, password: PASSWORD, displayName: 'New Comer' })).status).toBe(201);
+    await signUp(c, h, { email: invited, password: PASSWORD, displayName: 'New Comer' });
     expect((await c.get(`${base()}`)).status).toBe(404); // not a member yet
     const r = await c.post('/api/v1/invitations/accept', { token: first.token });
     expect(r.status).toBe(200);
@@ -123,7 +133,7 @@ describe('inviting someone who has no account yet', () => {
     const again = await new ApiClient(app).get(`/api/v1/invitations/preview?token=${first.token}`);
     expect(again.status).toBe(404);
     const reuse = new ApiClient(app);
-    await reuse.post('/api/v1/auth/register', { email: addr('replay'), password: PASSWORD, displayName: 'Replay' });
+    await signUp(reuse, h, { email: addr('replay'), password: PASSWORD, displayName: 'Replay' });
     expect((await reuse.post('/api/v1/invitations/accept', { token: first.token })).status).toBe(404);
     expect((await list()).find((i) => i.id === first.id)).toMatchObject({ status: 'accepted' });
   });
@@ -138,7 +148,7 @@ describe('a link is useless to anyone but the invited address', () => {
   it('a different signed-in account cannot accept it, is told which address it was for (masked), and does not use it up', async () => {
     const invitee = addr('target');
     const r = await owner.post(`${base()}/invitations`, { email: invitee, role: 'admin' });
-    const token = tokenOf(r.body.link);
+    const token = await tokenFrom(r);
     const thief = await register('thief');
     const refused = await thief.c.post('/api/v1/invitations/accept', { token });
     expect(refused.status).toBe(403);
@@ -148,20 +158,20 @@ describe('a link is useless to anyone but the invited address', () => {
     expect((await thief.c.get(`${base()}`)).status).toBe(404); // still not a member
     // …and the real invitee can still use it
     const real = new ApiClient(app);
-    await real.post('/api/v1/auth/register', { email: invitee, password: PASSWORD, displayName: 'Real Target' });
+    await signUp(real, h, { email: invitee, password: PASSWORD, displayName: 'Real Target' });
     expect((await real.post('/api/v1/invitations/accept', { token })).status).toBe(200);
   });
 
   it('accepting needs a signed-in session', async () => {
     const r = await owner.post(`${base()}/invitations`, { email: addr('anon-target'), role: 'staff' });
-    expect((await new ApiClient(app).post('/api/v1/invitations/accept', { token: tokenOf(r.body.link) })).status).toBe(401);
+    expect((await new ApiClient(app).post('/api/v1/invitations/accept', { token: await tokenFrom(r) })).status).toBe(401);
   });
 
   it('an existing account (not yet a member) can be invited and chooses to accept — nobody is added behind their back', async () => {
     const u = await register('existing');
     const r = await owner.post(`${base()}/invitations`, { email: u.email, role: 'staff' });
     expect((await u.c.get(`${base()}`)).status).toBe(404);
-    expect((await u.c.post('/api/v1/invitations/accept', { token: tokenOf(r.body.link) })).status).toBe(200);
+    expect((await u.c.post('/api/v1/invitations/accept', { token: await tokenFrom(r) })).status).toBe(200);
     expect((await u.c.get(`${base()}`)).status).toBe(200);
   });
 
@@ -175,7 +185,7 @@ describe('a link is useless to anyone but the invited address', () => {
   it('two simultaneous acceptances create exactly one membership', async () => {
     const u = await register('racer');
     const r = await owner.post(`${base()}/invitations`, { email: u.email, role: 'staff' });
-    const token = tokenOf(r.body.link);
+    const token = await tokenFrom(r);
     const results = await Promise.all([u.c.post('/api/v1/invitations/accept', { token }), u.c.post('/api/v1/invitations/accept', { token })]);
     expect(results.map((x) => x.status).sort()).toEqual([200, 404]);
     const rows = await h.db.worker.select().from(memberships).where(sql`${memberships.orgId} = ${orgId} and ${memberships.userId} = (select id from users where email = ${u.email})`);
@@ -215,7 +225,7 @@ describe('who may invite, list and revoke', () => {
 
   it('revoking stops the link immediately; revoking twice is harmless; an accepted invitation cannot be revoked', async () => {
     const r = await admin.post(`${base()}/invitations`, { email: addr('rev'), role: 'staff' });
-    const token = tokenOf(r.body.link);
+    const token = await tokenFrom(r);
     const id = r.body.invitation.id as string;
     expect((await admin.delete(`${base()}/invitations/${id}`)).status).toBe(200);
     expect((await admin.delete(`${base()}/invitations/${id}`)).status).toBe(200);
@@ -229,9 +239,10 @@ describe('who may invite, list and revoke', () => {
   it('resending needs an open invitation, and gives a new working link', async () => {
     const r = await admin.post(`${base()}/invitations`, { email: addr('resend'), role: 'staff' });
     const id = r.body.invitation.id as string;
+    const firstToken = await tokenFrom(r);
     const again = await admin.post(`${base()}/invitations/${id}/resend`, {});
     expect(again.status).toBe(200);
-    expect(tokenOf(again.body.link)).not.toBe(tokenOf(r.body.link));
+    expect(await tokenFrom(again)).not.toBe(firstToken);
     await admin.delete(`${base()}/invitations/${id}`);
     expect((await admin.post(`${base()}/invitations/${id}/resend`, {})).status).toBe(404);
   });
@@ -246,18 +257,18 @@ describe('time and volume limits', () => {
   it('an invitation expires after 7 days, and a resend brings it back with a new link', async () => {
     const email = addr('slow');
     const r = await owner.post(`${base()}/invitations`, { email, role: 'staff' });
-    const token = tokenOf(r.body.link);
+    const token = await tokenFrom(r);
     h.advance(6 * 86_400_000);
     expect((await new ApiClient(app).get(`/api/v1/invitations/preview?token=${token}`)).status).toBe(200);
     h.advance(2 * 86_400_000);
     expect((await new ApiClient(app).get(`/api/v1/invitations/preview?token=${token}`)).status).toBe(404);
     const u = new ApiClient(app);
-    await u.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Slow' });
+    await signUp(u, h, { email, password: PASSWORD, displayName: 'Slow' });
     expect((await u.post('/api/v1/invitations/accept', { token })).status).toBe(404);
     expect((await list()).find((i) => i.email === email)).toMatchObject({ status: 'expired' });
     const revived = await owner.post(`${base()}/invitations`, { email, role: 'staff' });
     expect(revived.status).toBe(200);
-    expect((await u.post('/api/v1/invitations/accept', { token: tokenOf(revived.body.link) })).status).toBe(200);
+    expect((await u.post('/api/v1/invitations/accept', { token: await tokenFrom(revived) })).status).toBe(200);
   });
 
   it('there is a cap on waiting invitations, so a workspace cannot be used to spray email', async () => {
@@ -290,41 +301,30 @@ describe('workspaces are separate', () => {
   it('an invitation cannot be used to land in a different workspace than the one that issued it', async () => {
     const u = await register('lands-right');
     const r = await otherOwner.post(`${base(otherOrgId)}/invitations`, { email: u.email, role: 'staff' });
-    const acc = await u.c.post('/api/v1/invitations/accept', { token: tokenOf(r.body.link) });
+    const acc = await u.c.post('/api/v1/invitations/accept', { token: await tokenFrom(r) });
     expect(acc.body.orgId).toBe(otherOrgId);
     expect((await u.c.get(`${base()}`)).status).toBe(404);
   });
 });
 
-describe('where email delivery is configured', () => {
-  it('the link goes by email only — the admin is not handed it — and acceptance needs a verified address', async () => {
-    const h2 = await createHarness({ extraEnv: { SMTP_URL: 'smtp://127.0.0.1:1' } });
+describe('where no email can be sent', () => {
+  it('the inviter is handed the link to pass on, and the invitation email is recorded as not sent', async () => {
+    const h2 = await createHarness({ mail: 'none' });
     const app2 = await buildApp({ svc: { ...h2.svc, db: h2.db.app }, rootDb: h2.db.app, logger: false, authRateLimitMax: 1000 });
     try {
+      // An account that already exists (and is verified) can still invite; a brand-new account could not even be created here.
+      const ownerEmail = addr('no-mail-owner');
+      await h2.db.worker.insert(users).values({ email: ownerEmail, passwordHash: await hashPassword(PASSWORD), displayName: 'Old Owner', emailVerifiedAt: new Date() });
       const o = new ApiClient(app2);
-      const ownerEmail = addr('smtp-owner');
-      await o.post('/api/v1/auth/register', { email: ownerEmail, password: PASSWORD, displayName: 'SMTP Owner' });
-      const verifyLink = async (email: string) => {
-        const mail = (await h2.db.worker.select().from(emailOutbox).orderBy(desc(emailOutbox.createdAt))).find((m) => m.kind === 'verify-email' && m.toAddresses.includes(email))!;
-        return /token=([A-Za-z0-9_-]+)/.exec(mail.text)![1]!;
-      };
-      await new ApiClient(app2).post('/api/v1/auth/verify-email', { token: await verifyLink(ownerEmail) });
-      await o.post('/api/v1/auth/login', { email: ownerEmail, password: PASSWORD });
-      const org = (await o.post('/api/v1/orgs', { name: 'Mailed Co' })).body.organization.id as string;
-
-      const email = addr('smtp-invitee');
+      expect((await o.post('/api/v1/auth/login', { email: ownerEmail, password: PASSWORD })).status).toBe(200);
+      const org = (await o.post('/api/v1/orgs', { name: 'No Mail Co' })).body.organization.id as string;
+      const email = addr('no-mail-invitee');
       const inv = await o.post(`/api/v1/orgs/${org}/invitations`, { email, role: 'staff' });
       expect(inv.status).toBe(201);
-      expect(inv.body.link).toBeNull(); // delivered by email, not handed to the inviter
-      const mail = (await h2.db.worker.select().from(emailOutbox).where(eq(emailOutbox.relatedId, inv.body.invitation.id)))[0]!;
-      const token = /token=([A-Za-z0-9_-]+)/.exec(mail.text)![1]!;
-
-      const invitee = new ApiClient(app2);
-      await invitee.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Mailed Invitee' });
-      expect((await invitee.post('/api/v1/auth/login', { email, password: PASSWORD })).status).toBe(403); // must verify first
-      await new ApiClient(app2).post('/api/v1/auth/verify-email', { token: await verifyLink(email) });
-      await invitee.post('/api/v1/auth/login', { email, password: PASSWORD });
-      expect((await invitee.post('/api/v1/invitations/accept', { token })).status).toBe(200);
+      expect(inv.body.link).toMatch(/\/invite\?token=/);
+      const [mail] = await h2.db.worker.select().from(emailOutbox).where(eq(emailOutbox.relatedId, inv.body.invitation.id));
+      expect(mail).toMatchObject({ status: 'not_configured', sentAt: null });
+      expect(h2.mail.sent).toHaveLength(0);
     } finally {
       await app2.close();
       await h2.close();

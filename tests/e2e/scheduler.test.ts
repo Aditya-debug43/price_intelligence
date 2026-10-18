@@ -88,7 +88,7 @@ describe('a normal morning', () => {
   it('sends the concise summary email and an in-app notification', async () => {
     const mails = (await db().select().from(emailOutbox).where(eq(emailOutbox.orgId, t.orgId))).filter((m) => m.kind === 'daily-summary');
     expect(mails).toHaveLength(1);
-    expect(mails[0]).toMatchObject({ status: 'dev_logged' });
+    expect(mails[0]).toMatchObject({ status: 'sent' }); // delivered to the (test) mail server
     expect(mails[0]!.subject).toBe('Competitor report — 2026-10-15');
     expect(mails[0]!.toAddresses).toEqual([t.email]);
     expect(mails[0]!.text).toMatch(/Open the full report: http:\/\/localhost:5173\/reports\//);

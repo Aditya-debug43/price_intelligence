@@ -15,7 +15,7 @@ export function DashboardPage() {
   const hasSites = (q.data?.coverage.length ?? 0) > 0;
   const hasData = !!q.data?.coverage.some((c) => c.productsKnown > 0);
   const refresh = useOrgMutation((id) => api.post<{ started: unknown[]; skipped: { name: string; reason: string }[] }>(orgPath(id, '/refresh'), { limit: 25 }), ['dashboard', 'scans'], (r) =>
-    toast.push(r.started.length ? `Collecting a small live sample from ${r.started.length} website(s).` : `Nothing to refresh: ${r.skipped[0]?.reason ?? 'no websites with recorded consent'}.`, !r.started.length),
+    toast.push(r.started.length ? `Collecting a small live sample from ${r.started.length} website(s).` : `Nothing to refresh: ${r.skipped[0]?.reason ?? 'no websites with confirmed collection rules'}.`, !r.started.length),
   );
   const report = useOrgMutation((id) => api.post<{ report: { id: string } }>(orgPath(id, '/reports'), {}), ['reports', 'dashboard'], (r) => {
     toast.push('Building your report…');

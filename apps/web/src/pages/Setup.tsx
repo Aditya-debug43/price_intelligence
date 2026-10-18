@@ -190,7 +190,7 @@ export function SetupPage() {
                   <Field label="Send emails to" hint="Separate addresses with commas. Leave empty to use the workspace owners.">
                     {(id) => <input id={id} type="text" value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder="owner@yourshop.com, manager@yourshop.com" />}
                   </Field>
-                  {!meta.data?.emailConfigured && <div className="callout info small">Email delivery isn’t configured on this server, so emails are saved to a local outbox instead of being sent.</div>}
+                  {!meta.data?.emailConfigured && <div className="callout info small">Email delivery isn’t configured on this server, so no email can be sent: alerts and the daily summary stay in the app.</div>}
                 </div>
               </Card>
             </div>
@@ -198,7 +198,7 @@ export function SetupPage() {
             {topError && <div className="callout bad" role="alert">{topError}</div>}
             <div className="row">
               <button className="btn btn-primary" onClick={() => void save()} disabled={saving || !source.url.trim()}>{saving ? <Spinner label="Saving" /> : 'Save and check websites'}</button>
-              <span className="small muted">Next: you’ll review what can be collected from each website and record permission before collection starts.</span>
+              <span className="small muted">Next: you’ll review what can be collected from each website and confirm the collection rules before collection starts.</span>
             </div>
           </div>
         )}

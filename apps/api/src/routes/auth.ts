@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { forgotPasswordSchema, invitationTokenSchema, loginSchema, registerSchema, resetPasswordSchema, verifyEmailSchema, createOrgSchema } from '@ci/shared';
-import { acceptInvitation, createOrganization, listMemberships, login, logout, previewInvitation, register, requestPasswordReset, resendVerification, resetPassword, verifyEmail } from '@ci/services';
+import { changePasswordSchema, forgotPasswordSchema, invitationTokenSchema, loginSchema, registerSchema, resendVerificationSchema, resetPasswordSchema, verifyEmailSchema, createOrgSchema } from '@ci/shared';
+import { acceptInvitation, changePassword, createOrganization, getSession, listMemberships, login, logout, previewInvitation, registerAccount, requestPasswordReset, resendVerification, resetPassword, verifyEmail } from '@ci/services';
 import { SESSION_COOKIE, currentUser, parse } from '../app.ts';
 
 export async function authRoutes(app: FastifyInstance, opts: { authRateLimitMax?: number } = {}) {
@@ -8,16 +8,14 @@ export async function authRoutes(app: FastifyInstance, opts: { authRateLimitMax?
   const setSession = (reply: FastifyReply, token: string, expires: Date) =>
     reply.setCookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: app.cfg.secureCookies, path: '/', expires });
 
+  /**
+   * Creates an unverified account and emails a verification link. The answer is the same whether or not the address was already registered,
+   * and the person is NOT signed in: an account is usable only after the link in the email has been opened.
+   */
   app.post('/auth/register', AUTH_LIMIT, async (req, reply) => {
     const body = parse(registerSchema, req.body);
-    const user = await register(app.svc, app.rootDb, body);
-    // Without an email provider there is nothing to verify against, so sign the new user straight in.
-    if (!app.cfg.SMTP_URL) {
-      const s = await login(app.svc, app.rootDb, { email: body.email, password: body.password, ip: req.ip, userAgent: req.headers['user-agent'] });
-      setSession(reply, s.token, s.expiresAt);
-      return reply.status(201).send({ user: s.user, memberships: [], verificationRequired: false });
-    }
-    return reply.status(201).send({ user, memberships: [], verificationRequired: true });
+    await registerAccount(app.svc, app.rootDb, body);
+    return reply.status(201).send({ verificationRequired: true, email: body.email.trim().toLowerCase() });
   });
 
   /** What an invitation link is for (the link is addressed to its holder). Rate-limited so tokens cannot be guessed. */
@@ -57,16 +55,24 @@ export async function authRoutes(app: FastifyInstance, opts: { authRateLimitMax?
     return { ok: true };
   });
 
-  app.post('/auth/resend-verification', AUTH_LIMIT, async (req) => {
+  // Answers the same way for unknown, verified and unverified addresses.
+  app.post('/auth/resend-verification', AUTH_LIMIT, async (req, reply) => {
+    await resendVerification(app.svc, app.rootDb, parse(resendVerificationSchema, req.body).email);
+    return reply.status(202).send({ ok: true });
+  });
+
+  app.post('/auth/change-password', async (req) => {
     const user = await currentUser(app, req);
-    await resendVerification(app.svc, app.rootDb, user.id);
+    const session = await getSession(app.svc, app.rootDb, req.cookies[SESSION_COOKIE]);
+    const b = parse(changePasswordSchema, req.body);
+    await changePassword(app.svc, app.rootDb, user.id, session!.sessionId, b.currentPassword, b.newPassword);
     return { ok: true };
   });
 
   // Always answers the same way so the endpoint cannot be used to discover which emails have accounts.
-  app.post('/auth/forgot-password', AUTH_LIMIT, async (req) => {
+  app.post('/auth/forgot-password', AUTH_LIMIT, async (req, reply) => {
     await requestPasswordReset(app.svc, app.rootDb, parse(forgotPasswordSchema, req.body).email);
-    return { ok: true };
+    return reply.status(202).send({ ok: true });
   });
 
   app.post('/auth/reset-password', AUTH_LIMIT, async (req) => {

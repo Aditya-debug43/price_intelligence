@@ -20,3 +20,4 @@ export * from './site-status.ts';
 export * from './scan-explain.ts';
 export * from './social-backoff.ts';
 export * from './marketing-summary.ts';
+export * from './smtp.ts';

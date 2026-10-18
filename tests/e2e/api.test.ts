@@ -3,12 +3,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import { buildApp } from '../../apps/api/src/app.ts';
-import { emailOutbox, evidence, integrationConnections, productMatches } from '@ci/database';
+import { evidence, integrationConnections, productMatches } from '@ci/database';
 import { encryptSecret } from '@ci/core';
 import { createOrganization } from '@ci/services';
 import type { FastifyInstance } from 'fastify';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 import { createTestInventory, setTestQuantity } from '../support/inventory.ts';
 
 let h: Harness;
@@ -65,11 +66,16 @@ describe('registration, login and sessions', () => {
     expect((await c.post('/api/v1/auth/register', { email: 'b@example.test', password: 'password12345', displayName: 'B' })).body.error.message).toMatch(/too easy/);
   });
 
-  it('registers, signs in via an HttpOnly cookie, and never returns the password hash', async () => {
+  it('registers (not signed in until the emailed link is used), signs in via an HttpOnly cookie, and never returns the password hash', async () => {
     const email = `owner-${Date.now()}@example.test`;
     const r = await owner.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Olivia Owner' });
     expect(r.status).toBe(201);
     expect(JSON.stringify(r.body)).not.toMatch(/passwordHash|scrypt/);
+    expect(owner.cookies.has('ci_session')).toBe(false); // registering does not sign anyone in
+    expect((await owner.post('/api/v1/auth/login', { email, password: PASSWORD })).status).toBe(403); // …and an unverified account cannot sign in
+    await h.queue.drain();
+    expect((await owner.post('/api/v1/auth/verify-email', { token: h.mail.tokenIn(email, 'verify-email') })).status).toBe(200);
+    expect((await owner.post('/api/v1/auth/login', { email, password: PASSWORD })).status).toBe(200);
     expect(owner.cookies.has('ci_session')).toBe(true);
     const raw = (await app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: { 'x-requested-with': 'ci-web' }, payload: { email, password: PASSWORD } })).headers['set-cookie'] as string;
     expect(raw).toMatch(/HttpOnly/i);
@@ -77,7 +83,10 @@ describe('registration, login and sessions', () => {
     expect(raw).toMatch(/Path=\//);
     const me = await owner.get('/api/v1/auth/me');
     expect(me.body.user.email).toBe(email);
-    expect((await owner.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Dup' })).status).toBe(409);
+    // registering the same address again answers exactly like a first registration (no account enumeration)
+    const dup = await new ApiClient(app).post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Dup' });
+    expect(dup.status).toBe(201);
+    expect(dup.body).toEqual(r.body);
   });
 
   it('requires the anti-CSRF header and a same-site Origin for state-changing requests', async () => {
@@ -91,7 +100,7 @@ describe('registration, login and sessions', () => {
 
   it('answers wrong passwords generically, locks out repeated failures, and rate-limits login', async () => {
     const email = `lock-${Date.now()}@example.test`;
-    await new ApiClient(app).post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Lock' });
+    await signUp(new ApiClient(app), h, { email, password: PASSWORD, displayName: 'Lock' });
     const c = new ApiClient(app);
     const bad = await c.post('/api/v1/auth/login', { email, password: 'Wrong-Password-1' });
     expect(bad.status).toBe(401);
@@ -106,7 +115,7 @@ describe('registration, login and sessions', () => {
   it('logs out by deleting the server-side session', async () => {
     const email = `out-${Date.now()}@example.test`;
     const c = new ApiClient(app);
-    await c.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Out' });
+    await signUp(c, h, { email, password: PASSWORD, displayName: 'Out' });
     const stolen = new Map(c.cookies);
     expect((await c.post('/api/v1/auth/logout')).status).toBe(200);
     expect((await c.get('/api/v1/auth/me')).status).toBe(401);
@@ -115,15 +124,16 @@ describe('registration, login and sessions', () => {
     expect((await replay.get('/api/v1/auth/me')).status).toBe(401); // the old token is dead server-side
   });
 
-  it('password reset: no enumeration, single-use token, sessions revoked, link only in the dev outbox', async () => {
+  it('password reset: no enumeration, single-use token delivered by email, sessions revoked', async () => {
     const email = `reset-${Date.now()}@example.test`;
     const c = new ApiClient(app);
-    await c.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Rita' });
+    await signUp(c, h, { email, password: PASSWORD, displayName: 'Rita' });
     const same = [await c.post('/api/v1/auth/forgot-password', { email }), await c.post('/api/v1/auth/forgot-password', { email: 'ghost@example.test' })];
     expect(same[0]!.body).toEqual(same[1]!.body);
+    expect(same[0]!.status).toBe(same[1]!.status);
     await h.queue.drain();
-    const mail = (await h.db.worker.select().from(emailOutbox)).filter((m) => m.kind === 'password-reset' && m.toAddresses.includes(email)).at(-1)!;
-    const token = mail.text.match(/token=([\w-]+)/)![1]!;
+    expect(h.mail.inboxOf('ghost@example.test')).toHaveLength(0); // nothing is sent to an address that has no account
+    const token = h.mail.tokenIn(email, 'reset-password')!;
     expect((await c.post('/api/v1/auth/reset-password', { token, password: 'New-Strong-Pass-77' })).status).toBe(200);
     expect((await c.post('/api/v1/auth/reset-password', { token, password: 'Another-Strong-Pass-8' })).status).toBe(400); // single use
     expect((await c.get('/api/v1/auth/me')).status).toBe(401); // old sessions revoked
@@ -483,7 +493,7 @@ describe('roles', () => {
   it('staff can read, review matches and acknowledge alerts but cannot change configuration', async () => {
     staff = new ApiClient(app);
     const email = `staff-${Date.now()}@example.test`;
-    await staff.post('/api/v1/auth/register', { email, password: PASSWORD, displayName: 'Sam Staff' });
+    await signUp(staff, h, { email, password: PASSWORD, displayName: 'Sam Staff' });
     expect((await owner.post(`${base()}/members`, { email, role: 'staff' })).status).toBe(201);
     expect((await owner.post(`${base()}/members`, { email, role: 'staff' })).status).toBe(409);
     expect((await staff.get(`${base()}/dashboard`)).status).toBe(200);
@@ -519,7 +529,7 @@ describe('roles', () => {
 describe('tenant isolation through the API', () => {
   it('another signed-in user gets 404 for EVERY resource of this workspace, and cannot cross-reference ids', async () => {
     const intruder = new ApiClient(app);
-    await intruder.post('/api/v1/auth/register', { email: `intruder-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Mallory' });
+    await signUp(intruder, h, { email: `intruder-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Mallory' });
     const mine = await intruder.post('/api/v1/orgs', { name: 'Mallory Mart' });
     const myOrg = mine.body.organization.id;
     const reportId = (await owner.get(`${base()}/reports/latest`)).body.report.id;

@@ -6,6 +6,7 @@ import { evidence, priceObservations, products, sites as sitesTable, stockObserv
 import { buildApp } from '../../apps/api/src/app.ts';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * THE LIVE PATH, END TO END. Every other end-to-end test runs in a *demo* workspace. This one runs in a real (live) workspace whose websites
@@ -54,7 +55,7 @@ afterAll(async () => {
 
 describe('1. a new customer signs up and gets an empty live workspace', () => {
   it('registers, creates a workspace, and any attempt to ask for another kind of workspace is ignored', async () => {
-    expect((await owner.post('/api/v1/auth/register', { email: `live-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Live Owner' })).status).toBe(201);
+    await signUp(owner, h, { email: `live-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Live Owner' });
     const r = await owner.post('/api/v1/orgs', { name: 'Live Journey Shop', mode: 'demo' });
     expect(r.status).toBe(201);
     expect(r.body.organization.mode).toBeUndefined();
@@ -331,7 +332,7 @@ describe('11. sign-in failures and other customers', () => {
 
   it('another customer cannot see, change or guess any of this workspace\'s data — at the API or at the database', async () => {
     const stranger = new ApiClient(app);
-    await stranger.post('/api/v1/auth/register', { email: `stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Stranger' });
+    await signUp(stranger, h, { email: `stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Stranger' });
     const otherOrg = (await stranger.post('/api/v1/orgs', { name: 'Someone Else' })).body.organization.id as string;
     const reportId = (await owner.get(`${base()}/reports/latest`)).body.report.id as string;
     const evId = (await db().select().from(evidence).where(eq(evidence.orgId, orgId)).limit(1))[0]!.id;

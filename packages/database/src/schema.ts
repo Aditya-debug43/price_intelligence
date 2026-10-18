@@ -858,12 +858,17 @@ export const emailOutbox = pgTable(
     html: text('html').notNull(),
     text: text('text').notNull(),
     kind: text('kind').notNull(),
-    status: text('status').$type<'queued' | 'sent' | 'failed' | 'dev_logged'>().notNull().default('queued'),
+    /** queued → sent | retrying → sent | failed (gave up) | not_configured (no mail server: never sent). 'sent' means the mail server accepted it. */
+    status: text('status').$type<'queued' | 'sent' | 'retrying' | 'failed' | 'not_configured'>().notNull().default('queued'),
     attempts: integer('attempts').notNull().default(0),
     error: text('error'),
     relatedId: uuid('related_id'),
     createdAt: ts('created_at').notNull().defaultNow(),
+    lastAttemptAt: ts('last_attempt_at'),
     sentAt: ts('sent_at'),
+    /** The mail server's Message-ID and final response line for an accepted message. */
+    providerMessageId: text('provider_message_id'),
+    providerResponse: text('provider_response'),
   },
   (t) => [index('email_outbox_org_idx').on(t.orgId, t.createdAt)],
 );

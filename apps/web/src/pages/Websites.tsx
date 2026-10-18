@@ -38,14 +38,14 @@ export function WebsitesPage() {
           <Card pad={false}>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Website</th><th>Status</th><th>Capability</th><th>Permission</th><th>Platform</th><th>Currency</th><th className="r">Products</th><th /></tr></thead>
+                <thead><tr><th>Website</th><th>Status</th><th>Capability</th><th>Collection rules</th><th>Platform</th><th>Currency</th><th className="r">Products</th><th /></tr></thead>
                 <tbody>
                   {d.sites.map((s) => (
                     <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => nav(`/o/${orgId}/websites/${s.id}`)}>
                       <td><Link to={`/o/${orgId}/websites/${s.id}`} className="title" onClick={(e) => e.stopPropagation()}>{s.name}</Link><div className="sub">{s.role === 'source' ? 'Your website' : 'Competitor'} · {s.hostname}</div></td>
                       <td style={{ maxWidth: 260 }}><SiteStatusPill status={s.status} />{s.status && <div className="sub" style={{ whiteSpace: 'normal' }}>{s.status.nextAction ? <b>Next: {s.status.nextAction}.</b> : s.status.detail}{s.lastScan?.finishedAt && <> · last collection <Age iso={s.lastScan.finishedAt} /></>}</div>}</td>
                       <td><CapabilityPill status={s.capabilityStatus} /><div className="sub">{s.lastProfiledAt ? <>checked <Age iso={s.lastProfiledAt} /></> : 'not checked yet'}</div></td>
-                      <td>{s.consentStatus === 'confirmed' ? <span className="pill good">Recorded</span> : s.consentStatus === 'revoked' ? <span className="pill bad">Withdrawn</span> : <span className="pill warn">Needed</span>}</td>
+                      <td>{s.consentStatus === 'confirmed' ? <span className="pill good">Confirmed</span> : s.consentStatus === 'revoked' ? <span className="pill bad">Stopped</span> : <span className="pill warn">To confirm</span>}</td>
                       <td>{s.platform ?? '—'}</td>
                       <td>{s.currency ?? <span className="muted">unknown</span>}</td>
                       <td className="r num">{s.productCount}</td>
@@ -133,12 +133,12 @@ export function SiteDetailPage() {
         </Card>
 
         <div className="grid2">
-          <Card title="Permission to collect">
+          <Card title="Collection rules">
             <ConsentBlock site={site} text={sites.data!.consentText} onOpen={() => setConsentOpen(true)} />
           </Card>
           <Card title="Collection" actions={isAdmin && running && <button className="btn btn-sm btn-danger" onClick={() => cancel.mutate(running.id)}>Cancel</button>}>
             <div className="stack">
-              {site.consentStatus !== 'confirmed' && <div className="callout warn">Collection is switched off until permission is recorded for this website.</div>}
+              {site.consentStatus !== 'confirmed' && <div className="callout warn">Collection is switched off until you confirm the collection rules for this website.</div>}
               <div className="row">
                 <button className="btn btn-primary" disabled={!isAdmin || site.consentStatus !== 'confirmed' || !!running || collect.isPending} onClick={() => collect.mutate({ kind: 'discovery' })}>Collect catalogue</button>
                 <button className="btn" disabled={!isAdmin || site.consentStatus !== 'confirmed' || !!running || collect.isPending} onClick={() => collect.mutate({ kind: 'sample', limit: 25 })} title="Fetch only 25 products — a fast way to confirm everything works.">Small live refresh (25)</button>
@@ -204,11 +204,16 @@ function ConsentBlock({ site, text, onOpen }: { site: SiteItem; text: SitesRespo
   return (
     <div className="stack">
       <div className="row">
-        {site.consentStatus === 'confirmed' ? <span className="pill good">Recorded {formatDateTime(site.consentAt)}</span> : site.consentStatus === 'revoked' ? <span className="pill bad">Withdrawn</span> : <span className="pill warn">Not recorded</span>}
+        {site.consentStatus === 'confirmed' ? <span className="pill good">Confirmed {formatDateTime(site.consentAt)}</span> : site.consentStatus === 'revoked' ? <span className="pill bad">Stopped</span> : <span className="pill warn">Not confirmed yet</span>}
       </div>
       <p className="small" style={{ margin: 0 }}>{site.role === 'source' ? text.source : text.competitor}</p>
-      <p className="small muted" style={{ margin: 0 }}>We never log in to websites, solve CAPTCHAs, rotate identities or bypass rate limits. Each website’s robots.txt and rate limits are always followed.</p>
-      {isAdmin && <div className="row">{site.consentStatus !== 'confirmed' ? <button className="btn btn-tag" onClick={onOpen}>Record permission…</button> : <button className="btn btn-sm btn-danger" onClick={onOpen}>Withdraw permission…</button>}</div>}
+      <p className="small muted" style={{ margin: 0 }}>
+        {site.role === 'source'
+          ? 'This records that you are entitled to have this website analysed. Exact stock counts need a separate connection that the store itself authorises (Settings → Integrations).'
+          : 'This is your confirmation, recorded with your name and the time. It is not the website owner’s approval and is never presented as that.'}
+        {' '}We read only what the website shows every visitor, follow its robots.txt and rate limits, and never log in, solve CAPTCHAs, rotate identities or bypass protections. If the site refuses, collection stops and it is reported as blocked.
+      </p>
+      {isAdmin && <div className="row">{site.consentStatus !== 'confirmed' ? <button className="btn btn-tag" onClick={onOpen}>Confirm collection rules…</button> : <button className="btn btn-sm btn-danger" onClick={onOpen}>Stop collecting from this website…</button>}</div>}
     </div>
   );
 }
@@ -219,15 +224,15 @@ function ConsentModal({ site, text, onClose }: { site: SiteItem; text: SitesResp
   const withdraw = site.consentStatus === 'confirmed';
   const toast = useToast();
   const m = useOrgMutation((id, _: void) => api.post(orgPath(id, `/sites/${site.id}/consent`), { status: withdraw ? 'revoked' : 'confirmed', attest, note: note || undefined }), ['sites', 'dashboard'], () => {
-    toast.push(withdraw ? 'Permission withdrawn. Queued collections were cancelled.' : 'Permission recorded.');
+    toast.push(withdraw ? 'Collection stopped. Queued collections were cancelled.' : 'Confirmation recorded. You can start collecting.');
     onClose();
   });
   return (
-    <Modal title={withdraw ? 'Withdraw permission' : 'Record permission'} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className={`btn ${withdraw ? 'btn-danger' : 'btn-primary'}`} disabled={(!withdraw && !attest) || m.isPending} onClick={() => m.mutate(undefined)}>{withdraw ? 'Withdraw permission' : 'Record permission'}</button></>}>
+    <Modal title={withdraw ? 'Stop collecting from this website' : 'Confirm how this website is collected'} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className={`btn ${withdraw ? 'btn-danger' : 'btn-primary'}`} disabled={(!withdraw && !attest) || m.isPending} onClick={() => m.mutate(undefined)}>{withdraw ? 'Stop collecting' : 'Confirm and allow collection'}</button></>}>
       <div className="stack">
-        <p>{withdraw ? `Collection from ${site.name} will stop and queued runs will be cancelled. Existing data stays until you remove the website.` : (site.role === 'source' ? text.source : text.competitor)}</p>
+        <p>{withdraw ? `Collection from ${site.name} will stop and queued runs will be cancelled. Data already collected stays until you remove the website.` : (site.role === 'source' ? text.source : text.competitor)}</p>
         {!withdraw && <label className="check"><input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} /><span>I confirm the statement above on behalf of my business.</span></label>}
-        <div className="field"><label htmlFor="cn">Note for your records (optional)</label><input id="cn" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. approved by the owner on 14 Oct" /></div>
+        <div className="field"><label htmlFor="cn">Note for your records (optional)</label><input id="cn" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. read the website’s terms of use on 18 Oct" /></div>
         {m.error && <div className="callout bad" role="alert">{errorMessage(m.error)}</div>}
       </div>
     </Modal>

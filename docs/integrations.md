@@ -12,7 +12,7 @@ local `.env` (git-ignored; copy `.env.example`). The app shows each integration'
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **PostgreSQL** | All data, row-level security, job queue | `DATABASE_URL` (app role, RLS enforced), `WORKER_DATABASE_URL` (worker role), `DATABASE_ADMIN_URL` (setup/migrations only) | App role: no `BYPASSRLS`. Worker role: `BYPASSRLS`. Created by `npm run db:setup` | **Yes** | Yes — `npm run dev:db` starts an embedded PostgreSQL | — | Everything | `GET /api/v1/ready` → `database`, `migrations`, `tenant_isolation` all `ok` | Real (embedded PostgreSQL 18 in tests and dev) |
 | **Public competitor websites** | Catalogue, prices, availability, offers, flyers | none | Your **recorded consent per website** (the app will not collect without it); robots.txt is always obeyed | **Yes** | Yes | — | Collection from a website until its owner/you confirm permission | Add the website → Websites page shows its status → "Check this website" → "Collect" | Fixtures + local imitations only. **No live collection has been run** (permission not yet confirmed) |
-| **SMTP email provider** | Report/alert emails, account verification, password reset, invitations | `SMTP_URL` (e.g. `smtps://user:pass@host:465`), `EMAIL_FROM` | An SMTP account allowed to send from `EMAIL_FROM` | No | Yes | In-app alerts, reports, downloads; accounts stay visibly *unverified*; invitation links are handed to the inviter | Real delivery; enforced email verification; emailed reports | Register → the verification email arrives. `GET /api/v1/ready` → `email: ok`. Settings → Notifications → send a report | In-process SMTP server only (`email-smtp.test.ts`) — **no real provider** |
+| **SMTP email (Gmail or any SMTP server)** | **Account verification and password reset (required for anyone to register)**, invitations, daily report summary, alert emails | `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS, or 465 with `SMTP_SECURE=true`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` (optional; defaults to `Shelfwatch <SMTP_USER>`), `APP_BASE_URL` (the public address used inside email links) | For Gmail: 2-Step Verification on the Google account and an **App Password** (never the normal password) | **Yes for customer sign-up** (not for price collection) | The app runs, but **nobody can register or reset a password** and no email is sent | Registration, password reset, every email | Run `npm run email:check -- you@example.com`; then Settings → Notifications → "Send me a test email" | Tested with a test mail server and an in-process SMTP server; **not yet against Gmail** — see "Email" below |
 | **S3-compatible storage** (AWS S3, R2, MinIO) | Raw page snapshots, export files off-host | `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION`, optional `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | `s3:GetObject`, `PutObject`, `DeleteObject`, `HeadObject` on the bucket | No | Yes — local disk (`STORAGE_LOCAL_DIR`) is the default | Everything (files stay on the server's disk) | Off-host storage | `GET /api/v1/ready` → `storage: ok`; generate a report → export a PDF → the object appears in the bucket | S3-compatible fake only (`s3-storage.test.ts`) — **not AWS/R2/MinIO** |
 | **Shopify** (merchant-authorised, read-only) | Exact stock quantities for **your own** shop → low-stock alerts | `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_REDIRECT_URI`, `SHOPIFY_SCOPES` (default `read_products,read_inventory,read_locations`), `SHOPIFY_API_VERSION`, **`TOKEN_ENCRYPTION_KEY`** | A Shopify app (Partner account) whose **merchant approves** the three read scopes. Never a competitor's store | No | Yes | In-stock / sold-out from your public pages; threshold alerts need a quantity, so none are raised | Exact quantities; unit-count low-stock alerts | Settings → Integrations → enter `*.myshopify.com` → approve in Shopify → status *connected* → "Sync now" → My stock shows units with "Authorised inventory" | Whole OAuth + sync flow against a local imitation (`shopify-oauth.test.ts`) — **never a real store** |
 | **YouTube Data API v3** | Public uploads and public view/like/comment counts of competitor channels | `YOUTUBE_API_KEY` | A Google Cloud project with "YouTube Data API v3" enabled; an API key (quota 10,000 units/day; about 3 units per channel per sync) | No | Yes | Everything except YouTube posts | YouTube activity | Settings → Integrations → YouTube card shows *ready* → confirm a channel → "Sync now" → Marketing activity lists videos with counts | Local imitation (`social-health.test.ts`, `social-providers.test.ts`) — **no live call** |
@@ -74,10 +74,34 @@ No scraping and no logged-in browsing is ever used as a fallback. Observed posts
 
 ### Email
 
-Set `SMTP_URL` and `EMAIL_FROM`. Without it every message is written to the `email_outbox` table with status `dev_logged`
-(visible under Settings → Developer tools in development) and is **never described as delivered**. When email is configured, an
-account must verify its address before it can sign in. Without email, accounts can sign in but stay *visibly unverified*, and a password
-reset does not mark them verified. One digest email per alert batch and one daily summary per published report.
+Real delivery over SMTP. **Without it nobody can register** (an account is usable only after its emailed verification link is opened) **and nobody can reset a
+password**, and no report or alert email is sent. The app says so wherever it matters (registration page, Settings → Notifications, `/api/v1/ready`);
+it never claims a message was sent unless the mail server accepted it.
+
+**Gmail setup (about five minutes):**
+
+1. Turn on **2-Step Verification** for the Google account that will send the mail (https://myaccount.google.com/security). An App Password is only offered once this is on, and some account types (for example accounts managed by a school or company, or with Advanced Protection) cannot create one.
+2. Create an **App Password**: https://myaccount.google.com/apppasswords → give it a name such as "Shelfwatch" → Google shows 16 letters in four groups. Copy them. This is *not* your normal password; it can be revoked at any time without changing your real one.
+3. Open the `.env` file in the project folder in a text editor (it is git-ignored) and set exactly these lines (add the lines if they are missing; leave `EMAIL_FROM` empty or delete it):
+
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=your.address@gmail.com
+   SMTP_PASSWORD=abcd efgh ijkl mnop
+   EMAIL_FROM=
+   APP_BASE_URL=http://localhost:5173
+   ```
+
+   Spaces in the App Password are fine (they are ignored). Port 465 with `SMTP_SECURE=true` works too. **Type the password into the file yourself; do not paste it into a chat, an issue, a screenshot or a commit.**
+4. Check it from the terminal: `npm run email:check` (signs in only) or `npm run email:check -- someone@example.com` (also sends one real message). It prints what it is using — never the password — and, on failure, the plain-language reason (wrong password, App Password required, port blocked…).
+5. Restart `npm run dev`. Register an account with an address you can read; the verification email arrives from your Gmail address.
+
+Things to know: Gmail always sends as the signed-in account (so `EMAIL_FROM`, if set, must be that address); a normal Gmail account allows roughly 500 messages a day; messages sent to yourself may land in "All Mail" rather than the inbox; verification, reset and invitation links are built from `APP_BASE_URL`, so set it to the address people really use once the app is hosted.
+
+**What is recorded:** every message goes into the `email_outbox` table first. `queued` → `sent` (the mail server accepted it; its Message-ID and final answer are stored) or `retrying` (a temporary problem such as a refused connection; retried up to six times at one-minute intervals) or `failed` (a permanent refusal such as bad credentials or a rejected recipient, with the reason) or `not_configured` (no mail server: never sent). Settings → Notifications shows the latest messages and can send a test message to you.
+
+**Security:** the connection must be encrypted (STARTTLS is required unless the server is on this machine); credentials exist only in `.env`; the password is never logged, stored in the database, or included in an error message; registration, resend and reset answer identically whether or not an address has an account; a verification or reset link works once and expires (48 hours / 1 hour), and asking for a new one cancels the old.
 
 ### Headless browser (optional)
 

@@ -9,6 +9,7 @@ import { evidence, exchangeRates, offers, priceObservations, sites } from '@ci/d
 import { addSite, ensureFxRates, fetchPolicyFrom, provenanceFor, startScan, updateSite } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * There is one product: a real customer's. This file proves that the demonstration/fixture/simulator machinery is gone from the product and
@@ -121,7 +122,7 @@ describe('4. the API has no demo, developer or simulator surface', () => {
   let orgId: string;
   beforeAll(async () => {
     owner = new ApiClient(app);
-    expect((await owner.post('/api/v1/auth/register', { email: `real-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Real Owner' })).status).toBe(201);
+    await signUp(owner, h, { email: `real-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Real Owner' });
     const r = await owner.post('/api/v1/orgs', { name: 'Real Product Shop', mode: 'demo' });
     expect(r.status).toBe(201);
     orgId = r.body.organization.id;

@@ -4,6 +4,7 @@ import { buildApp } from '../../apps/api/src/app.ts';
 import { createOrganization, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * Match review: a person can see why a pair was proposed with the evidence side by side, search for the right competitor product,
@@ -22,7 +23,7 @@ beforeAll(async () => {
   h = await createHarness();
   app = await buildApp({ svc: { ...h.svc, db: h.db.app }, rootDb: h.db.app, logger: false, authRateLimitMax: 1000 });
   owner = new ApiClient(app);
-  await owner.post('/api/v1/auth/register', { email: `review-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Reviewer' });
+  await signUp(owner, h, { email: `review-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Reviewer' });
   const me = (await owner.get('/api/v1/auth/me')).body;
   org = (await createOrganization(h.db.app, me.user.id, 'Match Review')).id;
   for (const [key, role] of [['source', 'source'], ['woo', 'competitor'], ['jsonld', 'competitor']] as const) {
@@ -113,7 +114,7 @@ describe('reviewing a proposed match', () => {
     expect((await owner.post(`${base()}/matches/manual`, { sourceVariantId: target.sourceVariantId, competitorVariantId: target.sourceVariantId, matchClass: 'not_comparable' })).status).toBe(400); // class must be a positive one
 
     const stranger = new ApiClient(app);
-    await stranger.post('/api/v1/auth/register', { email: `stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
+    await signUp(stranger, h, { email: `stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
     const strangerOrg = (await stranger.post('/api/v1/orgs', { name: 'Stranger Co' })).body.organization.id as string;
     // ids from another workspace, used inside the stranger's own workspace, resolve to nothing
     const foreign = await stranger.post(`/api/v1/orgs/${strangerOrg}/matches/manual`, { sourceVariantId: target.sourceVariantId, competitorVariantId: chosenVariant, matchClass: 'identical' });

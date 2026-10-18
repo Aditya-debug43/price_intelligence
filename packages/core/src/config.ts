@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { resolveSmtp, SmtpConfigError, type SmtpSettings } from './smtp.ts';
 
 const bool = z
   .union([z.boolean(), z.string()])
@@ -38,8 +39,15 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: optionalString,
   S3_SECRET_ACCESS_KEY: optionalString,
 
-  SMTP_URL: optionalString,
-  EMAIL_FROM: z.string().default('Shelfwatch <reports@localhost>'),
+  // Email delivery (verification, password reset, invitations, daily reports, alerts). Not configured = no email is sent and the product says so.
+  // For Gmail: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587 (or 465 with SMTP_SECURE=true), SMTP_USER=<the Gmail address>, SMTP_PASSWORD=<a Google App Password>.
+  SMTP_HOST: optionalString,
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  SMTP_SECURE: bool.optional(),
+  SMTP_USER: optionalString,
+  SMTP_PASSWORD: optionalString,
+  /** The From header, "Display name <address>". Defaults to "Shelfwatch <SMTP_USER>". */
+  EMAIL_FROM: optionalString,
 
 
   COLLECTOR_USER_AGENT: z.string().default('CompetitorIntelBot/1.0 (+https://example.invalid/bot; respects robots.txt)'),
@@ -80,6 +88,10 @@ export type AppConfig = z.infer<typeof envSchema> & {
   secureCookies: boolean;
   workerDatabaseUrl: string;
   isProduction: boolean;
+  /** Resolved email settings, or null when email delivery is not configured. */
+  smtp: SmtpSettings | null;
+  /** The From header actually used (the configured one, or a placeholder shown when email is not configured). */
+  emailFrom: string;
 };
 
 export class ConfigError extends Error {
@@ -132,8 +144,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError('AI_PROVIDER=anthropic requires ANTHROPIC_API_KEY (or set AI_PROVIDER=none)');
   }
 
+  let smtp: SmtpSettings | null;
+  try {
+    smtp = resolveSmtp(c);
+  } catch (e) {
+    if (e instanceof SmtpConfigError) throw new ConfigError(`Invalid email configuration: ${e.message}`);
+    throw e;
+  }
   return {
     ...c,
+    smtp,
+    emailFrom: smtp?.from ?? c.EMAIL_FROM ?? 'Shelfwatch <not-configured@invalid>',
     isProduction,
     secureCookies: c.SESSION_COOKIE_SECURE ?? isProduction,
     workerDatabaseUrl: c.WORKER_DATABASE_URL ?? c.DATABASE_URL,

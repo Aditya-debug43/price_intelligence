@@ -9,6 +9,7 @@ import {
   createServices,
   fetchPolicyFrom,
   register,
+  verifyEmail,
   createOrganization,
   addSite,
   setConsent,
@@ -17,6 +18,7 @@ import {
 } from '@ci/services';
 import { connectTestDb, type TestDb } from './db.ts';
 import { startFixtureServer, type FixtureServer } from './fixtures/server.ts';
+import { CaptureTransport } from './mail.ts';
 
 /**
  * TEST-ONLY. Builds the product's real services against an isolated PostgreSQL, with fictional websites standing in for the internet.
@@ -31,6 +33,8 @@ export interface Harness {
   queue: InlineQueue;
   storage: MemoryStorage;
   fixtures: FixtureServer;
+  /** The test mail server: every email the product sends lands here, like an inbox (after `queue.drain()` runs the send jobs). */
+  mail: CaptureTransport;
   /** Move the shared clock. All services — and the fictional sites — read time through it. */
   setNow(d: Date | string): void;
   advance(ms: number): void;
@@ -52,13 +56,14 @@ export interface Tenant {
 
 let seq = 0;
 
-export async function createHarness(opts: { now?: string; extraEnv?: Record<string, string> } = {}): Promise<Harness> {
+export async function createHarness(opts: { now?: string; extraEnv?: Record<string, string>; /** 'none' = a server with no mail server configured. */ mail?: 'capture' | 'none' } = {}): Promise<Harness> {
   const urls = inject('testDb');
   const db = connectTestDb();
   const storage = new MemoryStorage();
   let now = new Date(opts.now ?? '2026-10-14T12:00:00Z');
   const fixtures = await startFixtureServer({ now: () => now });
   const queue = new InlineQueue();
+  const mail = new CaptureTransport();
   const config = loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: urls.appUrl,
@@ -80,7 +85,7 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
     // Every ".test" name is "public"; anything else resolves to a private address, so the production host screening refuses it.
     resolver: async (host) => (host.endsWith('.test') ? [{ address: '93.184.216.34' }] : [{ address: '10.0.0.7' }]),
     makeFetcher: (over) => new SafeFetcher({ ...fetchPolicyFrom(config), maxRetries: 1, timeoutMs: 8000, ...(over ?? {}) }, { limiter, resolver: fixtures.resolver, transport: fixtures.transport }),
-    mailerFactory: (base) => new OutboxMailer(db.worker, () => queue, { from: config.EMAIL_FROM }, base.log),
+    mailerFactory: (base) => new OutboxMailer(db.worker, () => queue, { smtp: config.smtp, from: config.emailFrom, ...(opts.mail === 'none' ? {} : { transport: mail }) }, base.log),
   });
   queue.svc = svc;
 
@@ -90,6 +95,7 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
     queue,
     storage,
     fixtures,
+    mail,
     setNow: (d) => void (now = new Date(d)),
     advance: (ms) => void (now = new Date(now.getTime() + ms)),
     emails: () => db.worker.select().from(emailOutbox),
@@ -97,8 +103,9 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
       const email = `${label.toLowerCase().replace(/\W+/g, '')}-${++seq}-${Date.now()}@example.test`;
       const password = 'Correct-Horse-9-Battery';
       const user = await register(svc, db.app, { email, password, displayName: `${label} Owner` });
+      await queue.drain(); // delivers the verification email
+      await verifyEmail(svc, db.app, mail.tokenIn(email, 'verify-email')!); // the person opens the emailed link
       const org = await createOrganization(db.app, user.id, `${label} Org ${seq}`);
-      await queue.drain();
       const tenant: Tenant = {
         userId: user.id,
         email,

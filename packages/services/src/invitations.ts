@@ -79,7 +79,7 @@ export async function createInvitation(
   const mail = invitationEmail(actor.name, org?.name ?? 'a workspace', input.role, link);
   await svc.mailer.queue(db, { orgId, to: [email], subject: mail.subject, html: mail.html, text: mail.text, kind: 'invitation', relatedId: row!.id });
   await withTenant(db, orgId, (tx) => tx.insert(auditEvents).values({ orgId, userId: actor.userId, action: existing ? 'invitation.resend' : 'invitation.create', target: row!.id, meta: { role: input.role } }));
-  return { invitation: view(row!, now, actor.name), link: svc.config.SMTP_URL ? null : link, resent: !!existing };
+  return { invitation: view(row!, now, actor.name), link: svc.mailer.configured ? null : link, resent: !!existing };
 }
 
 function view(r: typeof invitations.$inferSelect, now: Date, invitedBy: string | null): InvitationView {
@@ -146,7 +146,7 @@ export async function acceptInvitation(svc: Services, db: Db, user: SessionUser,
   if (normalizeEmail(user.email) !== row.email) {
     throw new AuthError(`This invitation was sent to ${maskEmail(row.email)}. Sign in with that address to accept it.`, 'wrong_account', 403);
   }
-  if (svc.config.SMTP_URL && !user.emailVerified) throw new AuthError('Verify your email address first, then open the invitation again.', 'unverified', 403);
+  if (!user.emailVerified) throw new AuthError('Verify your email address first, then open the invitation again.', 'unverified', 403);
 
   const claimed = await db
     .update(invitations)

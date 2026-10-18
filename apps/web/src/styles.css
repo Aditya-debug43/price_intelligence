@@ -104,7 +104,6 @@ button { font: inherit; }
 .eyebrow { font: 600 11px/1 var(--font-body); letter-spacing: 0.13em; text-transform: uppercase; color: var(--lagoon); margin-bottom: 7px; display: block; }
 
 /* the data-honesty bar: coverage, freshness and partial status on every screen */
-.verify-banner { background: #fff4d6; border-bottom: 1px solid #e0a116; color: var(--ink); padding: 7px clamp(16px, 3vw, 36px); font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .honesty { position: sticky; top: 0; z-index: 20; background: var(--paper); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 8px clamp(16px, 3vw, 36px); flex-wrap: wrap; font-size: 13px; }
 .honesty .item { display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
 .honesty .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--palm); flex: none; }

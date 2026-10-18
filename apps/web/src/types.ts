@@ -8,7 +8,6 @@ export interface Me {
 export interface Meta {
   appBaseUrl: string;
   emailConfigured: boolean;
-  emailVerificationEnforced: boolean;
   aiProvider: string;
   browserRendering: boolean;
   shopifyConfigured: boolean;

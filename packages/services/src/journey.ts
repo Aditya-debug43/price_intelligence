@@ -27,7 +27,7 @@ export interface Journey {
  * The guided path from an empty workspace to a first report. Every state is derived from what really exists in the database — a step is
  * only "done" when the thing it describes has actually happened, never because a page was visited.
  */
-export async function loadJourney(svc: Pick<Services, 'config' | 'clock'>, db: DbLike, orgId: string): Promise<Journey> {
+export async function loadJourney(svc: Pick<Services, 'config' | 'clock' | 'mailer'>, db: DbLike, orgId: string): Promise<Journey> {
   const coverage = (await loadCoverage(db, orgId, svc.clock(), DEFAULTS.staleAfterHours)).filter((c) => c.status?.state !== 'inactive');
   const source = coverage.filter((c) => c.role === 'source');
   const competitors = coverage.filter((c) => c.role === 'competitor');
@@ -132,7 +132,7 @@ export async function loadJourney(svc: Pick<Services, 'config' | 'clock'>, db: D
     {
       id: 'alerts',
       title: 'Set alerts and the daily schedule',
-      detail: svc.config.SMTP_URL ? 'Choose who gets email alerts and when the daily report is ready.' : 'Email delivery is not configured on this server, so alerts stay in the app. Reports are still ready each morning.',
+      detail: svc.mailer.configured ? 'Choose who gets email alerts and when the daily report is ready.' : 'Email delivery is not configured on this server, so no email is sent: alerts stay in the app. Reports are still ready each morning.',
       action: { label: 'Open settings', to: 'settings?tab=notifications' },
     },
     false,

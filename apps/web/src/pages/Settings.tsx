@@ -111,16 +111,84 @@ function GeneralForm({ s, isAdmin, next }: { s: Settings; isAdmin: boolean; next
 interface Rule { id: string; type: string; enabled: boolean; channelInApp: boolean; channelEmail: boolean }
 const RULE_LABEL: Record<string, string> = { low_stock: 'Low stock at your shop', out_of_stock: 'A product at your shop sold out', restocked: 'A product at your shop is back in stock', collection_failure: 'A website could not be collected' };
 
+interface EmailStatus {
+  configured: boolean;
+  host: string | null;
+  from: string | null;
+  recent: { id: string; to: string[]; subject: string; kind: string; status: 'queued' | 'sent' | 'retrying' | 'failed' | 'not_configured'; attempts: number; error: string | null; createdAt: string; sentAt: string | null }[];
+}
+interface EmailTestResult { ok: boolean; to: string; messageId?: string | null; response?: string | null; problem?: { code: string; message: string } }
+
+const EMAIL_STATUS: Record<EmailStatus['recent'][number]['status'], { label: string; cls: string; hint: string }> = {
+  sent: { label: 'Sent', cls: 'good', hint: 'The mail server accepted it.' },
+  queued: { label: 'Waiting', cls: 'warn', hint: 'Not sent yet.' },
+  retrying: { label: 'Retrying', cls: 'warn', hint: 'A temporary problem; it will be tried again.' },
+  failed: { label: 'Not delivered', cls: 'bad', hint: 'The mail server did not take it.' },
+  not_configured: { label: 'Not sent', cls: '', hint: 'This server has no email delivery set up.' },
+};
+
+/** What email delivery is doing: configured or not, a real test message with the mail server's own answer, and what happened to the latest messages. */
+function EmailDeliveryCard() {
+  const { isAdmin } = useOrg();
+  const q = useOrgQuery<EmailStatus>('email', '/email', { refetchInterval: 15_000 });
+  const [result, setResult] = useState<EmailTestResult | null>(null);
+  const test = useOrgMutation((id, _: void) => api.post<EmailTestResult>(orgPath(id, '/email/test')), ['email'], (r) => setResult(r));
+  if (!isAdmin) return null;
+  return (
+    <Card title="Email delivery" pad={false}>
+      <DataState q={q}>
+        {(d) => (
+          <div>
+            <div className="card-b stack">
+              {d.configured ? (
+                <div className="callout good"><b>Email delivery is set up</b> ({d.host}). Messages are sent as <b>{d.from}</b>. A message counts as sent only when the mail server has accepted it.</div>
+              ) : (
+                <div className="callout warn">
+                  <b>Email delivery is not set up on this server.</b> No email is sent: nobody can register or reset a password, and alerts and the daily summary stay in the app. An administrator must set <code>SMTP_HOST</code>, <code>SMTP_USER</code> and <code>SMTP_PASSWORD</code> in the server’s <code>.env</code> (see docs/integrations.md), then restart.
+                </div>
+              )}
+              {d.configured && (
+                <div className="row" style={{ alignItems: 'center' }}>
+                  <button className="btn" onClick={() => { setResult(null); test.mutate(undefined); }} disabled={test.isPending}>{test.isPending ? 'Sending…' : 'Send me a test email'}</button>
+                  <span className="small muted">Sends one real message to your own address right now.</span>
+                </div>
+              )}
+              {test.error && <div className="callout bad" role="alert">{errorMessage(test.error)}</div>}
+              {result && (result.ok ? (
+                <div className="callout good" role="status"><b>Accepted by the mail server.</b> Check the inbox of {result.to} (and the spam folder).{result.response ? <> The server said: <code>{result.response}</code></> : null}</div>
+              ) : (
+                <div className="callout bad" role="alert"><b>The mail server did not accept the message.</b> {result.problem?.message}</div>
+              ))}
+            </div>
+            {d.recent.length > 0 && (
+              <table className="table">
+                <caption className="sr-only">Latest messages for this workspace</caption>
+                <thead><tr><th>Message</th><th>Status</th><th>When</th></tr></thead>
+                <tbody>{d.recent.map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.subject}<div className="sub">to {m.to.join(', ')} · {m.kind.replace(/-/g, ' ')}</div>{m.error && <div className="sub" style={{ color: 'var(--coral)' }}>{m.error}</div>}</td>
+                    <td><span className={`pill ${EMAIL_STATUS[m.status].cls}`} title={EMAIL_STATUS[m.status].hint}>{EMAIL_STATUS[m.status].label}</span>{m.attempts > 1 && <div className="sub">{m.attempts} attempts</div>}</td>
+                    <td className="small"><Age iso={m.sentAt ?? m.createdAt} /></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </DataState>
+    </Card>
+  );
+}
+
 function NotificationsTab() {
   const { isAdmin } = useOrg();
-  const meta = useMeta();
   const q = useOrgQuery<{ settings: Settings | null }>('settings', '/settings');
   const rules = useOrgQuery<{ rules: Rule[] }>('alert-rules', '/alert-rules');
   const toast = useToast();
   const setRule = useOrgMutation((id, r: Rule) => api.put(orgPath(id, '/alert-rules'), { type: r.type, enabled: r.enabled, channelInApp: r.channelInApp, channelEmail: r.channelEmail }), ['alert-rules'], () => toast.push('Alert rule saved.'));
   return (
     <div className="stack">
-      {!meta.data?.emailConfigured && <div className="callout warn"><b>Email is not set up on this server.</b> Messages are saved in the development outbox instead of being sent. An administrator must configure SMTP (SMTP_HOST, SMTP_FROM…) for real delivery — in-app alerts work either way.</div>}
+      <EmailDeliveryCard />
       <DataState q={q} isEmpty={(d) => !d.settings}>
         {({ settings }) => <NotifForm s={settings!} isAdmin={isAdmin} />}
       </DataState>

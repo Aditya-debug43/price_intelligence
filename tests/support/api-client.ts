@@ -21,7 +21,8 @@ export class ApiClient {
     if (this.opts.csrf !== false && method !== 'GET' && !('x-requested-with' in h)) h['x-requested-with'] = 'ci-web';
     const res = await this.app.inject({ method, url, headers: h, ...(body !== undefined ? { payload: body as never } : {}) });
     for (const c of res.cookies) {
-      if (c.value === '' || (c.expires && c.expires.getTime() < Date.now())) this.cookies.delete(c.name);
+      // A cookie is dropped only when the server clears it. (Its expiry is in the server's clock, which tests move; the server enforces it.)
+      if (c.value === '') this.cookies.delete(c.name);
       else this.cookies.set(c.name, c.value);
     }
     const ct = String(res.headers['content-type'] ?? '');

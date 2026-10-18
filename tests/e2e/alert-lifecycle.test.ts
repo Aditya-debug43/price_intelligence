@@ -6,6 +6,7 @@ import { buildApp } from '../../apps/api/src/app.ts';
 import { createOrganization, recordCollectionOutcome, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 import { createTestInventory, setTestQuantity } from '../support/inventory.ts';
 
 /**
@@ -39,7 +40,7 @@ beforeAll(async () => {
   h = await createHarness();
   app = await buildApp({ svc: { ...h.svc, db: h.db.app }, rootDb: h.db.app, logger: false, authRateLimitMax: 1000 });
   owner = new ApiClient(app);
-  await owner.post('/api/v1/auth/register', { email: `alerts-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Alert Owner' });
+  await signUp(owner, h, { email: `alerts-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Alert Owner' });
   const me = (await owner.get('/api/v1/auth/me')).body;
   org = (await createOrganization(h.db.app, me.user.id, 'Alert Lifecycle')).id;
   sourceId = (await owner.post(`${base()}/sites`, { url: h.fixtures.origin('source'), role: 'source', name: h.fixtures.sites.source!.spec.label })).body.site.id as string;
@@ -208,7 +209,7 @@ describe('collection and integration problems clear when the problem does', () =
 describe('isolation and counts', () => {
   it('another workspace sees none of these alerts and cannot resolve them', async () => {
     const stranger = new ApiClient(app);
-    await stranger.post('/api/v1/auth/register', { email: `alerts-stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
+    await signUp(stranger, h, { email: `alerts-stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
     const strangerOrg = (await stranger.post('/api/v1/orgs', { name: 'Stranger Co' })).body.organization.id as string;
     expect((await stranger.get(`/api/v1/orgs/${strangerOrg}/alerts?status=all`)).body.total).toBe(0);
     const any = (await list('resolved'))[0]!;

@@ -111,7 +111,6 @@ export function OrgLayout() {
       <div className="shell">
         <Sidebar name={m.name} role={m.role} user={me.data.user.displayName} onLogout={() => logout.mutate()} workspaces={me.data.memberships} />
         <div className="main">
-          {!me.data.user.emailVerified && <VerifyBanner email={me.data.user.email} />}
           <HonestyBar />
           <main className="page" id="main">
             <Outlet />
@@ -119,23 +118,6 @@ export function OrgLayout() {
         </div>
       </div>
     </OrgCtx.Provider>
-  );
-}
-
-/** Never let an unverified address pass as verified: say so, and say exactly what can be done about it on this server. */
-function VerifyBanner({ email }: { email: string }) {
-  const meta = useMeta();
-  const resend = useMutation({ mutationFn: () => api.post('/api/v1/auth/resend-verification') });
-  return (
-    <div className="verify-banner" role="note">
-      <span><b>Your email address isn’t verified.</b>{' '}
-        {meta.data?.emailConfigured
-          ? <>We sent a link to <b>{email}</b>. Open it to confirm this address.</>
-          : <>This server has no email delivery set up, so verification emails can’t be sent. An administrator needs to configure email (see docs/deployment.md).</>}
-      </span>
-      {meta.data?.emailConfigured && (resend.isSuccess ? <span>Sent — check your inbox.</span> : <button className="btn btn-sm" onClick={() => resend.mutate()} disabled={resend.isPending}>Send the link again</button>)}
-      {resend.isError && <span role="alert">Could not send it just now. Try again in a minute.</span>}
-    </div>
   );
 }
 

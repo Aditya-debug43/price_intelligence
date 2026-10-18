@@ -205,12 +205,22 @@ describe('what makes it degraded (HTTP 200, but work would not happen)', () => {
 });
 
 describe('optional integrations never make it unready', () => {
-  it('no email, no AI, no browser rendering: informational only in development', async () => {
+  const noMail = { configured: false, host: null } as never;
+  it('no AI and no browser rendering are informational only', async () => {
     await setTicks([{ state: 'completed', minutesAgo: 1 }]);
     const r = await check({ browser: null, keyRing: h.svc.keyRing });
-    for (const c of ['email', 'browser_rendering', 'ai']) expect(r.checks[c]!.level, c).toBe('info');
-    expect(r.checks['email']!.detail).toMatch(/SMTP_URL/);
+    for (const c of ['browser_rendering', 'ai']) expect(r.checks[c]!.level, c).toBe('info');
     expect(r.checks['ai']!.detail).toMatch(/Everything works without one/);
+    expect(r.checks['email']).toMatchObject({ level: 'ok' });
+  });
+
+  it('missing email delivery is a warning everywhere — nobody can register or recover a password — but never makes it unready; the advice names the real settings', async () => {
+    await setTicks([{ state: 'completed', minutesAgo: 1 }]);
+    const r = await check({ mailer: noMail, keyRing: h.svc.keyRing });
+    expect(r.checks['email']).toMatchObject({ level: 'warn' });
+    expect(r.checks['email']!.detail).toMatch(/SMTP_HOST/);
+    expect(r.checks['email']!.detail).toMatch(/SMTP_PASSWORD/);
+    expect(r.status).not.toBe('not_ready');
   });
 
   it('with the whole system healthy, the verdict is "ready"', async () => {
@@ -222,7 +232,7 @@ describe('optional integrations never make it unready', () => {
 
   it('in production, missing email delivery is a warning (accounts cannot be verified) — degraded, not unready', async () => {
     await setTicks([{ state: 'completed', minutesAgo: 1 }]);
-    const r = await check({ config: { ...h.svc.config, isProduction: true, SMTP_URL: undefined } as never, keyRing: h.svc.keyRing });
+    const r = await check({ config: { ...h.svc.config, isProduction: true } as never, mailer: noMail, keyRing: h.svc.keyRing });
     expect(r.checks['email']).toMatchObject({ level: 'warn' });
     expect(r.status).not.toBe('not_ready');
   });

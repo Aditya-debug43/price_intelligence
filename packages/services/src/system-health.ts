@@ -30,7 +30,7 @@ const STALE_TICK_MS = 3 * 60_000;
 const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
   Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${what} did not answer within ${ms / 1000}s`)), ms))]);
 
-export async function checkSystemReadiness(svc: Pick<Services, 'config' | 'clock' | 'storage' | 'keyRing' | 'llm' | 'browser'>, db: DbLike, opts: { version?: string; migrationsFolder?: string; queueSchema?: string } = {}): Promise<SystemReadiness> {
+export async function checkSystemReadiness(svc: Pick<Services, 'config' | 'clock' | 'storage' | 'keyRing' | 'llm' | 'browser' | 'mailer'>, db: DbLike, opts: { version?: string; migrationsFolder?: string; queueSchema?: string } = {}): Promise<SystemReadiness> {
   const checks: Record<string, ReadinessCheck> = {};
   const now = svc.clock();
   const prod = svc.config.isProduction;
@@ -106,9 +106,9 @@ export async function checkSystemReadiness(svc: Pick<Services, 'config' | 'clock
   }
 
   // optional capabilities — informational, never a reason to be unready
-  checks['email'] = svc.config.SMTP_URL
-    ? { level: 'ok', detail: 'Email delivery is configured; accounts must verify their address before signing in.' }
-    : { level: prod ? 'warn' : 'info', detail: 'No email delivery is configured: report emails and alert emails go to the development outbox, and new accounts stay unverified. Set SMTP_URL for real delivery.' };
+  checks['email'] = svc.mailer.configured
+    ? { level: 'ok', detail: `Email delivery is configured (${svc.mailer.host}); accounts verify their address by email before signing in.` }
+    : { level: 'warn', detail: 'Email delivery is not configured, so nobody can register or reset a password and no report or alert email is sent. Set SMTP_HOST, SMTP_USER and SMTP_PASSWORD (see docs/integrations.md).' };
   checks['secrets'] = svc.keyRing
     ? { level: 'ok', detail: 'A token encryption key is configured, so authorised connections can be stored.' }
     : { level: prod ? 'fail' : 'info', detail: 'TOKEN_ENCRYPTION_KEY is not set: authorised connections (such as Shopify) cannot be stored.' };

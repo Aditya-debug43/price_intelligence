@@ -154,9 +154,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
   app.get('/api/v1/meta', async () => ({
     appBaseUrl: cfg.APP_BASE_URL,
-    emailConfigured: !!cfg.SMTP_URL,
-    /** With email delivery configured, an account must verify its address before it can sign in. Without it, accounts stay visibly unverified. */
-    emailVerificationEnforced: !!cfg.SMTP_URL,
+    /** Whether this server can send email. Registration, password reset and every email feature depend on it. */
+    emailConfigured: svc.mailer.configured,
     aiProvider: svc.llm.available ? svc.llm.id : 'none',
     browserRendering: !!svc.browser?.available,
     shopifyConfigured: !!(cfg.SHOPIFY_CLIENT_ID && cfg.SHOPIFY_CLIENT_SECRET && cfg.SHOPIFY_REDIRECT_URI && svc.keyRing),

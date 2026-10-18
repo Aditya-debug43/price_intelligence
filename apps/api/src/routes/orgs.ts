@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { addMemberSchema, inviteSchema, settingsSchema, updateMemberSchema } from '@ci/shared';
-import { organizations } from '@ci/database';
-import { addMember, createInvitation, getSettings, listInvitations, listMembers, removeMember, revokeInvitation, updateMemberRole, updateSettings } from '@ci/services';
+import { emailOutbox, organizations } from '@ci/database';
+import { ActionNotPossibleError, addMember, createInvitation, testEmail, getSettings, listInvitations, listMembers, removeMember, revokeInvitation, updateMemberRole, updateSettings } from '@ci/services';
 import { HttpError, parse, requireRole } from '../app.ts';
 
 export async function orgRoutes(app: FastifyInstance) {
@@ -19,6 +19,31 @@ export async function orgRoutes(app: FastifyInstance) {
     requireRole(req, 'admin');
     const body = parse(settingsSchema, req.body);
     return { settings: await req.tx((tx) => updateSettings(tx, req.orgId!, req.user!.id, body, app.svc.clock())) };
+  });
+
+  /**
+   * Email delivery status for this workspace: whether the server can send email at all, and what happened to the latest messages
+   * (queued, sent — i.e. accepted by the mail server —, retrying, failed with the reason, or not sent because email is not configured).
+   */
+  app.get('/email', async (req) => {
+    requireRole(req, 'admin');
+    const rows = await app.rootDb.select().from(emailOutbox).where(eq(emailOutbox.orgId, req.orgId!)).orderBy(desc(emailOutbox.createdAt)).limit(25);
+    return {
+      configured: app.svc.mailer.configured,
+      host: app.svc.mailer.host,
+      from: app.svc.mailer.configured ? app.svc.mailer.from : null,
+      recent: rows.map((r) => ({ id: r.id, to: r.toAddresses, subject: r.subject, kind: r.kind, status: r.status, attempts: r.attempts, error: r.error, createdAt: r.createdAt, sentAt: r.sentAt, providerMessageId: r.providerMessageId })),
+    };
+  });
+
+  /** Sends one real message to the signed-in admin right now and reports exactly what the mail server answered. Nothing is queued or retried. */
+  app.post('/email/test', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req) => {
+    requireRole(req, 'admin');
+    if (!app.svc.mailer.configured) throw new ActionNotPossibleError('Email delivery is not configured on this server, so no test message can be sent. Set SMTP_HOST, SMTP_USER and SMTP_PASSWORD (see docs/integrations.md).', 'email_not_configured');
+    const to = req.user!.email;
+    const m = testEmail(req.user!.displayName, app.svc.mailer.from, app.svc.mailer.host ?? 'the mail server');
+    const r = await app.svc.mailer.sendNow({ orgId: req.orgId!, to: [to], subject: m.subject, text: m.text, html: m.html, kind: 'test-email' });
+    return r.ok ? { ok: true, to, messageId: r.receipt.messageId, response: r.receipt.response } : { ok: false, to, problem: { code: r.problem.code, message: r.problem.message } };
   });
 
   app.get('/members', async (req) => ({ members: await listMembers(app.rootDb, req.orgId!) }));

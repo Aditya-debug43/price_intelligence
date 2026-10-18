@@ -22,6 +22,7 @@
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:purge-demo": "tsx scripts/purge-demo-workspaces.ts",
     "live:probe": "tsx scripts/live-probe.ts",
+    "email:check": "tsx scripts/email-check.ts",
     "build": "npm run build -w @ci/web && npm run build -w @ci/api && npm run build -w @ci/worker",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",

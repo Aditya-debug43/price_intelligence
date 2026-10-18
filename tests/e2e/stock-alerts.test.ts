@@ -88,9 +88,10 @@ describe('public mode (availability only — never an invented quantity)', () =>
   });
 
   it('emails alert digests (one email, not one per product)', async () => {
+    await h.queue.drain(); // deliver them through the test mail server
     const mails = (await db().select().from(emailOutbox).where(eq(emailOutbox.orgId, t.orgId))).filter((m) => m.kind === 'alert-digest');
     expect(mails.length).toBeGreaterThan(0);
-    expect(mails.every((m) => m.status === 'dev_logged')).toBe(true);
+    expect(mails.every((m) => m.status === 'sent')).toBe(true);
     expect(mails.some((m) => /Out of stock/.test(m.subject + m.text))).toBe(true);
   });
 });

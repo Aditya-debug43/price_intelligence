@@ -7,6 +7,7 @@ import { buildApp } from '../../apps/api/src/app.ts';
 import { clearSocialHealthCache, createOrganization, startScan, syncSocial } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { signUp } from '../support/auth.ts';
 
 /**
  * Marketing providers end to end, against LOCAL IMITATIONS of the YouTube and Meta APIs (no real provider is contacted):
@@ -80,7 +81,7 @@ beforeAll(async () => {
   h.svc.socialHttp = imitation;
   app = await buildApp({ svc: { ...h.svc, db: h.db.app }, rootDb: h.db.app, logger: false, authRateLimitMax: 1000 });
   owner = new ApiClient(app);
-  await owner.post('/api/v1/auth/register', { email: `social-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Social Owner' });
+  await signUp(owner, h, { email: `social-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Social Owner' });
   const me = (await owner.get('/api/v1/auth/me')).body;
   org = (await createOrganization(h.db.app, me.user.id, 'Social Providers')).id;
   const ids: Record<string, string> = {};
@@ -364,7 +365,7 @@ describe('the summary states only what the evidence supports', () => {
 describe('who may do what', () => {
   it('another workspace sees none of this and cannot sync or read it', async () => {
     const stranger = new ApiClient(app);
-    await stranger.post('/api/v1/auth/register', { email: `social-stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
+    await signUp(stranger, h, { email: `social-stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
     const strangerOrg = (await stranger.post('/api/v1/orgs', { name: 'Stranger Co' })).body.organization.id as string;
     const m = (await stranger.get(`/api/v1/orgs/${strangerOrg}/marketing`)).body;
     expect(m.activity).toEqual([]);

@@ -17,7 +17,7 @@ const queue = new PgBossQueue(boss);
 const svc = createServices(config, db, {
   queue,
   log,
-  mailerFactory: (base) => new OutboxMailer(db, () => queue, { smtpUrl: config.SMTP_URL, from: config.EMAIL_FROM }, base.log),
+  mailerFactory: (base) => new OutboxMailer(db, () => queue, { smtp: config.smtp, from: config.emailFrom }, base.log),
 });
 
 // Optional headless-browser rendering for JavaScript-only sites. Expensive work like this stays in the worker.

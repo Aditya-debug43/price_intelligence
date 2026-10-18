@@ -105,7 +105,7 @@ describe('email delivery over SMTP', () => {
   beforeAll(async () => {
     h = await createHarness();
     smtp = await startSmtp();
-    mailer = new OutboxMailer(h.db.worker, () => h.queue, { smtpUrl: `smtp://127.0.0.1:${smtp.port}`, from: 'Shelfwatch <reports@example.test>' }, h.svc.log);
+    mailer = new OutboxMailer(h.db.worker, () => h.queue, { smtp: { host: '127.0.0.1', port: smtp.port, secure: false, user: null, password: null, from: 'Shelfwatch <reports@example.test>', fromAddress: 'reports@example.test' }, from: 'Shelfwatch <reports@example.test>' }, h.svc.log);
   });
   afterAll(async () => {
     await smtp.close();
@@ -140,23 +140,26 @@ describe('email delivery over SMTP', () => {
     expect(smtp.messages).toHaveLength(count);
   });
 
-  it('records a failure with its reason, then delivers on a later attempt (so the queue can retry)', async () => {
+  it('records a refusal with its reason (not retried automatically), then delivers when asked again', async () => {
     smtp.mode = 'reject';
     const id = await mailer.queue(h.db.worker, { ...mail, subject: 'Retry me' });
-    await expect(mailer.deliver(id)).rejects.toThrow();
+    expect(await mailer.deliver(id)).toBe('failed'); // a 550 refusal will not change by waiting
     expect(await rowOf(id)).toMatchObject({ status: 'failed', attempts: 1 });
-    expect((await rowOf(id)).error).toMatch(/550|sender rejected/i);
+    expect((await rowOf(id)).error).toMatch(/recipient_rejected|sender_rejected|550/i);
 
     smtp.mode = 'accept';
     expect(await mailer.deliver(id)).toBe('sent');
     expect(await rowOf(id)).toMatchObject({ status: 'sent', attempts: 2, error: null });
   });
 
-  it('without SMTP configured nothing leaves the machine: rows are marked dev_logged', async () => {
-    const local = new OutboxMailer(h.db.worker, () => h.queue, { from: 'x@example.test' }, h.svc.log);
+  it('without SMTP configured nothing leaves the machine and the row says so: "not_configured", never "sent"', async () => {
+    const local = new OutboxMailer(h.db.worker, () => h.queue, { smtp: null, from: 'x@example.test' }, h.svc.log);
+    expect(local.configured).toBe(false);
     const before = smtp.messages.length;
     const id = await local.queue(h.db.worker, { ...mail, subject: 'Local only' });
-    expect(await local.deliver(id)).toBe('dev_logged');
+    expect(await rowOf(id)).toMatchObject({ status: 'not_configured', sentAt: null });
+    expect(await local.deliver(id)).toBe('not_configured');
+    expect(await rowOf(id)).toMatchObject({ status: 'not_configured', sentAt: null });
     expect(smtp.messages).toHaveLength(before);
   });
 });

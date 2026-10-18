@@ -64,6 +64,13 @@
       "when": 1792329378500,
       "tag": "0008_remove_demo_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792331931214,
+      "tag": "0009_email_delivery_tracking",
+      "breakpoints": true
     }
   ]
 }

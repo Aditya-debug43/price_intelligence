@@ -1,3 +1,4 @@
+import { CaptureTransport } from '../support/mail.ts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -32,7 +33,7 @@ beforeAll(async () => {
   producer = await createProducerBoss(urls.appUrl, silentLogger, 5);
   queue = new PgBossQueue(worker);
   const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: urls.appUrl, WORKER_DATABASE_URL: urls.workerUrl, TOKEN_ENCRYPTION_KEY: generateKeyRingSpec('q1'), LOG_LEVEL: 'silent' } as unknown as NodeJS.ProcessEnv);
-  svc = createServices(config, db.worker, { storage: new MemoryStorage(), queue, log: silentLogger, mailerFactory: (b) => new OutboxMailer(db.worker, () => queue, { from: config.EMAIL_FROM }, b.log) });
+  svc = createServices(config, db.worker, { storage: new MemoryStorage(), queue, log: silentLogger, mailerFactory: (b) => new OutboxMailer(db.worker, () => queue, { smtp: null, from: config.emailFrom, transport: new CaptureTransport() }, b.log) });
   await registerWorkers(worker, svc, { schedulerEnabled: false });
 }, 120_000);
 
@@ -53,7 +54,7 @@ describe('background queue (pg-boss on PostgreSQL)', () => {
     const [mail] = await db.worker.insert(emailOutbox).values({ orgId: org.id, toAddresses: ['x@example.test'], subject: 'queued', html: '<p>x</p>', text: 'x', kind: 'test' }).returning();
     const id = await new PgBossQueue(producer).enqueue('send-email', { id: mail!.id }, { singletonKey: `email:${mail!.id}` });
     expect(id).toBeTruthy();
-    const done = await until(async () => (await db.worker.select().from(emailOutbox).where(eq(emailOutbox.id, mail!.id)))[0]!.status === 'dev_logged');
+    const done = await until(async () => (await db.worker.select().from(emailOutbox).where(eq(emailOutbox.id, mail!.id)))[0]!.status === 'sent');
     expect(done).toBe(true);
   });
 
