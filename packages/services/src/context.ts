@@ -72,8 +72,7 @@ export interface Services {
   /** HTTP used for the official social-provider APIs (YouTube, Meta). Undefined = real network; tests inject local imitations. */
   socialHttp?: HttpJson;
   /** Creates an SSRF-safe, robots-respecting fetcher sharing the process-wide per-domain limiter. */
-  /** `allowLoopback` is decided per website (demo-workspace fixtures only); the default policy never allows it. */
-  makeFetcher(over?: { maxRetries?: number; allowLoopback?: boolean }): SafeFetcher;
+  makeFetcher(over?: { maxRetries?: number }): SafeFetcher;
 }
 
 export interface ServiceOverrides {
@@ -132,7 +131,7 @@ export function fetchPolicyFrom(config: AppConfig) {
     maxHtmlBytes: config.COLLECTOR_MAX_HTML_BYTES,
     maxJsonBytes: config.COLLECTOR_MAX_JSON_BYTES,
     maxPdfBytes: config.COLLECTOR_MAX_PDF_BYTES,
-    // Never on by default. A fictional fixture website in a DEMO workspace opts in individually (see workspace.ts `loopbackAllowed`).
+    // Loopback, private and internal addresses are never reachable: no setting exists that allows them.
     allowLoopback: false,
   };
 }

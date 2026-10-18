@@ -126,13 +126,11 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
   const warnings: string[] = [];
   const collecting = activeCoverage.filter((c) => siteRows.find((s) => s.id === c.siteId)?.consentStatus === 'confirmed');
   const incomplete = collecting.filter((c) => !c.complete);
-  const containsFixture = activeCoverage.some((c) => c.isFixture);
   for (const c of activeCoverage) {
     if (c.failureReason) warnings.push(`${c.name}: ${c.failureReason}`);
-    for (const w of c.warnings) if (!w.startsWith('Fixture site')) warnings.push(`${c.name}: ${w}`);
+    for (const w of c.warnings) warnings.push(`${c.name}: ${w}`);
   }
   if (!source) warnings.push('No source website is configured, so price comparisons cannot be produced.');
-  if (containsFixture) warnings.push('This report contains FIXTURE (demonstration) data from local test sites. It is not live market data.');
   if (opts.forcePartialReason) warnings.push(opts.forcePartialReason);
   const unconvertible = comparisons.reduce((a, r) => a + r.cells.filter((c) => c.price.amount !== null && c.price.normalized === null).length, 0);
   if (unconvertible) warnings.push(`${unconvertible} competitor price(s) could not be converted to ${reporting} (missing currency or exchange rate) and are excluded from differences.`);
@@ -144,7 +142,7 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
   const conns = await db.select().from(integrationConnections).where(eq(integrationConnections.orgId, orgId));
   const integrations = [
     ...(conns.length
-      ? conns.map((c) => ({ provider: c.provider, status: c.status, message: c.isSimulated ? 'SIMULATED inventory (development)' : c.status === 'connected' ? `Read-only inventory connection${c.lastSyncAt ? `, last sync ${c.lastSyncAt.toISOString()}` : ''}` : (c.lastError ?? c.status) }))
+      ? conns.map((c) => ({ provider: c.provider, status: c.status, message: c.status === 'connected' ? `Read-only inventory connection${c.lastSyncAt ? `, last sync ${c.lastSyncAt.toISOString()}` : ''}` : (c.lastError ?? c.status) }))
       : [{ provider: 'inventory', status: 'not_connected', message: 'No authorised inventory connection: own-stock alerts use public availability only (no unit counts).' }]),
     ...allSocialStatuses({ youtubeApiKey: svc.config.YOUTUBE_API_KEY, metaAccessToken: svc.config.META_ACCESS_TOKEN, metaInstagramBusinessAccountId: svc.config.META_INSTAGRAM_BUSINESS_ACCOUNT_ID }).map((s) => ({ provider: s.provider, status: s.state, message: s.message })),
   ];
@@ -154,7 +152,7 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
     schemaVersion: 1,
     meta: {
       orgId, orgName: org?.name ?? '', generatedAt: now.toISOString(), periodDate: localDate(now, tz), timezone: tz, reportingCurrency: reporting,
-      deadlineAt: opts.deadlineAt?.toISOString() ?? null, readyBeforeDeadline: opts.deadlineAt ? now <= opts.deadlineAt : null, isPartial, kind: opts.kind, containsFixtureData: containsFixture, staleAfterHours: staleHours,
+      deadlineAt: opts.deadlineAt?.toISOString() ?? null, readyBeforeDeadline: opts.deadlineAt ? now <= opts.deadlineAt : null, isPartial, kind: opts.kind, staleAfterHours: staleHours,
     },
     fx: fx.usedRates(),
     sites: activeCoverage,
@@ -316,7 +314,7 @@ export async function generateReport(svc: Services, db: DbLike, orgId: string, o
     const status = data.meta.isPartial ? 'partial' : 'ready';
     const [row] = await db
       .update(reports)
-      .set({ status, data, dataHash: hash, generatedAt: svc.clock(), isPartial: data.meta.isPartial, containsFixture: data.meta.containsFixtureData, readyBeforeDeadline: data.meta.readyBeforeDeadline, summaryText: data.aiSummary?.text ?? data.headline })
+      .set({ status, data, dataHash: hash, generatedAt: svc.clock(), isPartial: data.meta.isPartial, readyBeforeDeadline: data.meta.readyBeforeDeadline, summaryText: data.aiSummary?.text ?? data.headline })
       .where(eq(reports.id, draft!.id))
       .returning();
     if (data.insights.length) {
@@ -372,7 +370,7 @@ export async function getReport(db: DbLike, orgId: string, id: string) {
 
 export async function listReports(db: DbLike, orgId: string, limit = 60) {
   return db
-    .select({ id: reports.id, title: reports.title, status: reports.status, kind: reports.kind, periodDate: reports.periodDate, isPartial: reports.isPartial, containsFixture: reports.containsFixture, generatedAt: reports.generatedAt, createdAt: reports.createdAt, readyBeforeDeadline: reports.readyBeforeDeadline, deadlineAt: reports.deadlineAt, summaryText: reports.summaryText })
+    .select({ id: reports.id, title: reports.title, status: reports.status, kind: reports.kind, periodDate: reports.periodDate, isPartial: reports.isPartial, generatedAt: reports.generatedAt, createdAt: reports.createdAt, readyBeforeDeadline: reports.readyBeforeDeadline, deadlineAt: reports.deadlineAt, summaryText: reports.summaryText })
     .from(reports)
     .where(eq(reports.orgId, orgId))
     .orderBy(desc(reports.createdAt))

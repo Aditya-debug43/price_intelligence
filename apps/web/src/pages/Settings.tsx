@@ -4,14 +4,13 @@ import { DEFAULTS, connectionSyncHealth, formatDateTime } from '@ci/shared';
 import { api, errorMessage, fieldErrors, orgPath } from '../api';
 import { useMe, useMeta, useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { AccountSync, ProviderCard, type SocialAccountView, type SocialProviderView } from '../social';
-import { Age, Card, COMMON_CURRENCIES, COMMON_ZONES, DataState, EmptyState, Field, FixturePill, PageHead, PLATFORM_LABEL, Tabs, useToast } from '../ui';
+import { Age, Card, COMMON_CURRENCIES, COMMON_ZONES, DataState, EmptyState, Field, PageHead, PLATFORM_LABEL, Tabs, useToast } from '../ui';
 import type { DashboardData, Settings } from '../types';
 
 type TabId = 'general' | 'notifications' | 'members' | 'integrations' | 'developer';
 
 export function SettingsPage() {
   const { isAdmin } = useOrg();
-  const meta = useMeta();
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get('tab') as TabId | null) ?? 'general';
   const setTab = (t: TabId) => setSp({ tab: t }, { replace: true });
@@ -27,13 +26,11 @@ export function SettingsPage() {
         { id: 'notifications', label: 'Notifications' },
         { id: 'members', label: 'People' },
         { id: 'integrations', label: 'Integrations' },
-        ...(meta.data?.devTools ? [{ id: 'developer' as const, label: 'Developer tools' }] : []),
       ]} />
       {tab === 'general' && <GeneralTab />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'members' && <MembersTab />}
       {tab === 'integrations' && <IntegrationsTab />}
-      {tab === 'developer' && <DeveloperTab />}
     </>
   );
 }
@@ -296,10 +293,9 @@ function ConnectionPill({ c }: { c: Conn }) {
   return <span className="pill">{c.status}</span>;
 }
 
-interface Conn { id: string; provider: string; siteId: string | null; status: string; shopDomain: string | null; scopes: string | null; isSimulated: boolean; connectedAt: string | null; revokedAt: string | null; lastSyncAt: string | null; lastError: string | null; accessTokenExpiresAt: string | null }
+interface Conn { id: string; provider: string; siteId: string | null; status: string; shopDomain: string | null; scopes: string | null; connectedAt: string | null; revokedAt: string | null; lastSyncAt: string | null; lastError: string | null; accessTokenExpiresAt: string | null }
 interface Integrations {
   shopify: { configured: boolean; missing: string[]; scopes: string; apiVersion: string; readOnly: boolean; note: string };
-  devInventoryAvailable: boolean;
   connections: Conn[];
   social: { providers: SocialProviderView[]; accounts: SocialAccountView[] };
 }
@@ -314,9 +310,6 @@ function IntegrationsTab() {
   const start = useOrgMutation((id, v: { shop: string; siteId?: string }) => api.post<{ url: string }>(orgPath(id, '/integrations/shopify/start'), v), [], (r) => window.location.assign(r.url));
   const sync = useOrgMutation((id, connectionId: string) => api.post(orgPath(id, `/integrations/${connectionId}/sync`)), ['integrations'], () => toast.push('Inventory sync started.'));
   const disconnect = useOrgMutation((id, connectionId: string) => api.del(orgPath(id, `/integrations/${connectionId}`)), ['integrations', 'stock'], () => toast.push('Disconnected. The access token was revoked and deleted.'));
-  const devCreate = useOrgMutation((id, _: void) => api.post(orgPath(id, '/integrations/dev-inventory')), ['integrations', 'stock'], () => toast.push('Simulated inventory connection created (development only).'));
-  const [sim, setSim] = useState({ connectionId: '', sku: '', quantity: '3' });
-  const simulate = useOrgMutation((id, v: { connectionId: string; sku: string; quantity: number | null }) => api.post(orgPath(id, '/integrations/dev-inventory/simulate'), { ...v, locationName: 'Main warehouse' }), ['stock', 'alerts', 'dashboard'], () => toast.push('Quantity changed. The next collection will evaluate it.'));
   const syncSocial = useOrgMutation((id, _: void) => api.post(orgPath(id, '/social/sync')), ['integrations', 'marketing'], () => toast.push('Social sync started.'));
   const [acct, setAcct] = useState({ siteId: '', platform: 'facebook', handle: '' });
   const addAcct = useOrgMutation((id, v: typeof acct) => api.post(orgPath(id, '/social-accounts'), v), ['integrations'], () => { toast.push('Account added. Confirm it before it is used.'); setAcct({ ...acct, handle: '' }); });
@@ -324,8 +317,7 @@ function IntegrationsTab() {
   return (
     <DataState q={q}>
       {(d) => {
-        const sims = d.connections.filter((c) => c.isSimulated && c.status === 'connected');
-        const real = d.connections.filter((c) => !c.isSimulated);
+        const real = d.connections;
         return (
           <div className="stack">
             <Card title="Your shop’s inventory (Shopify, read-only)">
@@ -356,20 +348,6 @@ function IntegrationsTab() {
                 </table>
               )}
             </Card>
-
-            {d.devInventoryAvailable && isAdmin && (
-              <Card title={<>Inventory simulator <FixturePill /></>}>
-                <p style={{ marginTop: 0 }} className="small">For development and demos only (not available in production). It pretends to be an authorised inventory source so the low-stock flow can be shown end to end. Quantities set here are labelled <b>simulated</b> everywhere.</p>
-                {sims.length === 0 ? <button className="btn" onClick={() => devCreate.mutate(undefined)} disabled={devCreate.isPending}>Create a simulated inventory connection</button> : (
-                  <form className="row" style={{ alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); simulate.mutate({ connectionId: sim.connectionId || sims[0]!.id, sku: sim.sku, quantity: sim.quantity === '' ? null : Number(sim.quantity) }); }}>
-                    <Field label="SKU">{(id) => <input id={id} required value={sim.sku} onChange={(e) => setSim({ ...sim, sku: e.target.value })} />}</Field>
-                    <Field label="New quantity" hint="Leave empty to remove the quantity.">{(id) => <input id={id} type="number" min={0} value={sim.quantity} onChange={(e) => setSim({ ...sim, quantity: e.target.value })} style={{ maxWidth: 120 }} />}</Field>
-                    <button className="btn btn-primary" type="submit" disabled={simulate.isPending}>Set quantity</button>
-                  </form>
-                )}
-                {(devCreate.error || simulate.error) && <div className="callout bad" role="alert" style={{ marginTop: 10 }}>{errorMessage(devCreate.error ?? simulate.error)}</div>}
-              </Card>
-            )}
 
             <Card title="Competitor marketing (official APIs)" actions={isAdmin ? <button className="btn btn-sm" onClick={() => syncSocial.mutate(undefined)} disabled={syncSocial.isPending}>Sync now</button> : undefined}>
               <div className="grid3">
@@ -403,42 +381,5 @@ function IntegrationsTab() {
         );
       }}
     </DataState>
-  );
-}
-
-// ───────────────────────────────────────────────────────────── developer tools
-function DeveloperTab() {
-  const meta = useMeta();
-  const { isDemo } = useOrg();
-  const toast = useToast();
-  const outbox = useOrgQuery<{ emails: { id: string; to: string[]; subject: string; text: string; kind: string; status: string; createdAt: string }[] }>('outbox', '/dev/outbox', { refetchInterval: 10_000 });
-  const [now, setNow] = useState('');
-  const tick = useOrgMutation((id, v: { now?: string }) => api.post(orgPath(id, '/dev/scheduler/tick'), v), ['reports', 'dashboard'], () => toast.push('Scheduler pass queued.'));
-  const dev = meta.data?.schedulerMode === 'dev' && isDemo;
-  return (
-    <div className="stack">
-      <div className="callout warn"><b>Development tools.</b> These exist only outside production. They make the 09:00 report flow and local email visible without waiting for real time or a mail server.</div>
-      <Card title="Run the report scheduler">
-        {!dev ? <p className="muted" style={{ margin: 0 }}>{isDemo ? <>Set <code>SCHEDULER_MODE=dev</code> to simulate a different time of day.</> : 'The developer clock exists only in demo workspaces. A live workspace always runs on real time.'}</p> : (
-          <form className="row" style={{ alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); tick.mutate({ now: now ? new Date(now).toISOString() : undefined }); }}>
-            <Field label="Pretend it is…" hint="Leave empty to use the real time. The worker decides whether to start collecting or finish the report for that moment.">{(id) => <input id={id} type="datetime-local" value={now} onChange={(e) => setNow(e.target.value)} />}</Field>
-            <button className="btn btn-primary" type="submit" disabled={tick.isPending}>Run a scheduler pass</button>
-          </form>
-        )}
-        {tick.error && <div className="callout bad" role="alert" style={{ marginTop: 10 }}>{errorMessage(tick.error)}</div>}
-      </Card>
-      <Card title="Local email outbox" pad={false}>
-        <DataState q={outbox} isEmpty={(d) => d.emails.length === 0} empty={<div className="card-b muted">No email has been written yet. Verification links, password resets and report summaries appear here when SMTP is not configured.</div>}>
-          {(d) => (
-            <div>{d.emails.map((m) => (
-              <details key={m.id} className="ev" style={{ padding: '10px 18px', borderBottom: '1px solid var(--line-2)' }}>
-                <summary><b>{m.subject}</b> <span className="muted small">to {m.to.join(', ')} · {m.kind} · {m.status} · <Age iso={m.createdAt} /></span></summary>
-                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12.5, margin: '8px 0 0' }}>{m.text}</pre>
-              </details>
-            ))}</div>
-          )}
-        </DataState>
-      </Card>
-    </div>
   );
 }

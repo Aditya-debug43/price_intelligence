@@ -13,7 +13,7 @@ import { provenanceFor } from './workspace.ts';
 export async function recordEvidence(
   svc: Pick<Services, 'storage'>,
   db: DbLike,
-  p: { orgId: string; siteId: string; doc: EvidenceDoc; method: string | null; version: string | null; isFixture: boolean; provenance?: Provenance },
+  p: { orgId: string; siteId: string; doc: EvidenceDoc; method: string | null; version: string | null; provenance?: Provenance },
 ): Promise<string> {
   const [row] = await db
     .insert(evidence)
@@ -29,8 +29,7 @@ export async function recordEvidence(
       snippet: p.doc.snippet.slice(0, 2000),
       extractionMethod: p.method,
       extractionVersion: p.version,
-      isFixture: p.isFixture,
-      provenance: p.provenance ?? provenanceFor({ isFixture: p.isFixture }),
+      provenance: p.provenance ?? provenanceFor(),
     })
     .returning({ id: evidence.id });
   const id = row!.id;

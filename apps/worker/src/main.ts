@@ -22,7 +22,7 @@ const svc = createServices(config, db, {
 
 // Optional headless-browser rendering for JavaScript-only sites. Expensive work like this stays in the worker.
 if (config.BROWSER_RENDERING_ENABLED) {
-  const renderer = new PlaywrightRenderer(new SafeFetcher(fetchPolicyFrom(config), { limiter: svc.limiter }), { allowLoopback: false /* a headless browser never reaches loopback, not even for demo fixtures */, channel: config.BROWSER_CHANNEL, executablePath: config.BROWSER_EXECUTABLE_PATH });
+  const renderer = new PlaywrightRenderer(new SafeFetcher(fetchPolicyFrom(config), { limiter: svc.limiter }), { allowLoopback: false /* a headless browser never reaches loopback addresses */, channel: config.BROWSER_CHANNEL, executablePath: config.BROWSER_EXECUTABLE_PATH });
   const ok = await renderer.init();
   if (ok) svc.browser = renderer;
   log[ok ? 'info' : 'warn'](ok ? 'browser rendering enabled' : 'browser rendering requested but no browser could be launched (install Chrome/Edge or run `npx playwright-core install chromium`)');
@@ -30,7 +30,7 @@ if (config.BROWSER_RENDERING_ENABLED) {
 
 await ensureFxRates(svc);
 await registerWorkers(boss, svc, { schedulerEnabled: true });
-log.info('worker ready', { env: config.NODE_ENV, schedulerMode: config.SCHEDULER_MODE, ai: svc.llm.available ? svc.llm.id : 'none', browser: !!svc.browser?.available });
+log.info('worker ready', { env: config.NODE_ENV, ai: svc.llm.available ? svc.llm.id : 'none', browser: !!svc.browser?.available });
 
 installShutdown({
   name: 'worker',

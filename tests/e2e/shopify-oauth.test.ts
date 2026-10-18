@@ -143,7 +143,7 @@ describe('connecting a Shopify store (read-only inventory)', () => {
     expect(r.orgId).toBe(t.orgId);
 
     const c = await connRow(connectionId);
-    expect(c).toMatchObject({ provider: 'shopify', status: 'connected', shopDomain: SHOP, scopes: 'read_products,read_inventory,read_locations', isSimulated: false });
+    expect(c).toMatchObject({ provider: 'shopify', status: 'connected', shopDomain: SHOP, scopes: 'read_products,read_inventory,read_locations' });
     expect(c.accessTokenEnc).toMatch(/^v1\./);
     expect(c.accessTokenEnc).not.toContain('shpat_');
     expect(decryptSecret(c.accessTokenEnc!, h.svc.keyRing!)).toBe('shpat_gen1');

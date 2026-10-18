@@ -5,7 +5,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError, type ZodType } from 'zod';
 import { PINO_REDACT_PATHS, type AppConfig } from '@ci/core';
-import type { MemberRole, OrgMode } from '@ci/shared';
+import type { MemberRole } from '@ci/shared';
 import { withTenant, type Db, type DbLike } from '@ci/database';
 import {
   AuthError,
@@ -13,7 +13,6 @@ import {
   ExportError,
   IntegrationError,
   ActionNotPossibleError,
-  WorkspaceModeError,
   checkSystemReadiness,
   MatchError,
   ProfileError,
@@ -31,7 +30,6 @@ import { catalogRoutes } from './routes/catalog.ts';
 import { reportRoutes } from './routes/reports.ts';
 import { alertRoutes } from './routes/alerts.ts';
 import { integrationRoutes, publicIntegrationRoutes } from './routes/integrations.ts';
-import { devRoutes } from './routes/dev.ts';
 
 export const SESSION_COOKIE = 'ci_session';
 
@@ -45,8 +43,6 @@ declare module 'fastify' {
     user?: SessionUser;
     orgId?: string;
     role?: MemberRole;
-    /** 'live' or 'demo' — decided when the workspace was created. */
-    orgMode?: OrgMode;
     tx<T>(fn: (tx: DbLike) => Promise<T>): Promise<T>;
   }
 }
@@ -130,7 +126,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return send((err as { status: number }).status, (err as { code?: string }).code ?? 'error', err.message);
     }
     if (err instanceof ActionNotPossibleError) return send(err.status, err.code, err.message, err.details);
-    if (err instanceof WorkspaceModeError) return send(err.status, 'wrong_workspace_mode', err.message);
     if (err instanceof ConsentRequiredError) return send(409, 'consent_required', err.message);
     if (err instanceof ProfileError) return send(404, 'not_found', err.message);
     const fe = err as FastifyError;
@@ -159,9 +154,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
   app.get('/api/v1/meta', async () => ({
     appBaseUrl: cfg.APP_BASE_URL,
-    schedulerMode: cfg.SCHEDULER_MODE,
-    devTools: !cfg.isProduction,
-    allowLocalFixtures: cfg.ALLOW_LOCAL_FIXTURES,
     emailConfigured: !!cfg.SMTP_URL,
     /** With email delivery configured, an account must verify its address before it can sign in. Without it, accounts stay visibly unverified. */
     emailVerificationEnforced: !!cfg.SMTP_URL,
@@ -212,7 +204,6 @@ async function integrationOrgScope(app: FastifyInstance) {
         req.user = session.user;
         req.orgId = orgId;
         req.role = role;
-        req.orgMode = ctx.mode;
       });
       await scope.register(orgRoutes);
       await scope.register(siteRoutes);
@@ -220,7 +211,6 @@ async function integrationOrgScope(app: FastifyInstance) {
       await scope.register(reportRoutes);
       await scope.register(alertRoutes);
       await scope.register(integrationRoutes);
-      if (!app.cfg.isProduction) await scope.register(devRoutes);
     },
     { prefix: '/orgs/:orgId' },
   );

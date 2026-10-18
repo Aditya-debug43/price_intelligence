@@ -4,9 +4,9 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { formatDateTime, formatMoney } from '@ci/shared';
 import { api, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { Age, ArrowIcon, Card, DataState, EmptyState, FixturePill, PageHead, Pager, ProvenancePill, useToast } from '../ui';
+import { Age, ArrowIcon, Card, DataState, EmptyState, PageHead, Pager, ProvenancePill, useToast } from '../ui';
 
-interface ProductRow { variantId: string; productId: string; siteId: string; siteName: string; role: string; title: string; variantTitle: string | null; brand: string | null; category: string | null; price: number | null; compareAt: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; sku: string | null; gtin: string | null; sizeLabel: string | null; method: string; firstSeenAt: string; stale: boolean; isFixture: boolean }
+interface ProductRow { variantId: string; productId: string; siteId: string; siteName: string; role: string; title: string; variantTitle: string | null; brand: string | null; category: string | null; price: number | null; compareAt: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; sku: string | null; gtin: string | null; sizeLabel: string | null; method: string; firstSeenAt: string; stale: boolean; }
 
 export function ProductsPage() {
   const { orgId } = useOrg();
@@ -45,7 +45,7 @@ export function ProductsPage() {
                   {d.rows.map((r) => (
                     <tr key={r.variantId}>
                       <td><Link className="title" to={`/o/${orgId}/products/${r.productId}`}>{r.title}</Link>{r.variantTitle && <span className="muted"> — {r.variantTitle}</span>}<div className="sub">{[r.brand, r.sizeLabel, r.category].filter(Boolean).join(' · ')}</div></td>
-                      <td>{r.siteName} {r.isFixture && <FixturePill />}<div className="sub">{r.role === 'source' ? 'your shop' : 'competitor'}</div></td>
+                      <td>{r.siteName}<div className="sub">{r.role === 'source' ? 'your shop' : 'competitor'}</div></td>
                       <td className="r num" style={{ fontSize: 18 }}>{r.price === null ? <span className="muted" title="No price was found — never treated as zero">—</span> : <>{r.compareAt && <s className="muted" style={{ fontSize: 13 }}>{r.compareAt.toFixed(2)} </s>}{r.price.toFixed(2)}<small className="muted"> {r.currency ?? '?'}</small></>}</td>
                       <td><span className={`pill ${r.availability === 'in_stock' ? 'good' : r.availability === 'out_of_stock' ? 'bad' : r.availability === 'unknown' ? '' : 'warn'}`}>{r.availability.replace(/_/g, ' ')}</span></td>
                       <td className="small">{r.gtin ?? ''}{r.gtin && r.sku ? ' · ' : ''}{r.sku ?? (r.gtin ? '' : '—')}</td>
@@ -65,12 +65,12 @@ export function ProductsPage() {
 }
 
 interface Detail {
-  product: { id: string; title: string; brand: string | null; category: string | null; description: string | null; canonicalUrl: string; siteName: string; role: string; isFixture: boolean; extractionMethod: string; extractionVersion: string; firstSeenAt: string; lastSeenAt: string; delistedAt: string | null; attrs: { quality?: { score: number; missingFields: string[]; notes: string[] } } };
+  product: { id: string; title: string; brand: string | null; category: string | null; description: string | null; canonicalUrl: string; siteName: string; role: string; extractionMethod: string; extractionVersion: string; firstSeenAt: string; lastSeenAt: string; delistedAt: string | null; attrs: { quality?: { score: number; missingFields: string[]; notes: string[] } } };
   variants: { id: string; title: string | null; sku: string | null; gtin: string | null; price: number | null; compareAtPrice: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; stale: boolean; qtyLabel: string | null; lowStockThreshold: number | null; quantity: number | null; quantitySource: string | null; stock: { state: string; quantity: number | null } | null }[];
-  priceHistory: { id: string; variantId: string; observedAt: string; price: number | null; compareAtPrice: number | null; currency: string | null; availability: string; sourceUrl: string; method: string; evidenceId: string | null; isFixture: boolean }[];
+  priceHistory: { id: string; variantId: string; observedAt: string; price: number | null; compareAtPrice: number | null; currency: string | null; availability: string; sourceUrl: string; method: string; evidenceId: string | null; }[];
   matches: { id: string; matchClass: string; confidence: number; status: string; method: string; reasons: string[]; thisSideIsSource: boolean; other: { id: string; title: string; variantTitle: string | null; siteName: string; price: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; productId: string } | null }[];
   offers: { id: string; title: string; kind: string; originalPrice: number | null; salePrice: number | null; currency: string | null; claimedDiscountPct: number | null; verification: string; status: string; firstSeenAt: string; lastSeenAt: string }[];
-  evidence: { id: string; url: string; fetchedAt: string; httpStatus: number | null; contentHash: string; snippet: string | null; method: string | null; version: string | null; provenance?: string; snapshotAvailable: boolean; snapshotPurgedAt: string | null; isFixture: boolean }[];
+  evidence: { id: string; url: string; fetchedAt: string; httpStatus: number | null; contentHash: string; snippet: string | null; method: string | null; version: string | null; provenance?: string; snapshotAvailable: boolean; snapshotPurgedAt: string | null; }[];
 }
 
 export function ProductDetailPage() {
@@ -107,7 +107,7 @@ function Body({ d, orgId, isAdmin, thr, setThr, onSave }: { d: Detail; orgId: st
       <PageHead
         eyebrow={`${p.role === 'source' ? 'Your product' : 'Competitor product'} · ${p.siteName}`}
         docTitle={p.title}
-        title={<>{p.title} {p.isFixture && <FixturePill />}</>}
+        title={<>{p.title}</>}
         subtitle={<><a href={p.canonicalUrl} target="_blank" rel="noreferrer noopener">Open the product page <ArrowIcon /></a>{p.brand ? ` · ${p.brand}` : ''}{p.category ? ` · ${p.category}` : ''}{p.delistedAt && <span className="pill bad" style={{ marginLeft: 8 }}>apparently delisted {formatDateTime(p.delistedAt)}</span>}</>}
       />
       <div className="stack">
@@ -179,7 +179,7 @@ function Body({ d, orgId, isAdmin, thr, setThr, onSave }: { d: Detail; orgId: st
               {d.evidence.map((e) => (
                 <tr key={e.id}>
                   <td className="small">{formatDateTime(e.fetchedAt)}<div className="sub">HTTP {e.httpStatus ?? '—'}</div></td>
-                  <td className="small" style={{ maxWidth: 240, wordBreak: 'break-all' }}><a href={e.url} target="_blank" rel="noreferrer noopener">{e.url}</a>{e.isFixture && <> <FixturePill /></>}</td>
+                  <td className="small" style={{ maxWidth: 240, wordBreak: 'break-all' }}><a href={e.url} target="_blank" rel="noreferrer noopener">{e.url}</a></td>
                   <td className="small">{e.method ?? '—'} {e.version}</td>
                   <td><ProvenancePill value={e.provenance} /></td>
                   <td className="small mono">{e.contentHash.slice(0, 12)}…</td>

@@ -74,7 +74,7 @@ export const consentSchema = z.object({
 
 export const startScanSchema = z.object({
   kind: z.enum(['discovery', 'refresh', 'sample']).default('discovery'),
-  /** For `sample`: cap on products fetched, so a demo can run a small live refresh. */
+  /** For `sample`: cap on products fetched, so a small refresh can be run first. */
   limit: z.number().int().min(1).max(500).optional(),
 });
 
@@ -94,7 +94,6 @@ export const settingsSchema = z.object({
       recipients: z.array(z.email()).max(20),
     })
     .optional(),
-  /** Reserved for fixture/dev workspaces only. */
   enabledAiAdjudication: z.boolean().optional(),
 });
 
@@ -147,16 +146,6 @@ export const shopifyStartSchema = z.object({
   siteId: z.uuid().optional(),
 });
 
-export const devInventorySchema = z.object({
-  siteId: z.uuid(),
-});
-
-export const devSimulateInventorySchema = z.object({
-  connectionId: z.uuid(),
-  sku: z.string().min(1).max(200),
-  locationName: z.string().max(100).default('Main warehouse'),
-  quantity: z.number().int().min(0).max(1_000_000).nullable(),
-});
 
 export const socialAccountSchema = z.object({
   siteId: z.uuid(),

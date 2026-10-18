@@ -20,7 +20,6 @@ export interface StockObservationInput {
   observedAt: Date;
   evidenceId?: string | null;
   scanRunId?: string | null;
-  isFixture: boolean;
   /** When per-location rows were already written, the aggregate state update must not add another observation. */
   skipObservationRow?: boolean;
   locationId?: string | null;
@@ -30,12 +29,10 @@ export interface StockObservationInput {
 
 const STALE_AUTHORISED_MS = 36 * 3_600_000;
 
-function describeBasis(basis: string, quantity: number | null, threshold: number, title: string, simulated: boolean): { title: string; body: string } {
-  const tag = simulated ? '[SIMULATED] ' : '';
+function describeBasis(basis: string, quantity: number | null, threshold: number, title: string): { title: string; body: string } {
   switch (basis) {
     case 'authorised_quantity':
-    case 'simulated_quantity':
-      return { title: `${tag}Low stock: ${title}`, body: `${tag}${quantity} unit${quantity === 1 ? '' : 's'} left (alert threshold ${threshold}). Source: ${simulated ? 'simulated inventory' : 'your authorised inventory connection'}.` };
+      return { title: `Low stock: ${title}`, body: `${quantity} unit${quantity === 1 ? '' : 's'} left (alert threshold ${threshold}). Source: your authorised inventory connection.` };
     case 'public_quantity_claim':
       return { title: `Low stock: ${title}`, body: `Your website says only ${quantity} left (threshold ${threshold}). This is a public claim, not an authorised inventory count.` };
     default:
@@ -52,8 +49,8 @@ export async function applyStockObservation(db: DbLike, p: StockObservationInput
   if (!p.skipObservationRow) {
     await db.insert(stockObservations).values({
       orgId: p.orgId, siteId: p.siteId, variantId: p.variantId, observedAt: p.observedAt, availability: p.availability, quantity: p.quantity, quantitySource: p.quantitySource,
-      tracked: p.tracked, locationId: p.locationId ?? null, locationName: p.locationName ?? null, connectionId: p.connectionId ?? null, evidenceId: p.evidenceId ?? null, scanRunId: p.scanRunId ?? null, isFixture: p.isFixture,
-      provenance: provenanceFor({ isFixture: p.isFixture, quantitySource: p.quantitySource }),
+      tracked: p.tracked, locationId: p.locationId ?? null, locationName: p.locationName ?? null, connectionId: p.connectionId ?? null, evidenceId: p.evidenceId ?? null, scanRunId: p.scanRunId ?? null,
+      provenance: provenanceFor({ quantitySource: p.quantitySource }),
     });
   }
   const changed = !row || row.state !== next.currentState;
@@ -66,15 +63,14 @@ export async function applyStockObservation(db: DbLike, p: StockObservationInput
 
   const alertIds: string[] = [];
   for (const ev of events) {
-    const simulated = p.quantitySource === 'simulated';
     let alert: { type: 'low_stock' | 'out_of_stock' | 'restocked'; severity: 'info' | 'warning' | 'critical'; title: string; body: string };
     if (ev.type === 'low_stock') {
-      const d = describeBasis(ev.basis, ev.quantity, p.threshold, p.title, simulated);
+      const d = describeBasis(ev.basis, ev.quantity, p.threshold, p.title);
       alert = { type: 'low_stock', severity: 'warning', title: d.title, body: d.body };
     } else if (ev.type === 'out_of_stock') {
-      alert = { type: 'out_of_stock', severity: 'critical', title: `${simulated ? '[SIMULATED] ' : ''}Out of stock: ${p.title}`, body: ev.quantity !== null ? `${simulated ? '[SIMULATED] ' : ''}Available quantity is ${ev.quantity}.` : 'Your website now shows this item as unavailable.' };
+      alert = { type: 'out_of_stock', severity: 'critical', title: `Out of stock: ${p.title}`, body: ev.quantity !== null ? `Available quantity is ${ev.quantity}.` : 'Your website now shows this item as unavailable.' };
     } else {
-      alert = { type: 'restocked', severity: 'info', title: `${simulated ? '[SIMULATED] ' : ''}Back in stock: ${p.title}`, body: ev.quantity !== null ? `${ev.quantity} units available again.` : 'Your website shows this item as available again.' };
+      alert = { type: 'restocked', severity: 'info', title: `Back in stock: ${p.title}`, body: ev.quantity !== null ? `${ev.quantity} units available again.` : 'Your website shows this item as available again.' };
     }
     const id = await raiseAlert(db, { orgId: p.orgId, ...alert, siteId: p.siteId, variantId: p.variantId, evidenceId: p.evidenceId ?? null, dedupeKey: `${ev.type}:${p.variantId}:${ev.dedupeSuffix}`, data: { quantity: ev.quantity, threshold: p.threshold, basis: ev.basis, from: ev.from, to: ev.to, baseline: ev.baseline, quantitySource: p.quantitySource, observedAt: p.observedAt.toISOString(), connectionId: p.connectionId ?? null } });
     if (id) alertIds.push(id);
@@ -97,11 +93,11 @@ export async function applyStockObservation(db: DbLike, p: StockObservationInput
   return { events, alertIds, state: next.currentState };
 }
 
-/** Skip public evaluation while a fresher authorised/simulated quantity is in force for the variant. */
+/** Skip public evaluation while a fresher authorised quantity is in force for the variant. */
 export async function hasFreshAuthorisedStock(db: DbLike, variantIds: string[], now: Date): Promise<Set<string>> {
   if (!variantIds.length) return new Set();
   const rows = await db.select({ id: stockStates.variantId, q: stockStates.quantitySource, at: stockStates.updatedAt }).from(stockStates).where(inArray(stockStates.variantId, variantIds));
-  return new Set(rows.filter((r) => (r.q === 'authorised_inventory' || r.q === 'simulated') && now.getTime() - r.at.getTime() < STALE_AUTHORISED_MS).map((r) => r.id));
+  return new Set(rows.filter((r) => r.q === 'authorised_inventory' && now.getTime() - r.at.getTime() < STALE_AUTHORISED_MS).map((r) => r.id));
 }
 
 export async function orgThreshold(db: DbLike, orgId: string): Promise<number> {
@@ -142,7 +138,7 @@ export interface InventorySyncResult {
 }
 
 /** Applies a provider's inventory listing to the SOURCE site's variants (matched by SKU), location-aware. */
-export async function applyInventory(svc: Services, db: DbLike, p: { orgId: string; connectionId: string; items: InventoryItemRecord[]; simulated: boolean }): Promise<InventorySyncResult> {
+export async function applyInventory(svc: Services, db: DbLike, p: { orgId: string; connectionId: string; items: InventoryItemRecord[] }): Promise<InventorySyncResult> {
   const [source] = await db.select().from(sites).where(and(eq(sites.orgId, p.orgId), eq(sites.role, 'source'), eq(sites.active, true)));
   if (!source) throw new Error('Add your own website (source) before syncing inventory.');
   const threshold = await orgThreshold(db, p.orgId);
@@ -155,7 +151,7 @@ export async function applyInventory(svc: Services, db: DbLike, p: { orgId: stri
   const bySku = new Map(rows.filter((r) => r.sku).map((r) => [r.sku!.toLowerCase(), r]));
   const result: InventorySyncResult = { items: p.items.length, matched: 0, unmatchedSkus: [], alerts: 0, untracked: 0 };
   const alertIds: string[] = [];
-  const source_: QuantitySource = p.simulated ? 'simulated' : 'authorised_inventory';
+  const source_: QuantitySource = 'authorised_inventory';
 
   for (const item of p.items) {
     const v = item.sku ? bySku.get(item.sku.toLowerCase()) : undefined;
@@ -170,14 +166,14 @@ export async function applyInventory(svc: Services, db: DbLike, p: { orgId: stri
     for (const l of item.levels) {
       await db.insert(stockObservations).values({
         orgId: p.orgId, siteId: source.id, variantId: v.id, observedAt: now, availability: total === null ? v.availability : total > 0 ? 'in_stock' : 'out_of_stock', quantity: l.available,
-        quantitySource: item.tracked ? source_ : null, tracked: item.tracked, locationId: l.locationId, locationName: l.locationName, connectionId: p.connectionId, isFixture: p.simulated || source.isFixture,
-        provenance: provenanceFor({ isFixture: p.simulated || source.isFixture, quantitySource: item.tracked ? source_ : null }),
+        quantitySource: item.tracked ? source_ : null, tracked: item.tracked, locationId: l.locationId, locationName: l.locationName, connectionId: p.connectionId,
+        provenance: provenanceFor({ quantitySource: item.tracked ? source_ : null }),
       });
     }
     const r = await applyStockObservation(db, {
       orgId: p.orgId, siteId: source.id, variantId: v.id, title: v.vTitle && v.vTitle !== 'Default Title' ? `${v.title} (${v.vTitle})` : v.title,
       availability: total === null ? v.availability : total > 0 ? 'in_stock' : 'out_of_stock', quantity: total, quantitySource: total === null ? null : source_, tracked: item.tracked && total !== null,
-      threshold: v.threshold ?? threshold, observedAt: now, isFixture: p.simulated || source.isFixture, skipObservationRow: true, connectionId: p.connectionId,
+      threshold: v.threshold ?? threshold, observedAt: now, skipObservationRow: true, connectionId: p.connectionId,
     });
     alertIds.push(...r.alertIds);
   }

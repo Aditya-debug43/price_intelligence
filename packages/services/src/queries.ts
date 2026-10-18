@@ -82,7 +82,7 @@ export async function listProducts(db: DbLike, orgId: string, f: ProductFilter, 
     .select({
       variantId: variants.id, productId: products.id, siteId: variants.siteId, siteName: sites.name, role: sites.role, title: products.title, variantTitle: variants.title, brand: products.brand, category: products.category,
       price: variants.price, compareAt: variants.compareAtPrice, currency: variants.currency, availability: variants.availability, observedAt: variants.observedAt, url: variants.url, sku: variants.sku, gtin: variants.gtin,
-      sizeLabel: variants.qtyLabel, method: products.extractionMethod, firstSeenAt: products.firstSeenAt, delistedAt: products.delistedAt, isFixture: sites.isFixture,
+      sizeLabel: variants.qtyLabel, method: products.extractionMethod, firstSeenAt: products.firstSeenAt, delistedAt: products.delistedAt,
     })
     .from(variants)
     .innerJoin(products, eq(products.id, variants.productId))
@@ -96,7 +96,7 @@ export async function listProducts(db: DbLike, orgId: string, f: ProductFilter, 
 }
 
 export async function getProductDetail(db: DbLike, orgId: string, productId: string, now: Date) {
-  const [p] = await db.select({ p: products, siteName: sites.name, role: sites.role, isFixture: sites.isFixture }).from(products).innerJoin(sites, eq(sites.id, products.siteId)).where(and(eq(products.id, productId), eq(products.orgId, orgId)));
+  const [p] = await db.select({ p: products, siteName: sites.name, role: sites.role }).from(products).innerJoin(sites, eq(sites.id, products.siteId)).where(and(eq(products.id, productId), eq(products.orgId, orgId)));
   if (!p) return null;
   const vs = await db.select().from(variants).where(eq(variants.productId, productId));
   const vIds = vs.map((v) => v.id);
@@ -123,12 +123,12 @@ export async function getProductDetail(db: DbLike, orgId: string, productId: str
   const evIds = [...new Set(history.map((h) => h.evidenceId).filter((i): i is string => !!i))].slice(0, 8);
   const ev = evIds.length ? await db.select().from(evidence).where(inArray(evidence.id, evIds)).orderBy(desc(evidence.fetchedAt)) : [];
   return {
-    product: { ...p.p, siteName: p.siteName, role: p.role, isFixture: p.isFixture },
+    product: { ...p.p, siteName: p.siteName, role: p.role },
     variants: vs.map((v) => ({ ...v, stale: isStale(v.observedAt, now, DEFAULTS.staleAfterHours), stock: states.find((s) => s.variantId === v.id) ?? null })),
-    priceHistory: history.map((h) => ({ id: h.id, variantId: h.variantId, observedAt: h.observedAt, price: h.price, compareAtPrice: h.compareAtPrice, currency: h.currency, availability: h.availability, sourceUrl: h.sourceUrl, method: h.extractionMethod, evidenceId: h.evidenceId, isFixture: h.isFixture, provenance: h.provenance })),
+    priceHistory: history.map((h) => ({ id: h.id, variantId: h.variantId, observedAt: h.observedAt, price: h.price, compareAtPrice: h.compareAtPrice, currency: h.currency, availability: h.availability, sourceUrl: h.sourceUrl, method: h.extractionMethod, evidenceId: h.evidenceId, provenance: h.provenance })),
     matches: matches.map((m) => ({ ...m, other: others.find((o) => o.id === (vIds.includes(m.sourceVariantId) ? m.competitorVariantId : m.sourceVariantId)) ?? null, thisSideIsSource: vIds.includes(m.sourceVariantId) })),
     offers: productOffers,
-    evidence: ev.map((e) => ({ id: e.id, url: e.url, fetchedAt: e.fetchedAt, httpStatus: e.httpStatus, contentHash: e.contentHash, snippet: e.snippet, method: e.extractionMethod, version: e.extractionVersion, snapshotAvailable: !!e.snapshotRef, snapshotPurgedAt: e.snapshotPurgedAt, isFixture: e.isFixture, provenance: e.provenance })),
+    evidence: ev.map((e) => ({ id: e.id, url: e.url, fetchedAt: e.fetchedAt, httpStatus: e.httpStatus, contentHash: e.contentHash, snippet: e.snippet, method: e.extractionMethod, version: e.extractionVersion, snapshotAvailable: !!e.snapshotRef, snapshotPurgedAt: e.snapshotPurgedAt, provenance: e.provenance })),
   };
 }
 

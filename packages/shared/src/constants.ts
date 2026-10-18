@@ -60,7 +60,7 @@ export type ExtractionMethod = (typeof EXTRACTION_METHODS)[number];
 export const AVAILABILITY_STATES = ['in_stock', 'out_of_stock', 'limited', 'low_quantity_claim', 'unknown'] as const;
 export type Availability = (typeof AVAILABILITY_STATES)[number];
 
-export const QUANTITY_SOURCES = ['public_claim', 'authorised_inventory', 'simulated'] as const;
+export const QUANTITY_SOURCES = ['public_claim', 'authorised_inventory'] as const;
 export type QuantitySource = (typeof QUANTITY_SOURCES)[number];
 
 export const MATCH_CLASSES = ['identical', 'different_pack', 'comparable', 'not_comparable'] as const;
@@ -181,7 +181,6 @@ export type MarketingClassification = (typeof MARKETING_CLASSIFICATIONS)[number]
 
 export const INTEGRATION_PROVIDERS = [
   'shopify',
-  'dev_inventory',
   'youtube',
   'instagram',
   'facebook',
@@ -193,15 +192,8 @@ export type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number];
 
 export const CURRENCY_CODES_HINT = ['AWG', 'USD', 'EUR', 'ANG', 'CAD', 'GBP', 'COP', 'MXN'] as const;
 
-/**
- * A workspace is either a real customer's ("live") or a demonstration/test workspace ("demo"). Fixed when the workspace is created and
- * never changed afterwards. Fictional fixture websites, the inventory simulator and developer clocks exist only in demo workspaces.
- */
-export const ORG_MODES = ['live', 'demo'] as const;
-export type OrgMode = (typeof ORG_MODES)[number];
-
 /** Where a stored fact came from. Every observation, evidence record, offer, marketing item and exchange rate carries one. */
-export const PROVENANCE = ['public_web', 'authorised_api', 'official_api', 'user_input', 'exchange_rate_service', 'configuration', 'fixture'] as const;
+export const PROVENANCE = ['public_web', 'authorised_api', 'official_api', 'user_input', 'exchange_rate_service', 'configuration'] as const;
 export type Provenance = (typeof PROVENANCE)[number];
 
 export const PROVENANCE_LABELS: Record<Provenance, string> = {
@@ -211,7 +203,6 @@ export const PROVENANCE_LABELS: Record<Provenance, string> = {
   user_input: 'Entered by a person',
   exchange_rate_service: 'Exchange-rate service',
   configuration: 'Configured value',
-  fixture: 'Fictional fixture',
 };
 
 export const PROVENANCE_HELP: Record<Provenance, string> = {
@@ -221,7 +212,6 @@ export const PROVENANCE_HELP: Record<Provenance, string> = {
   user_input: 'Typed or decided by a person using the app.',
   exchange_rate_service: 'Fetched from an exchange-rate provider; the provider and time are stored.',
   configuration: 'An explicit, timestamped setting such as a fixed currency peg.',
-  fixture: 'Fictional demonstration data from a local test website. Never real market information.',
 };
 
 export const DEFAULTS = {

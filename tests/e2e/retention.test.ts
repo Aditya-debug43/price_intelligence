@@ -129,7 +129,7 @@ describe('the retention boundary is exact', () => {
     const now = at(500);
     h.setNow(now);
     const cut = new Date(now.getTime() - 90 * DAY); // B's snapshot window
-    const base = { orgId: B.orgId, siteId: ids.B!.woo!, contentHash: 'h', httpStatus: 200, contentType: 'text/html', bytes: 4, isFixture: true as const };
+    const base = { orgId: B.orgId, siteId: ids.B!.woo!, contentHash: 'h', httpStatus: 200, contentType: 'text/html', bytes: 4 };
     await h.storage.put('retention-test/at-cut.html', 'keep');
     await h.storage.put('retention-test/just-older.html', 'drop');
     const [atCut] = await db().insert(evidence).values({ ...base, url: 'https://example.test/at-cut', fetchedAt: cut, snapshotRef: 'retention-test/at-cut.html' }).returning();
@@ -149,7 +149,7 @@ describe('what would otherwise grow forever is expired too', () => {
   it('marketing content, offers, flyers, finished daily runs and old profiles expire with the history window; recent ones stay', async () => {
     h.setNow(at(600));
     const site = ids.B!.woo!;
-    const mk = (key: string, lastSeen: Date) => ({ orgId: B.orgId, siteId: site, platform: 'site' as const, kind: 'announcement_bar' as const, title: key, extractionMethod: 'public_banner', dedupeKey: key, firstSeenAt: lastSeen, lastSeenAt: lastSeen, isFixture: true });
+    const mk = (key: string, lastSeen: Date) => ({ orgId: B.orgId, siteId: site, platform: 'site' as const, kind: 'announcement_bar' as const, title: key, extractionMethod: 'public_banner', dedupeKey: key, firstSeenAt: lastSeen, lastSeenAt: lastSeen });
     await db().insert(marketingActivities).values([mk('old-banner', ago(400)), mk('fresh-banner', ago(3))]);
     const of = (key: string, lastSeen: Date, status: 'active' | 'ended' | 'expired') => ({ orgId: B.orgId, siteId: site, kind: 'banner' as const, title: key, extractionMethod: 'public_banner', dedupeKey: key, firstSeenAt: lastSeen, lastSeenAt: lastSeen, status });
     await db().insert(offers).values([of('old-offer', ago(400), 'ended'), of('fresh-offer', ago(3), 'active')]);
@@ -199,7 +199,7 @@ describe('what would otherwise grow forever is expired too', () => {
 describe('a failing storage backend never stops the rest of the clean-up', () => {
   it('a file that cannot be deleted is counted and kept for the next run; everything else is cleaned', async () => {
     h.setNow(at(4000));
-    const base = { orgId: A.orgId, siteId: ids.A!.woo!, contentHash: 'h', httpStatus: 200, contentType: 'text/html', bytes: 4, isFixture: true as const, fetchedAt: new Date(h.svc.clock().getTime() - 30 * DAY) };
+    const base = { orgId: A.orgId, siteId: ids.A!.woo!, contentHash: 'h', httpStatus: 200, contentType: 'text/html', bytes: 4, fetchedAt: new Date(h.svc.clock().getTime() - 30 * DAY) };
     const keys = ['retention-test/ok-1.html', 'retention-test/stuck.html', 'retention-test/ok-2.html'];
     for (const k of keys) await h.storage.put(k, 'x');
     const rows = await db().insert(evidence).values(keys.map((k) => ({ ...base, url: `https://example.test/${k}`, snapshotRef: k }))).returning();

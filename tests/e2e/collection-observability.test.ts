@@ -23,7 +23,7 @@ beforeAll(async () => {
   owner = new ApiClient(app);
   await owner.post('/api/v1/auth/register', { email: `observe-${Date.now()}@example.test`, password: 'Correct-Horse-9-Battery', displayName: 'Observer' });
   const me = (await owner.get('/api/v1/auth/me')).body;
-  org = (await createOrganization(h.db.app, me.user.id, 'Observability Demo', { mode: 'demo' })).id;
+  org = (await createOrganization(h.db.app, me.user.id, 'Observability')).id;
   for (const [key, role] of [['woo', 'source'], ['flaky', 'competitor'], ['blocked', 'competitor'], ['failing', 'competitor']] as const) {
     const id = (await owner.post(`${base()}/sites`, { url: h.fixtures.origin(key), role })).body.site.id as string;
     sites[key] = id;

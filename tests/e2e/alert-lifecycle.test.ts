@@ -3,9 +3,10 @@ import type { FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { alerts } from '@ci/database';
 import { buildApp } from '../../apps/api/src/app.ts';
-import { createDevInventory, createOrganization, recordCollectionOutcome, simulateQuantity, startScan } from '@ci/services';
+import { createOrganization, recordCollectionOutcome, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { createTestInventory, setTestQuantity } from '../support/inventory.ts';
 
 /**
  * Alert lifecycle: open → acknowledged → resolved. A condition alert closes by itself when an observation shows the condition has cleared
@@ -40,7 +41,7 @@ beforeAll(async () => {
   owner = new ApiClient(app);
   await owner.post('/api/v1/auth/register', { email: `alerts-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Alert Owner' });
   const me = (await owner.get('/api/v1/auth/me')).body;
-  org = (await createOrganization(h.db.app, me.user.id, 'Alert Lifecycle Demo', { mode: 'demo' })).id;
+  org = (await createOrganization(h.db.app, me.user.id, 'Alert Lifecycle')).id;
   sourceId = (await owner.post(`${base()}/sites`, { url: h.fixtures.origin('source'), role: 'source', name: h.fixtures.sites.source!.spec.label })).body.site.id as string;
   await owner.post(`${base()}/sites/${sourceId}/consent`, { status: 'confirmed', attest: true });
   await scanSource(); // baseline: nothing alerts on the first observation
@@ -64,7 +65,7 @@ describe('a condition that clears resolves its own alert, with evidence', () => 
     expect(outAlert.siteName).toBeTruthy();
     expect(outAlert.productTitle).toBeTruthy();
     expect(outAlert.evidence?.url).toMatch(/^http/);
-    expect(outAlert.evidence?.provenance).toBe('fixture'); // fixture data is labelled as such
+    expect(outAlert.evidence?.provenance).toBe('public_web');
     expect(Number.isNaN(Date.parse(outAlert.evidence!.observedAt))).toBe(false);
     expect(outAlert.data).toMatchObject({ to: 'out_of_stock' });
   });
@@ -120,17 +121,17 @@ describe('a person can close an alert, and says what was done', () => {
   let connectionId: string;
   let low: AlertRow;
   const sku = () => h.fixtures.sites.source!.find(1)!.sku;
-  const setQty = (quantity: number | null) => simulateQuantity(h.svc, h.db.worker, org, connectionId, { sku: sku(), locationName: 'Main warehouse (simulated)', quantity });
+  const setQty = (quantity: number | null) => setTestQuantity(h.svc, h.db.worker, org, connectionId, { sku: sku(), locationName: 'Main warehouse', quantity });
 
   it('a low-stock alert from an authorised connection has no web page behind it and says so', async () => {
-    connectionId = (await createDevInventory(h.svc, h.db.worker, org, (await owner.get('/api/v1/auth/me')).body.user.id)).connectionId;
+    connectionId = (await createTestInventory(h.svc, h.db.worker, org, (await owner.get('/api/v1/auth/me')).body.user.id)).connectionId;
     await setQty(20);
     await setQty(4);
-    const open = (await list('open', 'low_stock')).filter((a) => a.data['quantitySource'] === 'simulated');
+    const open = (await list('open', 'low_stock')).filter((a) => a.data['quantitySource'] === 'authorised_inventory');
     expect(open).toHaveLength(1);
     low = open[0]!;
     expect(low.evidence).toBeNull(); // no page was involved
-    expect(low.data).toMatchObject({ quantity: 4, threshold: 5, basis: 'simulated_quantity' });
+    expect(low.data).toMatchObject({ quantity: 4, threshold: 5, basis: 'authorised_quantity' });
     expect(low.data['connectionId']).toBe(connectionId);
   });
 
@@ -156,16 +157,16 @@ describe('a person can close an alert, and says what was done', () => {
     const [done] = (await list('resolved', 'low_stock')).filter((a) => a.id === low.id);
     expect(done!.resolution).toMatchObject({ kind: 'manual', note: 'Reordered 40 units, arriving Friday' });
     await setQty(3); // …and low again: a new alert, the old one untouched
-    const open = (await list('open', 'low_stock')).filter((a) => a.data['quantitySource'] === 'simulated');
+    const open = (await list('open', 'low_stock')).filter((a) => a.data['quantitySource'] === 'authorised_inventory');
     expect(open).toHaveLength(1);
     expect(open[0]!.id).not.toBe(low.id);
   });
 
   it('escalating from low to out of stock closes the low-stock alert and opens an out-of-stock one', async () => {
-    const lowNow = (await list('open', 'low_stock')).find((a) => a.data['quantitySource'] === 'simulated')!;
+    const lowNow = (await list('open', 'low_stock')).find((a) => a.data['quantitySource'] === 'authorised_inventory')!;
     await setQty(0);
     expect((await list('resolved', 'low_stock')).find((a) => a.id === lowNow.id)?.resolution).toMatchObject({ kind: 'automatic' });
-    const outNow = (await list('open', 'out_of_stock')).filter((a) => a.data['quantitySource'] === 'simulated');
+    const outNow = (await list('open', 'out_of_stock')).filter((a) => a.data['quantitySource'] === 'authorised_inventory');
     expect(outNow).toHaveLength(1);
   });
 
@@ -196,7 +197,7 @@ describe('collection and integration problems clear when the problem does', () =
 
   it('disconnecting the store closes its sync-problem alert', async () => {
     const me = (await owner.get('/api/v1/auth/me')).body.user.id as string;
-    const { connectionId } = await createDevInventory(h.svc, h.db.worker, org, me);
+    const { connectionId } = await createTestInventory(h.svc, h.db.worker, org, me);
     await h.db.worker.insert(alerts).values({ orgId: org, type: 'integration_issue', severity: 'warning', title: 'Inventory sync problem', body: 'test', data: { connectionId }, dedupeKey: `integration:${connectionId}:test` });
     expect((await list('open', 'integration_issue')).filter((a) => a.data['connectionId'] === connectionId)).toHaveLength(1);
     expect((await owner.delete(`${base()}/integrations/${connectionId}`)).status).toBeLessThan(300);
@@ -216,7 +217,8 @@ describe('isolation and counts', () => {
   });
 
   it('the dashboard counts only alerts that still need attention', async () => {
-    const [{ id }] = await h.db.worker.insert(alerts).values({ orgId: org, type: 'out_of_stock', severity: 'critical', title: 'Counted', dedupeKey: `count:${Date.now()}` }).returning({ id: alerts.id });
+    const [counted] = await h.db.worker.insert(alerts).values({ orgId: org, type: 'out_of_stock', severity: 'critical', title: 'Counted', dedupeKey: `count:${Date.now()}` }).returning({ id: alerts.id });
+    const id = counted!.id;
     const unack = async () => (await owner.get(`${base()}/dashboard`)).body.alerts.unacknowledged as number;
     expect(await unack()).toBe(1);
     expect((await owner.post(`${base()}/alerts/${id}/resolve`, {})).status).toBe(200);

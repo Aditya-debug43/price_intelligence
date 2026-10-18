@@ -1,10 +1,9 @@
 import { isIP } from 'node:net';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { forbiddenAddressReason, forbiddenHostnameReason, normalizeSiteUrl, UrlValidationError } from '@ci/core';
-import { DEFAULTS, type AddSiteInput, type OrgMode, type SiteRole } from '@ci/shared';
+import { DEFAULTS, type AddSiteInput, type SiteRole } from '@ci/shared';
 import { auditEvents, consentLog, scanRuns, siteProfiles, sites, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
-import { getOrgMode } from './workspace.ts';
 
 export class SiteError extends Error {
   constructor(
@@ -30,19 +29,14 @@ function isLoopback(host: string): boolean {
 }
 
 /**
- * Resolves a hostname and verifies every address is public. Throws SiteError when it is not.
- * Loopback addresses (the fictional fixture websites) are accepted only in DEMO workspaces on a server that allows fixtures;
- * a live workspace can never hold one.
+ * Resolves a hostname and verifies every address is public. Throws SiteError when it is not. There is no exception for loopback,
+ * private or internal addresses, and no setting that creates one.
  */
-export async function assertPublicHost(svc: Pick<Services, 'config' | 'resolver'>, bareHostname: string, mode: OrgMode = 'live'): Promise<{ fixture: boolean }> {
-  const loop = isLoopback(bareHostname);
-  if (loop) {
-    if (!(svc.config.ALLOW_LOCAL_FIXTURES && mode === 'demo')) throw new SiteError('Local and private addresses cannot be added: they are blocked for security reasons.', 'unsafe');
-    return { fixture: true };
-  }
+export async function assertPublicHost(svc: Pick<Services, 'resolver'>, bareHostname: string): Promise<void> {
+  if (isLoopback(bareHostname)) throw new SiteError('Local and private addresses cannot be added: they are blocked for security reasons.', 'unsafe');
   const reason = forbiddenHostnameReason(bareHostname);
   if (reason) throw new SiteError(`This address cannot be used: ${reason}.`, 'unsafe');
-  if (isIP(bareHostname.replace(/^\[|\]$/g, ''))) return { fixture: false };
+  if (isIP(bareHostname.replace(/^\[|\]$/g, ''))) return;
   let addrs: { address: string }[];
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -59,7 +53,6 @@ export async function assertPublicHost(svc: Pick<Services, 'config' | 'resolver'
   }
   const bad = addrs.find((a) => forbiddenAddressReason(a.address));
   if (!addrs.length || bad) throw new SiteError('This domain points to a private or internal network and cannot be added.', 'unsafe');
-  return { fixture: false };
 }
 
 /** Collection only ever uses the standard web ports (80/443), so another port is refused when the website is added rather than failing later. */
@@ -77,9 +70,8 @@ export async function addSite(svc: Services, db: DbLike, orgId: string, actorUse
   } catch (e) {
     throw new SiteError(e instanceof UrlValidationError ? e.message : 'The URL is not valid.', 'invalid_url');
   }
-  const mode = await getOrgMode(db, orgId);
-  const { fixture } = await assertPublicHost(svc, norm.bareHostname, mode);
-  if (!fixture) assertStandardPort(norm.href);
+  await assertPublicHost(svc, norm.bareHostname);
+  assertStandardPort(norm.href);
 
   const existing = await db.select().from(sites).where(and(eq(sites.orgId, orgId), eq(sites.active, true)));
   if (existing.some((s) => s.hostname === norm.hostname)) throw new SiteError('This website is already in your workspace.', 'duplicate', 409);
@@ -87,7 +79,6 @@ export async function addSite(svc: Services, db: DbLike, orgId: string, actorUse
   if (input.role === 'competitor' && existing.filter((s) => s.role === 'competitor').length >= DEFAULTS.maxCompetitors) {
     throw new SiteError(`A workspace can track up to ${DEFAULTS.maxCompetitors} competitors.`, 'limit', 409);
   }
-  const autoConsent = fixture && svc.config.DEMO_AUTO_CONSENT;
   const [row] = await db
     .insert(sites)
     .values({
@@ -97,10 +88,7 @@ export async function addSite(svc: Services, db: DbLike, orgId: string, actorUse
       hostname: norm.hostname,
       name: input.name?.trim() || norm.bareHostname.replace(/^www\./, ''),
       role: input.role,
-      isFixture: fixture,
-      consentStatus: autoConsent ? 'confirmed' : 'pending',
-      consentNote: autoConsent ? 'Fixture site: consent auto-confirmed (DEMO_AUTO_CONSENT)' : null,
-      consentAt: autoConsent ? svc.clock() : null,
+      consentStatus: 'pending',
       crawlDelayMs: svc.config.COLLECTOR_DEFAULT_DELAY_MS,
       maxRequestsPerRun: svc.config.COLLECTOR_DEFAULT_MAX_REQUESTS,
     })
@@ -127,19 +115,19 @@ export async function updateSite(
     } catch (e) {
       throw new SiteError(e instanceof UrlValidationError ? e.message : 'The URL is not valid.', 'invalid_url');
     }
-    if (norm.hostname !== site.hostname) {
-      const mode = await getOrgMode(db, orgId);
-      const { fixture } = await assertPublicHost(svc, norm.bareHostname, mode);
-      if (!fixture) assertStandardPort(norm.href);
-      const dup = await db.select({ id: sites.id }).from(sites).where(and(eq(sites.orgId, orgId), eq(sites.hostname, norm.hostname)));
-      if (dup.length) throw new SiteError('That website is already in your workspace.', 'duplicate', 409);
-      Object.assign(set, {
-        url: norm.href, origin: norm.origin, hostname: norm.hostname, isFixture: fixture,
-        // A different site is a different data source: previous consent and profile do not carry over.
-        consentStatus: 'pending', consentAt: null, consentBy: null, consentNote: null,
-        platform: null, capabilityStatus: null, lastProfiledAt: null, currency: null, currencySource: 'detected',
-      });
+    if (norm.bareHostname !== new URL(site.origin).hostname) {
+      // Everything stored under a website — products, prices, page copies, offers, alerts, the customer's confirmation — belongs to that website.
+      // Re-pointing it at another one would leave the old website's data standing in for the new one's, so a different website is a new entry.
+      throw new SiteError(
+        'To track a different website, remove this one and add the new address. Its collected products, prices and history belong to the website they came from and cannot be moved to another one.',
+        'conflict',
+        409,
+      );
     }
+    // Same website (for example http → https, or a different start page): the address can change; the checks still apply.
+    await assertPublicHost(svc, norm.bareHostname);
+    assertStandardPort(norm.href);
+    Object.assign(set, { url: norm.href, origin: norm.origin });
   }
   if (patch.name !== undefined) set.name = patch.name.trim();
   if (patch.active !== undefined) set.active = patch.active;
@@ -194,7 +182,6 @@ export interface SiteListItem {
   url: string;
   hostname: string;
   role: SiteRole;
-  isFixture: boolean;
   active: boolean;
   consentStatus: string;
   consentAt: Date | null;
@@ -225,7 +212,7 @@ export async function listSites(db: DbLike, orgId: string): Promise<SiteListItem
   return rows.map((s) => {
     const r = lastBy.get(s.id);
     return {
-      id: s.id, name: s.name, url: s.url, hostname: s.hostname, role: s.role, isFixture: s.isFixture, active: s.active,
+      id: s.id, name: s.name, url: s.url, hostname: s.hostname, role: s.role, active: s.active,
       consentStatus: s.consentStatus, consentAt: s.consentAt, platform: s.platform, currency: s.currency, currencySource: s.currencySource,
       capabilityStatus: s.capabilityStatus, lastProfiledAt: s.lastProfiledAt, crawlDelayMs: s.crawlDelayMs, maxRequestsPerRun: s.maxRequestsPerRun,
       productCount: countBy.get(s.id) ?? 0,

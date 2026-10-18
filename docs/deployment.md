@@ -29,7 +29,7 @@ Copy `.env.example`; every value is validated at start-up and an unsafe producti
   `npm run db:setup` creates the roles from the passwords in those URLs.
 - `TOKEN_ENCRYPTION_KEY` — required; losing it makes stored integration tokens unreadable. Keys can be rotated by listing the new
   key first: `k2:<base64>,k1:<base64>`.
-- `ALLOW_LOCAL_FIXTURES=false`, `SCHEDULER_MODE=normal`, `DEMO_AUTO_CONSENT=false` (the process refuses to start otherwise).
+- There is no setting that allows loopback or private addresses, fakes data or changes the clock: those switches no longer exist.
 - `COLLECTOR_USER_AGENT` with a real contact URL.
 - `SMTP_URL` + `EMAIL_FROM` for real email; without them messages stay in the database outbox.
 - `STORAGE_DRIVER=local` with a persistent volume, or `s3` with the `S3_*` settings (the S3 driver is tested only against an S3-compatible fake, not a real service).

@@ -69,7 +69,7 @@ const imitation: HttpJson = async (url) => {
 };
 
 const callsTo = (host: string) => calls.filter((c) => new URL(c).host === host).length;
-// The fixture websites also advertise social links, which are discovered but stay unconfirmed (and unread) until a person confirms them.
+// The fictional test websites also advertise social links, which are discovered but stay unconfirmed (and unread) until a person confirms them.
 const account = async (platform: string) => (await h.db.worker.select().from(socialAccounts).where(eq(socialAccounts.orgId, org))).find((a) => a.platform === platform && a.confirmed && a.discoveredFrom === 'manual')!;
 const socialRows = async () => (await h.db.worker.select().from(marketingActivities).where(eq(marketingActivities.orgId, org))).filter((m) => m.platform !== 'site');
 const sync = (manual = false) => syncSocial(h.svc, h.db.worker, org, { http: imitation, manual });
@@ -82,7 +82,7 @@ beforeAll(async () => {
   owner = new ApiClient(app);
   await owner.post('/api/v1/auth/register', { email: `social-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Social Owner' });
   const me = (await owner.get('/api/v1/auth/me')).body;
-  org = (await createOrganization(h.db.app, me.user.id, 'Social Providers Demo', { mode: 'demo' })).id;
+  org = (await createOrganization(h.db.app, me.user.id, 'Social Providers')).id;
   const ids: Record<string, string> = {};
   for (const [key, role] of [['source', 'source'], ['woo', 'competitor']] as const) {
     ids[key] = (await owner.post(`${base()}/sites`, { url: h.fixtures.origin(key), role, name: h.fixtures.sites[key]!.spec.label })).body.site.id as string;
@@ -114,7 +114,7 @@ describe('reading public activity with engagement counts', () => {
     expect(by('/p/ig1/').engagement).toEqual({ views: null, likes: 42, comments: 3, shares: null });
     expect(by('/p/ig3/').engagement).toBeNull();
     expect(by('/posts/f1').engagement).toEqual({ views: null, likes: 120, comments: 9, shares: 4 });
-    expect(rows.every((m) => m.provenance === 'fixture' && m.extractionMethod === 'official_api')).toBe(true); // a fictional site, honestly labelled
+    expect(rows.every((m) => m.provenance === 'official_api' && m.extractionMethod === 'official_api')).toBe(true);
   });
 
   it('syncing again refreshes the counts without duplicating posts', async () => {

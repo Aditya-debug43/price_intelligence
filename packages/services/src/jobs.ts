@@ -26,7 +26,7 @@ export const JOB_HANDLERS: { [K in JobName]: Handler<any> } = {
   },
   'send-email': (svc, d: { id: string }) => svc.mailer.deliver(d.id),
   retention: (svc) => runRetention(svc),
-  'scheduler-tick': (svc, d: { now?: string } = {}) => schedulerTick(d.now && svc.config.SCHEDULER_MODE === 'dev' ? { ...svc, clock: () => new Date(d.now!) } : svc),
+  'scheduler-tick': (svc) => schedulerTick(svc),
   'daily-assemble': (svc, d: { orgId: string; dailyRunId: string; cutoff?: boolean }) => dailyAssemble(svc, d.orgId, d.dailyRunId, { cutoff: d.cutoff }),
   'refresh-fx': (svc) => refreshMarketRates(svc),
   'integration-event': async (svc, d: { topic: string; shop: string }) => {

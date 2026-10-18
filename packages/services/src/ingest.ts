@@ -14,7 +14,6 @@ export interface IngestSite {
   name: string;
   origin: string;
   role: 'source' | 'competitor';
-  isFixture: boolean;
   currency: string | null;
 }
 
@@ -62,7 +61,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
   for (const doc of batch.evidence) {
     // Evidence is recorded outside the batch transaction: a retry must not lose the fact that a page was fetched.
     const method = list.find((p) => batch.evidence[p.evidenceIndex] === doc)?.method ?? null;
-    evidenceIds.push(await recordEvidence(svc, svc.db, { orgId: site.orgId, siteId: site.id, doc: doc as EvidenceDoc, method, version: list[0]?.methodVersion ?? null, isFixture: site.isFixture }));
+    evidenceIds.push(await recordEvidence(svc, svc.db, { orgId: site.orgId, siteId: site.id, doc: doc as EvidenceDoc, method, version: list[0]?.methodVersion ?? null }));
   }
   if (!list.length) return { products: 0, variants: 0, newProducts: 0, evidenceIds };
 
@@ -172,8 +171,8 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
           .insert(priceObservations)
           .values({
             orgId: site.orgId, siteId: site.id, variantId, observedAt: p.observedAt, price: v.price, compareAtPrice: v.compareAtPrice, currency, shippingCost: v.shippingCost,
-            availability: v.availability, sourceUrl: v.url, evidenceId, scanRunId: ic.scanRunId, extractionMethod: p.method, extractionVersion: p.methodVersion, isFixture: site.isFixture,
-            provenance: provenanceFor({ isFixture: site.isFixture }),
+            availability: v.availability, sourceUrl: v.url, evidenceId, scanRunId: ic.scanRunId, extractionMethod: p.method, extractionVersion: p.methodVersion,
+            provenance: provenanceFor(),
           })
           .returning({ id: priceObservations.id });
         await db.update(variants).set({ currentPriceObservationId: obs!.id }).where(eq(variants.id, variantId));
@@ -181,8 +180,8 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
         // Competitor stock rows are stored for comparison reports; they never raise customer alerts.
         if (site.role === 'competitor') {
           await db.insert(stockObservations).values({
-            orgId: site.orgId, siteId: site.id, variantId, observedAt: p.observedAt, availability: v.availability, quantity: v.quantity, quantitySource: v.quantitySource, tracked: true, evidenceId, scanRunId: ic.scanRunId, isFixture: site.isFixture,
-            provenance: provenanceFor({ isFixture: site.isFixture, quantitySource: v.quantitySource }),
+            orgId: site.orgId, siteId: site.id, variantId, observedAt: p.observedAt, availability: v.availability, quantity: v.quantity, quantitySource: v.quantitySource, tracked: true, evidenceId, scanRunId: ic.scanRunId,
+            provenance: provenanceFor({ quantitySource: v.quantitySource }),
           });
         }
         touched.push({ variantId, product: p, v: { ...v, currency }, evidenceId, fresh: false });
@@ -206,7 +205,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
         const title = t.v.title && t.v.title !== t.product.title ? `${t.product.title} (${t.v.title})` : t.product.title;
         const r = await applyStockObservation(db, {
           orgId: site.orgId, siteId: site.id, variantId: t.variantId, title, availability: t.v.availability, quantity: t.v.quantity, quantitySource: t.v.quantitySource, tracked: true,
-          threshold: thresholdBy.get(t.variantId) ?? ic.threshold, observedAt: t.product.observedAt, evidenceId: t.evidenceId, scanRunId: ic.scanRunId, isFixture: site.isFixture,
+          threshold: thresholdBy.get(t.variantId) ?? ic.threshold, observedAt: t.product.observedAt, evidenceId: t.evidenceId, scanRunId: ic.scanRunId,
         });
         ic.alertIds.push(...r.alertIds);
       }

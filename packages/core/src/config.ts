@@ -41,9 +41,6 @@ const envSchema = z.object({
   SMTP_URL: optionalString,
   EMAIL_FROM: z.string().default('Shelfwatch <reports@localhost>'),
 
-  SCHEDULER_MODE: z.enum(['normal', 'dev']).default('normal'),
-  ALLOW_LOCAL_FIXTURES: bool.default(false),
-  DEMO_AUTO_CONSENT: bool.default(false),
 
   COLLECTOR_USER_AGENT: z.string().default('CompetitorIntelBot/1.0 (+https://example.invalid/bot; respects robots.txt)'),
   COLLECTOR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(20_000),
@@ -125,9 +122,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (isProduction) {
     const problems: string[] = [];
     if (!c.TOKEN_ENCRYPTION_KEY) problems.push('TOKEN_ENCRYPTION_KEY is required in production');
-    if (c.ALLOW_LOCAL_FIXTURES) problems.push('ALLOW_LOCAL_FIXTURES must be false in production (it disables SSRF protection for loopback)');
-    if (c.SCHEDULER_MODE === 'dev') problems.push('SCHEDULER_MODE=dev is not allowed in production');
-    if (c.DEMO_AUTO_CONSENT) problems.push('DEMO_AUTO_CONSENT must be false in production');
     if (!c.WORKER_DATABASE_URL) problems.push('WORKER_DATABASE_URL is required in production (the worker needs a role that can span tenants)');
     if (problems.length) throw new ConfigError(`Unsafe production configuration:\n  - ${problems.join('\n  - ')}`);
   }

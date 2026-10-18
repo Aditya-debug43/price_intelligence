@@ -37,8 +37,7 @@ describe('report snapshot content', () => {
     expect(data.meta.isPartial).toBe(true);
     expect(data.sites.find((s) => s.name.includes('Blocked'))).toMatchObject({ complete: false, lastScanStatus: 'blocked', productsKnown: 0 });
     expect(data.warnings.join(' ')).toMatch(/Blocked.*robots/i);
-    expect(data.warnings.join(' ')).toMatch(/FIXTURE/);
-    expect(data.meta.containsFixtureData).toBe(true);
+    expect(data.warnings.join(' ')).not.toMatch(/demonstration|contains fixture/i);
     expect(data.headline).toMatch(/^Partial report/);
   });
 
@@ -141,7 +140,7 @@ describe('exports are rendered from the same snapshot', () => {
     expect(out.filename).toBe(`report-${data.meta.periodDate}-partial-comparison.csv`);
     const rows = parseCsv(out.body);
     expect(rows[0]![0]).toMatch(/PARTIAL REPORT/);
-    expect(rows[0]![0]).toMatch(/FIXTURE/);
+    expect(rows[0]![0]).not.toMatch(/CONTAINS FIXTURE|demonstration/i);
     const header = rows[1]!;
     const body = rows.slice(2).filter((r) => r.length > 1);
     expect(body).toHaveLength(cellCount());
@@ -158,7 +157,7 @@ describe('exports are rendered from the same snapshot', () => {
     expect(parseCsv((await exportReport(h.svc, db(), t.orgId, report.id, 'csv', 'offers')).body).slice(2).filter((r) => r.length > 1)).toHaveLength(data.offers.length);
   });
 
-  it('Excel: the comparison sheet has the same rows, and the summary carries the partial/fixture warnings', async () => {
+  it('Excel: the comparison sheet has the same rows, and the summary carries the partial warning', async () => {
     const out = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(out.body as never);
@@ -168,7 +167,7 @@ describe('exports are rendered from the same snapshot', () => {
     const text: string[] = [];
     summary.eachRow((r) => text.push(r.values!.toString()));
     expect(text.join('\n')).toMatch(/PARTIAL/);
-    expect(text.join('\n')).toMatch(/FIXTURE|fixture/);
+    expect(text.join('\n')).not.toMatch(/CONTAINS FIXTURE|demonstration/i);
     expect(text.join('\n')).toContain(`matchedProducts,${data.kpis.matchedProducts}`);
     expect(wb.worksheets.map((s) => s.name)).toEqual(expect.arrayContaining(['Offers', 'Own stock', 'Marketing', 'Insights', 'Coverage']));
     const header = (ws.getRow(1).values as unknown[]).slice(1);
@@ -176,7 +175,7 @@ describe('exports are rendered from the same snapshot', () => {
     expect(ws.getRow(2).getCell(diffCol).value).toBeCloseTo(data.comparisons[0]!.cells[0]!.diffPct!, 6);
   });
 
-  it('PDF: opens, is labelled partial/fixture, and shows the same headline numbers', async () => {
+  it('PDF: opens, is labelled partial, and shows the same headline numbers', async () => {
     const out = await exportReport(h.svc, db(), t.orgId, report.id, 'pdf');
     expect(out.body.subarray(0, 5).toString()).toBe('%PDF-');
     const doc = await getDocumentProxy(new Uint8Array(out.body));
@@ -184,7 +183,7 @@ describe('exports are rendered from the same snapshot', () => {
     expect(totalPages).toBeGreaterThan(1);
     expect(text).toContain(`Report — ${data.meta.periodDate}`);
     expect(text).toMatch(/PARTIAL REPORT/);
-    expect(text).toMatch(/FIXTURE DATA/);
+    expect(text).not.toMatch(/FIXTURE DATA/);
     expect(text).toContain(String(data.kpis.matchedProducts));
     for (const s of data.sites) expect(text).toContain(s.name.slice(0, 12));
     expect(text).toMatch(/Central\s+Bank\s+of\s+Aruba/);

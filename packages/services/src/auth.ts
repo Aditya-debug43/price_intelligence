@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { and, eq, lt, sql } from 'drizzle-orm';
 import { hashPassword, randomToken, sha256Hex, verifyPassword } from '@ci/core';
-import { DEFAULTS, type MemberRole, type OrgMode } from '@ci/shared';
+import { DEFAULTS, type MemberRole } from '@ci/shared';
 import {
   alertRules,
   emailTokens,
@@ -63,8 +63,6 @@ export interface OrgMembership {
   name: string;
   slug: string;
   role: MemberRole;
-  /** 'live' for real customers, 'demo' for fixture/demonstration workspaces. */
-  mode: OrgMode;
 }
 
 export async function register(svc: Services, db: DbLike, input: { email: string; password: string; displayName: string }): Promise<SessionUser> {
@@ -172,9 +170,9 @@ export async function purgeExpiredAuth(db: DbLike, now: Date): Promise<void> {
 
 export const DEFAULT_ALERT_TYPES = ['low_stock', 'out_of_stock', 'restocked', 'collection_failure'] as const;
 
-/** New workspaces are live unless a demo/test caller explicitly asks otherwise (the public API never does). */
-export async function createOrganization(db: Db, userId: string, name: string, opts: { mode?: OrgMode } = {}): Promise<{ id: string; name: string; slug: string; mode: OrgMode }> {
-  const [org] = await db.insert(organizations).values({ name: name.trim(), slug: slugify(name), createdBy: userId, mode: opts.mode ?? 'live' }).returning();
+/** Creates an empty workspace owned by the user: default settings and alert rules, and nothing else. No websites, products or data are ever pre-filled. */
+export async function createOrganization(db: Db, userId: string, name: string): Promise<{ id: string; name: string; slug: string }> {
+  const [org] = await db.insert(organizations).values({ name: name.trim(), slug: slugify(name), createdBy: userId }).returning();
   await db.insert(memberships).values({ orgId: org!.id, userId, role: 'owner' });
   await withTenant(db, org!.id, async (tx) => {
     await tx.insert(orgSettings).values({
@@ -188,12 +186,12 @@ export async function createOrganization(db: Db, userId: string, name: string, o
     });
     await tx.insert(alertRules).values(DEFAULT_ALERT_TYPES.map((type) => ({ orgId: org!.id, type })));
   });
-  return { id: org!.id, name: org!.name, slug: org!.slug, mode: org!.mode };
+  return { id: org!.id, name: org!.name, slug: org!.slug };
 }
 
 export async function listMemberships(db: DbLike, userId: string): Promise<OrgMembership[]> {
   const rows = await db
-    .select({ orgId: organizations.id, name: organizations.name, slug: organizations.slug, role: memberships.role, mode: organizations.mode })
+    .select({ orgId: organizations.id, name: organizations.name, slug: organizations.slug, role: memberships.role })
     .from(memberships)
     .innerJoin(organizations, eq(organizations.id, memberships.orgId))
     .where(eq(memberships.userId, userId));
@@ -205,12 +203,11 @@ export async function getMembership(db: DbLike, userId: string, orgId: string): 
   return m?.role ?? null;
 }
 
-/** The caller's role in a workspace together with the workspace's mode (live/demo), in one query. Null for non-members. */
-export async function getOrgContext(db: DbLike, userId: string, orgId: string): Promise<{ role: MemberRole; mode: OrgMode } | null> {
+/** The caller's role in a workspace, or null for non-members. */
+export async function getOrgContext(db: DbLike, userId: string, orgId: string): Promise<{ role: MemberRole } | null> {
   const [m] = await db
-    .select({ role: memberships.role, mode: organizations.mode })
+    .select({ role: memberships.role })
     .from(memberships)
-    .innerJoin(organizations, eq(organizations.id, memberships.orgId))
     .where(and(eq(memberships.userId, userId), eq(memberships.orgId, orgId)));
   return m ?? null;
 }

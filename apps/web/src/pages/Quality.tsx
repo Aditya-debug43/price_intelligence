@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useOrg, useOrgQuery } from '../app-shell';
-import { Age, CapabilityPill, Card, DataState, FixturePill, PageHead } from '../ui';
+import { Age, CapabilityPill, Card, DataState, PageHead } from '../ui';
 import type { SiteCoverage } from '../types';
 
 interface Q {
@@ -28,7 +28,7 @@ export function QualityPage() {
                   <thead><tr><th>Website</th><th>Capability</th><th className="r">Collected</th><th className="r">Estimated size</th><th className="r">Fresh</th><th className="r">Stale</th><th>Oldest → newest observation</th><th>Complete?</th></tr></thead>
                   <tbody>{d.coverage.map((c) => (
                     <tr key={c.siteId}>
-                      <td><Link className="title" to={`/o/${orgId}/websites/${c.siteId}`}>{c.name}</Link> {c.isFixture && <FixturePill />}<div className="sub">{c.connector ?? 'no method yet'}</div></td>
+                      <td><Link className="title" to={`/o/${orgId}/websites/${c.siteId}`}>{c.name}</Link><div className="sub">{c.connector ?? 'no method yet'}</div></td>
                       <td><CapabilityPill status={c.capability} /></td>
                       <td className="r num">{c.productsKnown}</td>
                       <td className="r num">{c.estimatedCatalogue ?? '—'}{c.coveragePct !== null && <div className="sub">{c.coveragePct}%</div>}</td>

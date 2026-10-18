@@ -2,12 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { PlaywrightRenderer } from './providers.ts';
-import { profileSite } from './profiler.ts';
-import { rankConnectors } from './registry.ts';
-import { browserConnector } from './page-crawl.ts';
-import { extractFromHtml } from './extract.ts';
-import { testContext, testFetcher } from './test-utils.ts';
+import { PlaywrightRenderer, browserConnector, extractFromHtml, profileSite, rankConnectors } from '@ci/connectors';
+import { loopbackFetcher, testContext } from '../support/net.ts';
 
 /**
  * Real headless-browser test. It needs a Chromium-family browser on the machine; when none is found the whole file is skipped
@@ -87,7 +83,7 @@ describe.skipIf(!executablePath)('headless browser rendering (system Chromium-fa
     });
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    renderer = new PlaywrightRenderer(testFetcher(), { executablePath, allowLoopback: true });
+    renderer = new PlaywrightRenderer(loopbackFetcher(), { executablePath, allowLoopback: true });
     expect(await renderer.init(), `could not launch ${executablePath}`).toBe(true);
   }, 60_000);
 
@@ -112,7 +108,7 @@ describe.skipIf(!executablePath)('headless browser rendering (system Chromium-fa
   }, 60_000);
 
   it('end to end: the profiler flags a JavaScript-only site and the browser connector collects it (and does nothing without a browser)', async () => {
-    const fetcher = testFetcher();
+    const fetcher = loopbackFetcher();
     const p = await profileSite(origin, { fetcher, capabilities: { browserEnabled: true, aiEnabled: false }, defaultCrawlDelayMs: 0, defaultMaxRequests: 100 });
     expect(p.rendering.requiresJavaScript).toBe(true);
     expect(rankConnectors(p, { browserEnabled: true, aiEnabled: false })[0]!.id).toBe('browser-rendered');
@@ -152,7 +148,7 @@ describe.skipIf(!executablePath)('headless browser rendering (system Chromium-fa
   }, 60_000);
 
   it('does not render a loopback page at all when loopback is not allowed (production policy)', async () => {
-    const strict = new PlaywrightRenderer(testFetcher({ allowLoopback: false }), { executablePath, allowLoopback: false });
+    const strict = new PlaywrightRenderer(loopbackFetcher({ allowLoopback: false }), { executablePath, allowLoopback: false });
     expect(await strict.init()).toBe(true);
     try {
       expect(await strict.render(`${origin}/p/js-product`, { timeoutMs: 10_000 })).toBeNull();

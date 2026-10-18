@@ -4,7 +4,6 @@ import type { SiteProfileData, SocialPlatform } from '@ci/shared';
 import { siteProfiles, sites, socialAccounts, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { recordSitePromotions } from './promotions.ts';
-import { getOrgMode, loopbackAllowed } from './workspace.ts';
 
 export class ProfileError extends Error {
   constructor(message: string) {
@@ -32,7 +31,7 @@ function handleFromUrl(platform: SocialPlatform, url: string): string {
 export async function runProfile(svc: Services, orgId: string, siteId: string, over: Partial<ProfilerOptions> = {}): Promise<SiteProfileData> {
   const [site] = await svc.db.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.orgId, orgId)));
   if (!site) throw new ProfileError('Website not found');
-  const fetcher = svc.makeFetcher({ allowLoopback: loopbackAllowed({ allowLocalFixtures: svc.config.ALLOW_LOCAL_FIXTURES, mode: await getOrgMode(svc.db, orgId), isFixture: site.isFixture }) });
+  const fetcher = svc.makeFetcher();
   const started = svc.clock();
   let data: SiteProfileData;
   try {
@@ -69,7 +68,7 @@ export async function runProfile(svc: Services, orgId: string, siteId: string, o
 
   // Homepage promotions are only meaningful when the page was actually read.
   if (data.site.reachable && data.site.httpStatus !== null && data.site.httpStatus < 400 && data.status !== 'blocked' && data.status !== 'failed') {
-    await recordSitePromotions(svc, svc.db, { id: siteId, orgId, isFixture: site.isFixture, origin: data.site.origin ?? site.origin, currency: (patch.currency as string | undefined) ?? site.currency }, data.promotions, data.site.finalUrl ?? site.url, svc.clock());
+    await recordSitePromotions(svc, svc.db, { id: siteId, orgId, origin: data.site.origin ?? site.origin, currency: (patch.currency as string | undefined) ?? site.currency }, data.promotions, data.site.finalUrl ?? site.url, svc.clock());
   }
   svc.log.info('site profiled', { siteId, status: data.status, platform: data.platform.id, requests: data.requestsMade, ms: data.durationMs });
   return data;

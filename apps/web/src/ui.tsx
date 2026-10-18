@@ -96,22 +96,14 @@ export function SiteStatusPill({ status }: { status: SiteStatusView | null | und
   );
 }
 
-/** Where a fact came from. Fixture data is always shown as such; nothing is presented as live when it is not. */
+/** Where a fact came from: a public page, an authorised connection, an official API, a person, a rate service or a configured value. */
 export function ProvenancePill({ value }: { value: Provenance | string | null | undefined }) {
   if (!value) return null;
   const v = value as Provenance;
-  const cls = v === 'fixture' ? 'fixture' : v === 'authorised_api' || v === 'official_api' ? 'info' : '';
+  const cls = v === 'authorised_api' || v === 'official_api' ? 'info' : '';
   return (
     <span className={`pill ${cls}`} title={PROVENANCE_HELP[v] ?? ''}>
       {PROVENANCE_LABELS[v] ?? value}
-    </span>
-  );
-}
-
-export function FixturePill() {
-  return (
-    <span className="pill fixture" title="Demonstration data from a local test site — not a live business.">
-      Fixture
     </span>
   );
 }

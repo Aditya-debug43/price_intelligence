@@ -38,7 +38,7 @@ beforeAll(async () => {
   owner = new ApiClient(app);
   await owner.post('/api/v1/auth/register', { email: `offers-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Offer Reviewer' });
   const me = (await owner.get('/api/v1/auth/me')).body;
-  org = (await createOrganization(h.db.app, me.user.id, 'Offer Review Demo', { mode: 'demo' })).id;
+  org = (await createOrganization(h.db.app, me.user.id, 'Offer Review')).id;
   const ids: Record<string, string> = {};
   for (const [key, role] of [['source', 'source'], ['jsonld', 'competitor']] as const) {
     ids[key] = (await owner.post(`${base()}/sites`, { url: h.fixtures.origin(key), role, name: h.fixtures.sites[key]!.spec.label })).body.site.id as string;
@@ -61,7 +61,7 @@ describe('what a reviewer sees', () => {
     for (const o of rows) {
       expect(o.sourceUrl).toMatch(/\.pdf$/);
       expect(o.evidenceId).toBeTruthy();
-      expect(o.provenance).toBe('fixture');
+      expect(o.provenance).toBe('public_web');
       expect(o.confidence).toBeLessThan(1); // a machine reading is never presented as certain
       expect(o.review).toMatchObject({ status: 'unreviewed', by: null, originalReading: null });
     }

@@ -9,11 +9,12 @@ import { createOrganization } from '@ci/services';
 import type { FastifyInstance } from 'fastify';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
+import { createTestInventory, setTestQuantity } from '../support/inventory.ts';
 
 let h: Harness;
 let app: FastifyInstance;
 let owner: ApiClient;
-let orgId: string; // a DEMO workspace: the fixture-based tests below need fictional fixture websites
+let orgId: string; // the workspace the tests below use; its websites are the fictional test sites
 let liveOrgId: string; // a workspace created through the public API, which is always LIVE
 const sites: Record<string, string> = {};
 const SECRET = 'shopify-test-secret';
@@ -41,7 +42,8 @@ describe('platform basics', () => {
     expect(r.headers['x-frame-options']).toBe('DENY');
     expect(String(r.headers['content-security-policy'])).toContain("frame-ancestors 'none'");
     const meta = (await c.get('/api/v1/meta')).body;
-    expect(meta).toMatchObject({ schedulerMode: 'dev', aiProvider: 'none', shopifyConfigured: true, version: '0.1.0' });
+    expect(meta).toMatchObject({ aiProvider: 'none', shopifyConfigured: true, version: '0.1.0' });
+    expect(meta).not.toHaveProperty('schedulerMode');
     expect(JSON.stringify(meta)).not.toMatch(/secret|password|token/i);
   });
 
@@ -143,18 +145,15 @@ describe('brute-force protection', () => {
 });
 
 describe('workspace setup', () => {
-  it('creates a LIVE workspace with sensible defaults (America/Aruba, 09:00, threshold 5); the public API can never create a demo one', async () => {
+  it('creates an empty workspace with sensible defaults (America/Aruba, 09:00, threshold 5); there is only one kind of workspace', async () => {
     const r = await owner.post('/api/v1/orgs', { name: 'Groceries To Go' });
     expect(r.status).toBe(201);
-    expect(r.body.organization.mode).toBe('live');
+    expect(r.body.organization.mode).toBeUndefined();
     liveOrgId = r.body.organization.id;
-    const sneaky = await owner.post('/api/v1/orgs', { name: 'Sneaky Demo', mode: 'demo' });
-    expect(sneaky.body.organization.mode).toBe('live');
     const me = (await owner.get('/api/v1/auth/me')).body;
-    expect(me.memberships.find((m: { orgId: string }) => m.orgId === liveOrgId).mode).toBe('live');
-    // The fixture-based tests below run in a demo workspace, created the way the demo scripts create one.
-    orgId = (await createOrganization(h.db.app, me.user.id, 'Fixture Demo Org', { mode: 'demo' })).id;
-    expect((await owner.get(`/api/v1/orgs/${orgId}`)).body.organization.mode).toBe('demo');
+    expect(me.memberships.find((m: { orgId: string }) => m.orgId === liveOrgId).mode).toBeUndefined();
+    orgId = (await createOrganization(h.db.app, me.user.id, 'Collection Org')).id; // a second workspace for the collection tests below
+    expect((await owner.get(`/api/v1/orgs/${orgId}`)).body.organization.mode).toBeUndefined();
     const s = (await owner.get(`/api/v1/orgs/${liveOrgId}/settings`)).body.settings;
     expect(s).toMatchObject({ timezone: 'America/Aruba', reportReadyTime: '09:00', lowStockThreshold: 5, reportingCurrency: 'USD', snapshotRetentionDays: 90, historyRetentionDays: 365 });
   });
@@ -179,7 +178,7 @@ describe('workspace setup', () => {
       const r = await add(h.fixtures.origin(key), role);
       expect(r.status, key).toBe(201);
       sites[key] = r.body.site.id;
-      expect(r.body.site).toMatchObject({ isFixture: true, consentStatus: 'pending' });
+      expect(r.body.site).toMatchObject({ consentStatus: 'pending' });
     }
     expect((await add(h.fixtures.origin('woo'), 'competitor')).status).toBe(409);
     const sixth = await add(h.fixtures.origin('challenge'), 'competitor');
@@ -310,7 +309,7 @@ describe('intelligence endpoints', () => {
   it('lists products with filters, shows product detail with history, matches, offers and evidence', async () => {
     const list = (await owner.get(`${base()}/products?siteId=${sites.source}&q=heinz&pageSize=10`)).body;
     expect(list.rows.length).toBeGreaterThanOrEqual(2);
-    expect(list.rows[0]).toMatchObject({ isFixture: true, stale: false });
+    expect(list.rows[0]).toMatchObject({ stale: false });
     const pid = list.rows.find((r: { title: string }) => r.title === 'Heinz Tomato Ketchup 397g').productId;
     const d = (await owner.get(`${base()}/products/${pid}`)).body;
     expect(d.product.title).toBe('Heinz Tomato Ketchup 397g');
@@ -319,7 +318,7 @@ describe('intelligence endpoints', () => {
     expect(d.matches.length).toBeGreaterThan(0);
     expect(d.matches[0].other).toMatchObject({ siteName: expect.any(String), price: expect.any(Number) });
     expect(d.evidence.length).toBeGreaterThan(0);
-    expect(d.evidence[0]).toMatchObject({ contentHash: expect.stringMatching(/^[0-9a-f]{64}$/), isFixture: true });
+    expect(d.evidence[0]).toMatchObject({ contentHash: expect.stringMatching(/^[0-9a-f]{64}$/), provenance: 'public_web' });
     expect((await owner.get(`${base()}/products?matched=no&siteId=${sites.source}`)).status).toBe(200);
     expect((await owner.get(`${base()}/products/00000000-0000-4000-8000-000000000000`)).status).toBe(404);
   });
@@ -359,7 +358,7 @@ describe('reports, exports and alerts through the API', () => {
     const done = (await owner.get(`${base()}/reports/${reportId}`)).body.report;
     expect(done.status).toBe('partial');
     expect(done.data.kpis.matchedProducts).toBeGreaterThan(15);
-    expect((await owner.get(`${base()}/reports`)).body.reports[0]).toMatchObject({ id: reportId, isPartial: true, containsFixture: true });
+    expect((await owner.get(`${base()}/reports`)).body.reports[0]).toMatchObject({ id: reportId, isPartial: true });
     expect((await owner.get(`${base()}/reports/latest`)).body.report.id).toBe(reportId);
     const dash = (await owner.get(`${base()}/dashboard`)).body;
     expect(dash.latestReport).toMatchObject({ id: reportId, isPartial: true });
@@ -460,16 +459,17 @@ describe('integrations through the API', () => {
     expect(after).toMatchObject({ status: 'revoked', accessTokenEnc: null, refreshTokenEnc: null });
   });
 
-  it('simulated inventory is available in development and clearly labelled', async () => {
-    const created = await owner.post(`${base()}/integrations/dev-inventory`, {});
-    expect(created.status).toBe(201);
+  it('a connected inventory is reported as authorised, with an honest sync health', async () => {
+    const me = (await owner.get('/api/v1/auth/me')).body.user.id as string;
+    const created = { body: await createTestInventory(h.svc, h.db.worker, orgId, me) };
     const sku = h.fixtures.sites.source!.find(1)!.sku;
-    const r = await owner.post(`${base()}/integrations/dev-inventory/simulate`, { connectionId: created.body.connectionId, sku, locationName: 'Main warehouse (simulated)', quantity: 3 });
+    const r = { body: await setTestQuantity(h.svc, h.db.worker, orgId, created.body.connectionId, { sku, quantity: 3 }) };
     expect(r.body.alerts).toBe(1);
     const stock = (await owner.get(`${base()}/stock`)).body;
-    expect(stock.mode).toBe('simulated');
-    expect(stock.explanation).toMatch(/SIMULATED/);
-    expect(stock.rows.find((x: { quantity: number | null }) => x.quantity === 3)).toMatchObject({ quantitySource: 'simulated', state: 'low_stock' });
+    expect(stock.mode).toBe('authorised');
+    expect(stock.explanation).toMatch(/authorised/i);
+    expect(stock.explanation).not.toMatch(/SIMULATED/i);
+    expect(stock.rows.find((x: { quantity: number | null }) => x.quantity === 3)).toMatchObject({ quantitySource: 'authorised_inventory', state: 'low_stock' });
     // the connection's sync health is reported honestly, so the page can refuse to look green when the data may be stale or the sync failed
     expect(stock.connection.syncHealth).toBe(stock.connection.lastSyncAt ? 'ok' : 'never');
     await h.db.worker.update(integrationConnections).set({ lastError: 'token expired (test)' }).where(eq(integrationConnections.id, created.body.connectionId));
@@ -495,7 +495,6 @@ describe('roles', () => {
       ['DELETE', `${base()}/sites/${sites.woo}`, undefined],
       ['POST', `${base()}/sites/${sites.woo}/consent`, { status: 'revoked' }],
       ['POST', `${base()}/sites/${sites.woo}/scans`, {}],
-      ['POST', `${base()}/integrations/dev-inventory`, {}],
       ['PUT', `${base()}/alert-rules`, { type: 'low_stock', enabled: false }],
     ] as const) {
       const r = await staff.request(method, url, body);
@@ -557,12 +556,3 @@ describe('tenant isolation through the API', () => {
   });
 });
 
-describe('development tooling', () => {
-  it('exposes the local email outbox and a development scheduler clock only in dev mode', async () => {
-    const box = (await owner.get(`${base()}/dev/outbox`)).body.emails;
-    expect(box.some((m: { kind: string }) => m.kind === 'verify-email')).toBe(true);
-    const t = await owner.post(`${base()}/dev/scheduler/tick`, { now: '2026-10-15T11:20:00.000Z' });
-    expect(t.status).toBe(202);
-    expect((await owner.post(`${base()}/dev/scheduler/tick`, { now: 'yesterday' })).status).toBe(400);
-  });
-});

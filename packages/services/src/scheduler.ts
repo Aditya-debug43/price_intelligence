@@ -5,7 +5,6 @@ import type { Services } from './context.ts';
 import { generateReport } from './report.ts';
 import { runMatching } from './matching.ts';
 import { startScan, recoverScans } from './scan.ts';
-import { getOrgMode } from './workspace.ts';
 import { DateTime } from 'luxon';
 
 /**
@@ -75,16 +74,13 @@ export interface TickResult {
   abandonedScans: string[];
 }
 
-/** One scheduler pass. `svc.clock()` is the notion of "now", so tests and the dev mode can simulate any time of day. */
+/** One scheduler pass. `svc.clock()` is the notion of "now", so a test can place the pass at any time of day. */
 export async function schedulerTick(svc: Services): Promise<TickResult> {
   const now = svc.clock();
   const recovery = await recoverScans(svc);
   const result: TickResult = { started: [], assembleQueued: [], recoveredScans: recovery.resumed, abandonedScans: recovery.abandoned };
   const orgs = await svc.db.select().from(orgSettings).where(eq(orgSettings.scheduleEnabled, true));
   for (const o of orgs) {
-    // A demonstration workspace only has fictional local websites. On a server that does not serve them, every scheduled collection would
-    // fail and raise false "collection failed" alerts each morning, so it is simply not scheduled there.
-    if (!svc.config.ALLOW_LOCAL_FIXTURES && (await getOrgMode(svc.db, o.orgId)) === 'demo') continue;
     const today = localDate(now, o.timezone);
     const tomorrow = DateTime.fromISO(today, { zone: o.timezone }).plus({ days: 1 }).toISODate()!;
     for (const date of [today, tomorrow]) {

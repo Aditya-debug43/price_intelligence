@@ -308,9 +308,13 @@ describe('config validation', () => {
     expect(() => loadConfig({} as NodeJS.ProcessEnv)).toThrow(ConfigError);
   });
   it('refuses unsafe production settings', () => {
-    expect(() =>
-      loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgres://x', ALLOW_LOCAL_FIXTURES: 'true' } as unknown as NodeJS.ProcessEnv),
-    ).toThrow(/Unsafe production configuration/);
+    expect(() => loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgres://x' } as unknown as NodeJS.ProcessEnv)).toThrow(/Unsafe production configuration/);
+  });
+  it('has no switch that weakens URL screening or fakes data: the removed demo flags are not part of the configuration', () => {
+    const c = loadConfig({ DATABASE_URL: 'postgres://x', ALLOW_LOCAL_FIXTURES: 'true', DEMO_AUTO_CONSENT: 'true', SCHEDULER_MODE: 'dev' } as unknown as NodeJS.ProcessEnv) as unknown as Record<string, unknown>;
+    expect(c['ALLOW_LOCAL_FIXTURES']).toBeUndefined();
+    expect(c['DEMO_AUTO_CONSENT']).toBeUndefined();
+    expect(c['SCHEDULER_MODE']).toBeUndefined();
   });
   it('loads a development config with defaults', () => {
     const c = loadConfig({ DATABASE_URL: 'postgres://x' } as unknown as NodeJS.ProcessEnv);

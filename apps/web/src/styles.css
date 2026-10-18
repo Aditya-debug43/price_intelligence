@@ -105,7 +105,6 @@ button { font: inherit; }
 
 /* the data-honesty bar: coverage, freshness and partial status on every screen */
 .verify-banner { background: #fff4d6; border-bottom: 1px solid #e0a116; color: var(--ink); padding: 7px clamp(16px, 3vw, 36px); font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.demo-banner { background: var(--tag-wash); border-bottom: 1px solid #e6bb1a; color: var(--ink); padding: 7px clamp(16px, 3vw, 36px); font-size: 13px; }
 .honesty { position: sticky; top: 0; z-index: 20; background: var(--paper); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 8px clamp(16px, 3vw, 36px); flex-wrap: wrap; font-size: 13px; }
 .honesty .item { display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
 .honesty .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--palm); flex: none; }
@@ -167,8 +166,6 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--lagoon);
 .pill.limited { background: #e8eefc; color: #2d4a9a; }
 .pill.blocked, .pill.bad { background: var(--coral-wash); color: #a8321a; }
 .pill.failed { background: #3b1a14; color: #ffd9d0; }
-.pill.fixture { background: var(--tag); color: var(--ink); }
-.pill.sim { background: #efe4ff; color: #5b2f9a; }
 .pill.info { background: var(--lagoon-wash); color: var(--lagoon-d); }
 
 /* ── tables ──────────────────────────────────────────────── */

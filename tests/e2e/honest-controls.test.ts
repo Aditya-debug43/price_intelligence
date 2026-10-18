@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../apps/api/src/app.ts';
 import { createOrganization, generateReport, runMatching, runProfile, startScan } from '@ci/services';
+import type { ReportData } from '@ci/shared';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
 
@@ -27,7 +28,7 @@ beforeAll(async () => {
   await owner.post('/api/v1/auth/register', { email: `honest-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Honest Owner' });
   userId = (await owner.get('/api/v1/auth/me')).body.user.id as string;
   liveOrg = (await owner.post('/api/v1/orgs', { name: 'Honest Live Co' })).body.organization.id as string;
-  demoOrg = (await createOrganization(h.db.app, userId, 'Honest Demo Co', { mode: 'demo' })).id;
+  demoOrg = (await createOrganization(h.db.app, userId, 'Honest Co')).id;
 }, 120_000);
 
 afterAll(async () => {
@@ -72,17 +73,17 @@ describe('actions with nothing to act on say so instead of pretending to work', 
 
 describe('a report with no data has no findings — it never says "nothing changed"', () => {
   it('headline states the absence plainly, for no source and for no collected products', async () => {
-    const t = await h.newTenant('NoData', { mode: 'live' });
+    const t = await h.newTenant('NoData');
     const empty = await generateReport(h.svc, h.db.worker, t.orgId, { kind: 'manual', deadlineAt: null, createdBy: t.userId });
-    expect(empty.data!.headline).toMatch(/no findings: no website of yours has been added yet/);
-    expect(empty.data!.headline).not.toMatch(/No significant changes/);
+    expect((empty.data as ReportData).headline).toMatch(/no findings: no website of yours has been added yet/);
+    expect((empty.data as ReportData).headline).not.toMatch(/No significant changes/);
 
     const withSites = await owner.post(`${live()}/sites`, { url: 'https://rival-b.example.test', role: 'competitor' });
     expect(withSites.status).toBe(201);
     const r = await generateReport(h.svc, h.db.worker, liveOrg, { kind: 'manual', deadlineAt: null, createdBy: userId });
-    expect(r.data!.headline).toMatch(/no findings: no products have been collected from any website yet/);
-    expect(r.data!.headline).not.toMatch(/No significant changes/);
-    expect(r.data!.kpis.matchedProducts).toBe(0);
+    expect((r.data as ReportData).headline).toMatch(/no findings: no products have been collected from any website yet/);
+    expect((r.data as ReportData).headline).not.toMatch(/No significant changes/);
+    expect((r.data as ReportData).kpis.matchedProducts).toBe(0);
   });
 });
 

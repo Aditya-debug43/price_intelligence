@@ -35,10 +35,9 @@ describe('1. workspace and website management', () => {
     await expect(t.tx((tx) => addSite(h.svc, tx, t.orgId, t.userId, { url: 'https://sneaky.example', role: 'competitor' }))).rejects.toMatchObject({ code: 'unsafe' });
   });
 
-  it('records fixtures as fixtures', async () => {
+  it('stores the website under its public hostname, with the customer’s confirmation', async () => {
     const [s] = await readDb().select().from(sites).where(eq(sites.id, ids.source!));
-    expect(s!.isFixture).toBe(true);
-    expect(s!.hostname).toMatch(/^127\.0\.0\.1:\d+$/);
+    expect(s!.hostname).toBe('mine.test');
     expect(s!.consentStatus).toBe('confirmed');
   });
 });
@@ -101,13 +100,13 @@ describe('4. collection', () => {
     expect(failing.error).toMatch(/not an empty catalogue|temporary|technical/i);
   });
 
-  it('stores products, variants and append-only observations with provenance and fixture flags', async () => {
+  it('stores products, variants and append-only observations with provenance', async () => {
     const prods = await readDb().select().from(products).where(eq(products.siteId, ids.jsonld!));
     expect(prods.length).toBe(h.fixtures.sites.jsonld!.products.length);
     const [obs] = await readDb().select().from(priceObservations).where(eq(priceObservations.siteId, ids.jsonld!)).limit(1);
-    expect(obs!.sourceUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/p\//);
+    expect(obs!.sourceUrl).toMatch(/^http:\/\/rival-ld\.test\/p\//);
     expect(obs!.extractionMethod).toBe('json_ld');
-    expect(obs!.isFixture).toBe(true);
+    expect(obs!.provenance).toBe('public_web');
     expect(obs!.evidenceId).toBeTruthy();
     const [ev] = await readDb().select().from(evidence).where(eq(evidence.id, obs!.evidenceId!));
     expect(ev!.contentHash).toMatch(/^[0-9a-f]{64}$/);
@@ -270,7 +269,7 @@ describe('6. offers, promotions and flyers', () => {
     expect(m.length).toBeGreaterThan(3);
     expect(m.some((x) => x.kind === 'announcement_bar')).toBe(true);
     expect(m.some((x) => x.kind === 'flyer')).toBe(true);
-    expect(m.every((x) => x.isFixture)).toBe(true);
+    expect(m.every((x) => x.provenance === 'public_web')).toBe(true);
   });
 
   it('a product missing from a COMPLETE feed scan is only called delisted after two misses', async () => {

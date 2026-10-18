@@ -384,7 +384,7 @@ export function generateInsights(i: InsightInputs): InsightRow[] {
         title: `Low stock: ${st.title}`,
         summary:
           st.quantity !== null
-            ? `${st.title} has ${st.quantity} unit${st.quantity === 1 ? '' : 's'} left (threshold ${st.threshold}; source: ${st.quantitySource === 'authorised_inventory' ? 'authorised inventory' : st.quantitySource === 'simulated' ? 'SIMULATED inventory' : 'public claim'}).`
+            ? `${st.title} has ${st.quantity} unit${st.quantity === 1 ? '' : 's'} left (threshold ${st.threshold}; source: ${st.quantitySource === 'authorised_inventory' ? 'authorised inventory' : 'public claim'}).`
             : `${st.title} is marked as limited availability on your site. No unit count is published, so the remaining quantity is unknown.`,
         facts: { quantity: st.quantity, threshold: st.threshold },
         evidence: [{ kind: 'variant', id: st.variantId, url: st.url, observedAt: st.observedAt, label: st.title }],

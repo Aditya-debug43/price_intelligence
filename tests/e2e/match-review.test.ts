@@ -24,7 +24,7 @@ beforeAll(async () => {
   owner = new ApiClient(app);
   await owner.post('/api/v1/auth/register', { email: `review-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Reviewer' });
   const me = (await owner.get('/api/v1/auth/me')).body;
-  org = (await createOrganization(h.db.app, me.user.id, 'Match Review Demo', { mode: 'demo' })).id;
+  org = (await createOrganization(h.db.app, me.user.id, 'Match Review')).id;
   for (const [key, role] of [['source', 'source'], ['woo', 'competitor'], ['jsonld', 'competitor']] as const) {
     const id = (await owner.post(`${base()}/sites`, { url: h.fixtures.origin(key), role, name: h.fixtures.sites[key]!.spec.label })).body.site.id as string;
     await owner.post(`${base()}/sites/${id}/consent`, { status: 'confirmed', attest: true });

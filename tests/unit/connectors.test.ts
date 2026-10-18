@@ -1,12 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startFixtureServer, type FixtureServer } from './fixtures/server.ts';
-import { profileSite } from './profiler.ts';
-import { rankConnectors } from './registry.ts';
-import { shopifyConnector } from './shopify.ts';
-import { woocommerceConnector } from './woocommerce.ts';
-import { htmlGenericConnector, structuredDataConnector } from './page-crawl.ts';
-import { testContext, testFetcher } from './test-utils.ts';
+import { htmlGenericConnector, profileSite, rankConnectors, shopifyConnector, structuredDataConnector, woocommerceConnector } from '@ci/connectors';
 import { isValidGtin } from '@ci/core';
+import { startFixtureServer, type FixtureServer } from '../support/fixtures/server.ts';
+import { fixtureFetcher, testContext } from '../support/net.ts';
 
 let fx: FixtureServer;
 beforeAll(async () => {
@@ -17,7 +13,7 @@ afterAll(async () => {
 });
 
 const profile = async (key: string, caps = { browserEnabled: false, aiEnabled: false }) => {
-  const fetcher = testFetcher();
+  const fetcher = fixtureFetcher(fx);
   return profileSite(fx.origin(key), { fetcher, capabilities: caps, defaultCrawlDelayMs: 0, defaultMaxRequests: 2000 });
 };
 
@@ -107,7 +103,7 @@ describe('site profiler against fixture sites (FIXTURES — not live data)', () 
   });
 
   it('refuses private/internal targets without making any request', async () => {
-    const fetcher = testFetcher({ allowLoopback: false });
+    const fetcher = fixtureFetcher(fx);
     const p = await profileSite('http://169.254.169.254/', { fetcher, capabilities: { browserEnabled: false, aiEnabled: false }, defaultCrawlDelayMs: 0, defaultMaxRequests: 100 });
     expect(p.status).toBe('blocked');
     expect(p.limitations[0]!.code).toBe('unsafe_address');
@@ -115,7 +111,7 @@ describe('site profiler against fixture sites (FIXTURES — not live data)', () 
   });
 
   it('rejects malformed input as a failed profile (not a crash)', async () => {
-    const p = await profileSite('ftp://example.com', { fetcher: testFetcher(), capabilities: { browserEnabled: false, aiEnabled: false }, defaultCrawlDelayMs: 0, defaultMaxRequests: 100 });
+    const p = await profileSite('ftp://example.com', { fetcher: fixtureFetcher(fx), capabilities: { browserEnabled: false, aiEnabled: false }, defaultCrawlDelayMs: 0, defaultMaxRequests: 100 });
     expect(p.status).toBe('failed');
     expect(p.limitations[0]!.code).toBe('invalid_url');
   });
@@ -129,7 +125,7 @@ describe('site profiler against fixture sites (FIXTURES — not live data)', () 
 
 describe('Shopify products.json connector', () => {
   it('maps products, variants, prices, compare-at and public availability; never invents quantities', async () => {
-    const fetcher = testFetcher();
+    const fetcher = fixtureFetcher(fx);
     const ctx = testContext(fetcher, fx.origin('source'), { siteCurrency: 'AWG' });
     const batch = await shopifyConnector.fetchPage(ctx, null);
     expect(batch.done).toBe(true);
@@ -147,7 +143,7 @@ describe('Shopify products.json connector', () => {
   });
 
   it('paginates and resumes from a cursor; a mid-catalogue failure surfaces as an error, not an empty catalogue', async () => {
-    const fetcher = testFetcher();
+    const fetcher = fixtureFetcher(fx);
     const ctx = testContext(fetcher, fx.origin('flaky'), { siteCurrency: 'AWG' });
     fx.sites.flaky!.failFeedFromPage = 3;
     const p1 = await shopifyConnector.fetchPage(ctx, null);
@@ -165,14 +161,14 @@ describe('Shopify products.json connector', () => {
   });
 
   it('records a null currency (with a note) when none is known — it does not assume USD', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('source'), { siteCurrency: null });
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('source'), { siteCurrency: null });
     const batch = await shopifyConnector.fetchPage(ctx, null);
     expect(batch.products[0]!.variants[0]!.currency).toBeNull();
     expect(batch.products[0]!.quality.notes.join(' ')).toMatch(/currency/);
   });
 
   it('refreshes specific products by URL', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('source'), { siteCurrency: 'AWG' });
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('source'), { siteCurrency: 'AWG' });
     const target = fx.sites.source!.products[0]!;
     fx.sites.source!.setPrice(target.itemId, 99.5);
     const r = await shopifyConnector.refresh(ctx, [`${fx.origin('source')}/products/${target.handle}`, `${fx.origin('source')}/products/does-not-exist`]);
@@ -184,7 +180,7 @@ describe('Shopify products.json connector', () => {
 
 describe('WooCommerce Store API connector', () => {
   it('converts minor units, keeps the API currency, and reads explicit low-stock claims', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('woo'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('woo'));
     const batch = await woocommerceConnector.fetchPage(ctx, null);
     expect(batch.done).toBe(true);
     expect(batch.progress.estimatedTotal).toBe(fx.sites.woo!.products.length);
@@ -197,7 +193,7 @@ describe('WooCommerce Store API connector', () => {
   });
 
   it('expands variable products into variants via the variation query', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('woo'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('woo'));
     const batch = await woocommerceConnector.fetchPage(ctx, null);
     const variable = batch.products.find((p) => p.variants.length > 1)!;
     expect(variable.variants.map((v) => v.title)).toEqual(['12 x 355ml', '24 x 355ml']);
@@ -205,7 +201,7 @@ describe('WooCommerce Store API connector', () => {
   });
 
   it('refreshes by slug', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('woo'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('woo'));
     const p = fx.sites.woo!.products[2]!;
     const r = await woocommerceConnector.refresh(ctx, [`${fx.origin('woo')}/product/${p.handle}/`]);
     expect(r.products).toHaveLength(1);
@@ -214,7 +210,7 @@ describe('WooCommerce Store API connector', () => {
 
 describe('page connectors (sitemap discovery + extraction)', () => {
   it('discovers product URLs from a sitemap index, skipping page sitemaps', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('jsonld'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('jsonld'));
     const d = await structuredDataConnector.discover(ctx);
     expect(d.urls).toHaveLength(fx.sites.jsonld!.products.length);
     expect(d.urls.every((u) => u.url.includes('/p/'))).toBe(true);
@@ -222,7 +218,7 @@ describe('page connectors (sitemap discovery + extraction)', () => {
   });
 
   it('extracts JSON-LD with GTIN, brand, availability (incl. limited) and currency; missing values stay null', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('jsonld'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('jsonld'));
     const site = fx.sites.jsonld!;
     const withGtin = site.products.find((p) => p.gtin)!;
     const b = await structuredDataConnector.extractPage(ctx, `${fx.origin('jsonld')}/p/${withGtin.handle}`);
@@ -250,7 +246,7 @@ describe('page connectors (sitemap discovery + extraction)', () => {
   });
 
   it('reads an explicit "Only N left" statement as a PUBLIC CLAIM, not as inventory', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('html'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('html'));
     const claimed = fx.sites.html!.products.find((p) => p.claimedLeft !== null)!;
     const b = await htmlGenericConnector.extractPage(ctx, `${fx.origin('html')}/item/${claimed.handle}`);
     const v = b.products[0]!.variants[0]!;
@@ -260,14 +256,14 @@ describe('page connectors (sitemap discovery + extraction)', () => {
   });
 
   it('structured-only connector does not guess from layout', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('html'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('html'));
     const p = fx.sites.html!.products[0]!;
     const b = await structuredDataConnector.extractPage(ctx, `${fx.origin('html')}/item/${p.handle}`);
     expect(b.products).toEqual([]);
   });
 
   it('extracts sale prices with compare-at and out-of-stock pages from plain HTML', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('html'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('html'));
     const oos = fx.sites.html!.products[0]!;
     fx.sites.html!.setAvailability(oos.itemId, false);
     const b = await htmlGenericConnector.extractPage(ctx, `${fx.origin('html')}/item/${oos.handle}`);
@@ -276,14 +272,14 @@ describe('page connectors (sitemap discovery + extraction)', () => {
   });
 
   it('a 404 page returns no products with a warning (delisting signal), not an error', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('jsonld'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('jsonld'));
     const b = await structuredDataConnector.extractPage(ctx, `${fx.origin('jsonld')}/p/nonexistent`);
     expect(b.products).toEqual([]);
     expect(b.warnings.join(' ')).toMatch(/404/);
   });
 
   it('stops with an access-denied error when a challenge page is served', async () => {
-    const ctx = testContext(testFetcher(), fx.origin('challenge'));
+    const ctx = testContext(fixtureFetcher(fx), fx.origin('challenge'));
     await expect(structuredDataConnector.extractPage(ctx, `${fx.origin('challenge')}/p/x`)).rejects.toThrow();
   });
 });

@@ -4,15 +4,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, errorMessage, fieldErrors } from '../api';
 import { useMe } from '../app-shell';
-import { Field, PriceTag, Spinner, useDocumentTitle } from '../ui';
+import { Field, Spinner, useDocumentTitle } from '../ui';
 import type { Me } from '../types';
 
 function AuthFrame({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   useDocumentTitle(title);
-  const demo = {
-    amount: 4.49, compareAt: 5.19, currency: 'USD', normalized: 4.49, normalizedCurrency: 'USD', fxRate: null, fxSource: null, fxAt: null,
-    observedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), stale: false, sourceUrl: null, observationId: null,
-  };
   return (
     <div className="auth-wrap">
       <div className="auth-side">
@@ -31,10 +27,11 @@ function AuthFrame({ title, subtitle, children }: { title: string; subtitle?: st
             Prices, stock risks, offers and campaigns from your competitors — every number with its source and the time we saw it.
           </p>
         </div>
-        <div className="row" style={{ alignItems: 'flex-end', gap: 22 }}>
-          <PriceTag site="Example competitor" price={demo} unit={{ value: 0.45, unit: 'per 100 g' }} diffPct={-7.4} directlyComparable reporting="USD" matchLabel="identical 92%" />
-          <span className="small" style={{ color: '#9bb3b6', maxWidth: 240 }}>Illustration only. Real tags appear on the price comparison page.</span>
-        </div>
+        <ul className="small" style={{ color: '#9bb3b6', maxWidth: '46ch', margin: 0, paddingLeft: 18 }}>
+          <li>Every price shows the page it came from and when we saw it.</li>
+          <li>A website that cannot be collected is reported as not collected — never as empty or cheap.</li>
+          <li>Nothing is estimated or invented.</li>
+        </ul>
       </div>
       <div className="auth-form">
         <h2 style={{ fontSize: 26 }}>{title}</h2>

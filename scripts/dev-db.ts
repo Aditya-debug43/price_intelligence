@@ -45,12 +45,18 @@ const appPw = decodeURIComponent(new URL(get('DATABASE_URL')).password);
 const workerPw = decodeURIComponent(new URL(get('WORKER_DATABASE_URL')).password);
 
 await setupRoles({ adminUrl: pgHandle.adminUrl(DB), appPassword: appPw, workerPassword: workerPw });
-await runMigrations(pgHandle.adminUrl(DB));
+try {
+  await runMigrations(pgHandle.adminUrl(DB));
+} catch (e) {
+  // Keep the database running so the problem can be fixed (for example with `npm run db:purge-demo`, then `npm run db:migrate`).
+  const cause = (e as { cause?: { message?: string } }).cause?.message ?? (e as Error).message;
+  console.error(`\nMIGRATIONS DID NOT APPLY: ${cause}\nThe database is still running. Fix the problem above, then run: npm run db:migrate\n`);
+}
 
 console.log('\n──────────────────────────────────────────────');
 console.log(`PostgreSQL ready on 127.0.0.1:${PORT}  (database "${DB}")`);
 console.log(env.created ? 'Generated .env with random local secrets (not committed).' : 'Using existing .env.');
-console.log('Next, in other terminals:  npm run demo:fixtures  (fictional demo data)  then  npm run dev:demo  — or  npm run dev  for your own websites.');
+console.log('Next, in another terminal:  npm run dev   (worker + API + web). Register an account; your workspace starts empty.');
 console.log('Press Ctrl+C to stop the database.');
 console.log('──────────────────────────────────────────────\n');
 

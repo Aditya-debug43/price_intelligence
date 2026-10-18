@@ -10,7 +10,7 @@ export async function orgRoutes(app: FastifyInstance) {
   app.get('/', async (req) => {
     const [org] = await app.rootDb.select().from(organizations).where(eq(organizations.id, req.orgId!));
     const settings = await req.tx((tx) => getSettings(tx, req.orgId!));
-    return { organization: { id: org!.id, name: org!.name, slug: org!.slug, mode: org!.mode }, role: req.role, settings };
+    return { organization: { id: org!.id, name: org!.name, slug: org!.slug }, role: req.role, settings };
   });
 
   app.get('/settings', async (req) => ({ settings: await req.tx((tx) => getSettings(tx, req.orgId!)) }));

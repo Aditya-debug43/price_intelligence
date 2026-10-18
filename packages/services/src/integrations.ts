@@ -1,7 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { decryptSecret, encryptSecret, isValidShopDomain, randomToken, verifyShopifyQueryHmac } from '@ci/core';
 import {
-  DevInventoryProvider,
   ShopifyInventoryProvider,
   allSocialStatuses,
   buildShopifyAuthorizeUrl,
@@ -9,14 +8,12 @@ import {
   refreshShopifyToken,
   revokeShopifyAccess,
   type ShopifyAppConfig,
-  type SimulatedRow,
 } from '@ci/connectors';
-import { auditEvents, integrationConnections, oauthStates, products, sites, socialAccounts, variants, withTenant, type Db, type DbLike } from '@ci/database';
+import { auditEvents, integrationConnections, oauthStates, sites, socialAccounts, withTenant, type Db, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { raiseAlert, emailAlertDigest, resolveClearedAlerts } from './alerts.ts';
 import { applyInventory, type InventorySyncResult } from './stock.ts';
 import { loadMetaTokenHealth, socialConfigOf } from './social-sync.ts';
-import { getOrgMode } from './workspace.ts';
 
 export class IntegrationError extends Error {
   constructor(message: string, readonly code: 'not_configured' | 'invalid' | 'forbidden' | 'not_found' | 'state' | 'provider', readonly status = 400) {
@@ -39,7 +36,6 @@ const SAFE_COLUMNS = {
   status: integrationConnections.status,
   shopDomain: integrationConnections.shopDomain,
   scopes: integrationConnections.scopes,
-  isSimulated: integrationConnections.isSimulated,
   connectedAt: integrationConnections.connectedAt,
   revokedAt: integrationConnections.revokedAt,
   lastSyncAt: integrationConnections.lastSyncAt,
@@ -70,7 +66,6 @@ export async function integrationOverview(svc: Services, db: DbLike, orgId: stri
       readOnly: true,
       note: 'Read-only access (products, inventory, locations). Tokens are encrypted at rest, expire hourly and are refreshed automatically; disconnecting revokes access.',
     },
-    devInventoryAvailable: !svc.config.isProduction && (await getOrgMode(db, orgId)) === 'demo',
     connections,
     social: { providers: allSocialStatuses(socialConfigOf(svc), await loadMetaTokenHealth(svc, svc.socialHttp)), accounts },
   };
@@ -148,48 +143,6 @@ export async function getShopifyAccessToken(svc: Services, connectionId: string)
   });
 }
 
-// ───────────────────────────────────────────────────────────── dev/simulated inventory
-
-/** The simulator invents inventory quantities, so it exists only in demo workspaces — never in a live one, whatever the environment flags say. */
-async function assertSimulatorAllowed(svc: Services, db: DbLike, orgId: string): Promise<void> {
-  if (svc.config.isProduction) throw new IntegrationError('The inventory simulator is disabled in production.', 'forbidden', 403);
-  if ((await getOrgMode(db, orgId)) !== 'demo') throw new IntegrationError('The inventory simulator is only available in demo workspaces. A live workspace only ever shows real inventory from an authorised connection.', 'forbidden', 403);
-}
-
-export async function createDevInventory(svc: Services, db: DbLike, orgId: string, userId: string): Promise<{ connectionId: string; rows: number }> {
-  await assertSimulatorAllowed(svc, db, orgId);
-  const [source] = await db.select().from(sites).where(and(eq(sites.orgId, orgId), eq(sites.role, 'source'), eq(sites.active, true)));
-  if (!source) throw new IntegrationError('Add your own website first.', 'invalid');
-  const rows = await db
-    .select({ sku: variants.sku, title: products.title, vTitle: variants.title, availability: variants.availability })
-    .from(variants)
-    .innerJoin(products, eq(products.id, variants.productId))
-    .where(eq(variants.siteId, source.id));
-  const sim: SimulatedRow[] = rows
-    .filter((r) => r.sku)
-    .map((r) => ({ sku: r.sku!, productTitle: r.title, variantTitle: r.vTitle, tracked: true, levels: [{ locationId: 'sim-main', locationName: 'Main warehouse (simulated)', available: r.availability === 'out_of_stock' ? 0 : 12 }] }));
-  const [conn] = await db
-    .insert(integrationConnections)
-    .values({ orgId, provider: 'dev_inventory', siteId: source.id, status: 'connected', isSimulated: true, connectedBy: userId, connectedAt: svc.clock(), meta: { simulatedInventory: sim, label: 'SIMULATED inventory for development' } })
-    .returning({ id: integrationConnections.id });
-  await db.insert(auditEvents).values({ orgId, userId, action: 'integration.dev_inventory.created', target: conn!.id });
-  return { connectionId: conn!.id, rows: sim.length };
-}
-
-export async function simulateQuantity(svc: Services, db: DbLike, orgId: string, connectionId: string, p: { sku: string; locationName: string; quantity: number | null }): Promise<InventorySyncResult> {
-  await assertSimulatorAllowed(svc, db, orgId);
-  const [c] = await db.select().from(integrationConnections).where(and(eq(integrationConnections.id, connectionId), eq(integrationConnections.orgId, orgId)));
-  if (!c || c.provider !== 'dev_inventory') throw new IntegrationError('Simulated connection not found.', 'not_found', 404);
-  const sim = ((c.meta['simulatedInventory'] as SimulatedRow[] | undefined) ?? []).map((r) => ({ ...r, levels: r.levels.map((l) => ({ ...l })) }));
-  const row = sim.find((r) => r.sku.toLowerCase() === p.sku.toLowerCase());
-  if (!row) throw new IntegrationError(`SKU ${p.sku} is not in the simulated inventory.`, 'not_found', 404);
-  const level = row.levels.find((l) => l.locationName === p.locationName) ?? row.levels[0]!;
-  level.available = p.quantity;
-  row.tracked = p.quantity !== null;
-  await db.update(integrationConnections).set({ meta: { ...c.meta, simulatedInventory: sim } }).where(eq(integrationConnections.id, c.id));
-  return runInventorySync(svc, db, orgId, connectionId);
-}
-
 // ───────────────────────────────────────────────────────────── sync + lifecycle
 
 /** Reads inventory from the connection's provider and applies it to the own shop's variants (alerts are deduplicated). */
@@ -198,12 +151,11 @@ export async function runInventorySync(svc: Services, db: DbLike, orgId: string,
   if (!c) throw new IntegrationError('Connection not found.', 'not_found', 404);
   if (c.status !== 'connected') throw new IntegrationError('This connection is not active.', 'forbidden', 409);
   let provider;
-  if (c.provider === 'dev_inventory') provider = new DevInventoryProvider((c.meta['simulatedInventory'] as SimulatedRow[] | undefined) ?? []);
-  else if (c.provider === 'shopify' && c.shopDomain) provider = new ShopifyInventoryProvider(c.shopDomain, svc.config.SHOPIFY_API_VERSION, () => getShopifyAccessToken(svc, c.id));
+  if (c.provider === 'shopify' && c.shopDomain) provider = new ShopifyInventoryProvider(c.shopDomain, svc.config.SHOPIFY_API_VERSION, () => getShopifyAccessToken(svc, c.id));
   else throw new IntegrationError('Unsupported inventory provider.', 'invalid');
   try {
     const items = await provider.listInventory();
-    const result = await applyInventory(svc, db, { orgId, connectionId, items, simulated: provider.simulated });
+    const result = await applyInventory(svc, db, { orgId, connectionId, items });
     await resolveClearedAlerts(db, { orgId, types: ['integration_issue'], connectionId, note: 'The inventory sync succeeded again.', now: svc.clock() });
     return result;
   } catch (e) {

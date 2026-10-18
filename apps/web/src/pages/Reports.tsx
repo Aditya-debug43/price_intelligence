@@ -4,7 +4,7 @@ import { formatDateTime, formatMoney, formatPct, type ReportData } from '@ci/sha
 import { api, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { MarketingSummaryCard } from '../social';
-import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, FixturePill, Icon, PageHead, Pct, PriceTag, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
+import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Icon, PageHead, Pct, PriceTag, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
 import type { ReportListItem, ReportRecord } from '../types';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -48,7 +48,7 @@ export function ReportsPage() {
                   const st = STATUS[r.status] ?? { label: r.status, cls: '' };
                   return (
                     <tr key={r.id}>
-                      <td><Link className="title" to={`/o/${orgId}/reports/${r.id}`}>{r.periodDate}</Link> {r.containsFixture && <FixturePill />}<div className="sub">{r.kind === 'scheduled' ? 'Daily (scheduled)' : 'Generated on request'}</div></td>
+                      <td><Link className="title" to={`/o/${orgId}/reports/${r.id}`}>{r.periodDate}</Link><div className="sub">{r.kind === 'scheduled' ? 'Daily (scheduled)' : 'Generated on request'}</div></td>
                       <td><span className={`pill ${st.cls}`}>{st.label}</span>{r.isPartial && r.status !== 'partial' && <span className="pill warn">partial</span>}</td>
                       <td className="small">{r.generatedAt ? formatDateTime(r.generatedAt) : '—'}</td>
                       <td className="small">{r.deadlineAt ? (r.readyBeforeDeadline === null ? formatDateTime(r.deadlineAt) : r.readyBeforeDeadline ? <span className="pill good">on time</span> : <span className="pill warn">after the deadline</span>) : '—'}</td>
@@ -130,7 +130,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
       <PageHead
         eyebrow={`Report · ${m.orgName}`}
         docTitle={`Report ${m.periodDate}${m.isPartial ? ' (partial)' : ''}`}
-        title={<>{m.periodDate} {m.isPartial && <span className="pill warn" style={{ fontSize: 14 }}>Partial</span>} {m.containsFixtureData && <FixturePill />}</>}
+        title={<>{m.periodDate} {m.isPartial && <span className="pill warn" style={{ fontSize: 14 }}>Partial</span>}</>}
         subtitle={<>Prepared {formatDateTime(m.generatedAt)} ({m.timezone}).{m.deadlineAt && m.readyBeforeDeadline !== null && <> {m.readyBeforeDeadline ? 'Ready before' : 'Finished after'} the {formatDateTime(m.deadlineAt)} target.</>} Saved snapshot — it will not change.</>}
         actions={<ExportMenu orgId={orgId} reportId={report.id} />}
       />
@@ -292,7 +292,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
                 <thead><tr><th>Website</th><th>Capability</th><th className="r">Products</th><th className="r">Stale</th><th>Newest data</th><th>Complete?</th></tr></thead>
                 <tbody>{data.sites.map((s) => (
                   <tr key={s.siteId}>
-                    <td>{s.name} {s.isFixture && <FixturePill />}<div className="sub">{s.role === 'source' ? 'your shop' : 'competitor'} · {s.connector ?? 'no method'}</div></td>
+                    <td>{s.name}<div className="sub">{s.role === 'source' ? 'your shop' : 'competitor'} · {s.connector ?? 'no method'}</div></td>
                     <td><CapabilityPill status={s.capability} /></td>
                     <td className="r num">{s.productsKnown}</td>
                     <td className="r num">{s.productsStale || ''}</td>

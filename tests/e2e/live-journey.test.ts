@@ -2,9 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { extractText, getDocumentProxy } from 'unpdf';
-import { DomainLimiter, SafeFetcher, type SafeFetcherDeps } from '@ci/connectors';
 import { evidence, priceObservations, products, sites as sitesTable, stockObservations, variants, withTenant } from '@ci/database';
-import { fetchPolicyFrom } from '@ci/services';
 import { buildApp } from '../../apps/api/src/app.ts';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
@@ -36,22 +34,6 @@ const sites: Record<string, string> = {};
 const base = (o = orgId) => `/api/v1/orgs/${o}`;
 const db = () => h.db.worker;
 
-/** Serves each public hostname from the matching local fictional site, rewriting its own origin to the public hostname. */
-const transport: NonNullable<SafeFetcherDeps['transport']> = async (url, init) => {
-  const key = HOSTS[url.hostname];
-  if (!key) throw new Error(`no imitation for ${url.hostname}`);
-  const origin = h.fixtures.origin(key);
-  const headers = { ...init.headers };
-  delete headers['host'];
-  const res = await fetch(new URL(url.pathname + url.search, origin), { method: init.method, headers, signal: init.signal, redirect: 'manual' });
-  let buf = Buffer.from(await res.arrayBuffer());
-  const publicOrigin = `http://${url.host}`;
-  if (/text|json|xml/i.test(res.headers.get('content-type') ?? '')) buf = Buffer.from(buf.toString('utf8').split(origin).join(publicOrigin));
-  const out: Record<string, string> = {};
-  for (const [k, v] of res.headers.entries()) if (!['content-length', 'content-encoding', 'transfer-encoding'].includes(k)) out[k] = k === 'location' ? v.split(origin).join(publicOrigin) : v;
-  return { status: res.status, headers: out, body: (async function* () { yield new Uint8Array(buf); })() };
-};
-
 const scanRuns = async () => (await owner.get(`${base()}/scans`)).body.scans as { id: string; siteId: string; status: string; isComplete: boolean; productsSaved: number }[];
 const runOf = async (key: string) => (await scanRuns()).find((r) => r.siteId === sites[key])!;
 async function recollect(...keys: string[]) {
@@ -61,9 +43,6 @@ async function recollect(...keys: string[]) {
 
 beforeAll(async () => {
   h = await createHarness();
-  const limiter = new DomainLimiter({ delayMs: 0, maxConcurrency: 4 }, Date.now, async () => {});
-  // The production fetch policy, loopback refused, validated against the harness's DNS stub (".test" resolves to a public address).
-  h.svc.makeFetcher = (over) => new SafeFetcher({ ...fetchPolicyFrom(h.svc.config), maxRetries: 1, ...(over ?? {}), allowLoopback: false }, { limiter, resolver: h.svc.resolver, transport });
   app = await buildApp({ svc: { ...h.svc, db: h.db.app }, rootDb: h.db.app, logger: false, authRateLimitMax: 1000 });
   owner = new ApiClient(app);
 }, 120_000);
@@ -74,11 +53,11 @@ afterAll(async () => {
 });
 
 describe('1. a new customer signs up and gets an empty live workspace', () => {
-  it('registers, creates a workspace, and it is LIVE however it is asked for', async () => {
+  it('registers, creates a workspace, and any attempt to ask for another kind of workspace is ignored', async () => {
     expect((await owner.post('/api/v1/auth/register', { email: `live-${Date.now()}@example.test`, password: PASSWORD, displayName: 'Live Owner' })).status).toBe(201);
     const r = await owner.post('/api/v1/orgs', { name: 'Live Journey Shop', mode: 'demo' });
     expect(r.status).toBe(201);
-    expect(r.body.organization.mode).toBe('live');
+    expect(r.body.organization.mode).toBeUndefined();
     orgId = r.body.organization.id;
   });
 
@@ -99,13 +78,6 @@ describe('2. invalid and unsafe URLs are refused with a reason', () => {
       expect(r.body.error.message, url).toBeTruthy();
     }
   });
-
-  it('a local fictional site can never be added to a live workspace — demo data cannot leak in', async () => {
-    const r = await owner.post(`${base()}/sites`, { url: h.fixtures.origin('woo'), role: 'competitor' });
-    expect(r.status).toBe(400);
-    expect(r.body.error.message).toMatch(/cannot be added|blocked for security/);
-    expect((await owner.get(`${base()}/sites`)).body.sites).toEqual([]);
-  });
 });
 
 describe('3. the customer enters their own website and up to five competitors', () => {
@@ -113,7 +85,7 @@ describe('3. the customer enters their own website and up to five competitors', 
     for (const [host, key] of Object.entries(HOSTS)) {
       const r = await owner.post(`${base()}/sites`, { url: `http://${host}`, role: key === 'source' ? 'source' : 'competitor', name: NAME[key] });
       expect(r.status, host).toBe(201);
-      expect(r.body.site).toMatchObject({ isFixture: false, consentStatus: 'pending' });
+      expect(r.body.site).toMatchObject({ consentStatus: 'pending' });
       sites[key] = r.body.site.id;
     }
     expect((await owner.post(`${base()}/sites`, { url: 'http://rival-woo.test', role: 'competitor' })).status).toBe(409);
@@ -189,22 +161,20 @@ describe('6. nothing here is labelled or stored as fictional — it all took the
     expect(ev.length).toBeGreaterThan(20);
     expect(prices.length).toBeGreaterThan(50);
     for (const row of [...ev, ...prices, ...stocks]) {
-      expect(row.isFixture).toBe(false);
       expect(row.provenance).toBe('public_web');
     }
     expect(ev.every((e) => /^http:\/\/(mine|rival-[a-z]+)\.test\//.test(e.url))).toBe(true); // the public hostname, never 127.0.0.1
-    expect((await db().select().from(sitesTable).where(eq(sitesTable.orgId, orgId))).every((s) => !s.isFixture)).toBe(true);
   });
 
   it('the products API agrees', async () => {
     const list = (await owner.get(`${base()}/products?pageSize=50`)).body;
     expect(list.total).toBeGreaterThan(60);
-    expect(list.rows.every((r: { isFixture: boolean }) => r.isFixture === false)).toBe(true);
+    expect(list.rows.every((r: { provenance?: string }) => r.provenance === undefined || r.provenance === 'public_web')).toBe(true);
   });
 
-  it('the loopback policy is still in force for this workspace’s fetcher, even though fictional sites are running on this machine', async () => {
-    const fetcher = h.svc.makeFetcher({ allowLoopback: true }); // even a caller asking for it does not get it
-    await expect(fetcher.fetch(h.fixtures.origin('woo') + '/robots.txt', { kind: 'text' })).rejects.toThrow();
+  it('the loopback policy is in force for the workspace’s fetcher, even though fictional sites are listening on this machine', async () => {
+    const fetcher = h.svc.makeFetcher();
+    await expect(fetcher.fetch(`http://127.0.0.1:${h.fixtures.sites.woo!.port}/robots.txt`, { kind: 'text' })).rejects.toThrow();
     await fetcher.close();
   });
 });
@@ -238,7 +208,7 @@ describe('7. matching, review and the comparison', () => {
     const d = (await owner.get(`${base()}/products/${p.productId}`)).body;
     expect(d.evidence.length).toBeGreaterThan(0);
     const ev = (await owner.get(`${base()}/evidence/${d.evidence[0].id}`)).body.evidence;
-    expect(ev).toMatchObject({ url: expect.stringMatching(/^http:\/\/(mine|rival-[a-z]+)\.test\//), contentHash: expect.stringMatching(/^[0-9a-f]{64}$/), isFixture: false, provenance: 'public_web' });
+    expect(ev).toMatchObject({ url: expect.stringMatching(/^http:\/\/(mine|rival-[a-z]+)\.test\//), contentHash: expect.stringMatching(/^[0-9a-f]{64}$/) , provenance: 'public_web' });
   });
 });
 
@@ -282,12 +252,6 @@ describe('8. prices change, stock changes, promotions expire — and each is rec
     expect(resolved.find((a) => a.id === mine[0]!.id)!.resolution.kind).toBe('automatic');
   });
 
-  it('the stock simulator is not available in a live workspace', async () => {
-    const r = await owner.post(`${base()}/integrations/dev-inventory`, {});
-    expect([403, 404, 409]).toContain(r.status);
-    expect((await owner.get(`${base()}/integrations`)).body.devInventoryAvailable).toBe(false);
-  });
-
   it('a flyer offer is extracted with its validity, and expires when that date passes (it is not left "active")', async () => {
     const flyers = (await owner.get(`${base()}/offers?kind=flyer&status=active`)).body.offers as { id: string; validTo: string | null; sourceUrl: string; provenance: string }[];
     expect(flyers.length).toBeGreaterThan(2);
@@ -309,11 +273,10 @@ describe('9. the report, from the same saved snapshot to the dashboard, PDF, CSV
     await h.queue.drain();
     reportId = (await owner.get(`${base()}/reports/latest`)).body.report.id;
     const rep = (await owner.get(`${base()}/reports/${reportId}`)).body.report;
-    expect(rep).toMatchObject({ status: 'partial', isPartial: true, containsFixture: false });
+    expect(rep).toMatchObject({ status: 'partial', isPartial: true });
     expect(rep.data.warnings.join(' ')).toMatch(/Rival Robots/);
     expect(rep.data.warnings.join(' ')).toMatch(/Rival Down/);
     expect(rep.data.warnings.join(' ')).not.toMatch(/FIXTURE/i);
-    expect(rep.data.meta.containsFixtureData).toBe(false);
     expect(rep.data.headline).toMatch(/^Partial report/);
   });
 

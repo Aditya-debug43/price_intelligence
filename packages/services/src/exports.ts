@@ -94,8 +94,8 @@ export function insightsTable(d: ReportData): Table {
 export function coverageTable(d: ReportData): Table {
   return {
     name: 'Coverage',
-    columns: ['Website', 'Role', 'Fixture', 'Capability', 'Connector', 'Last scan', 'Last scan at', 'Products known', 'Fresh', 'Stale', 'Estimated catalogue', 'Coverage %', 'Newest observation', 'Oldest observation', 'Complete', 'Failure', 'Warnings'],
-    rows: d.sites.map((s) => [s.name, s.role, s.isFixture ? 'yes' : 'no', s.capability ?? '', s.connector ?? '', s.lastScanStatus ?? '', iso(s.lastScanAt), s.productsKnown, s.productsObservedFresh, s.productsStale, s.estimatedCatalogue, s.coveragePct, iso(s.newestObservation), iso(s.oldestObservation), s.complete ? 'yes' : 'no', s.failureReason ?? '', s.warnings.join('; ')]),
+    columns: ['Website', 'Role', 'Capability', 'Connector', 'Last scan', 'Last scan at', 'Products known', 'Fresh', 'Stale', 'Estimated catalogue', 'Coverage %', 'Newest observation', 'Oldest observation', 'Complete', 'Failure', 'Warnings'],
+    rows: d.sites.map((s) => [s.name, s.role, s.capability ?? '', s.connector ?? '', s.lastScanStatus ?? '', iso(s.lastScanAt), s.productsKnown, s.productsObservedFresh, s.productsStale, s.estimatedCatalogue, s.coveragePct, iso(s.newestObservation), iso(s.oldestObservation), s.complete ? 'yes' : 'no', s.failureReason ?? '', s.warnings.join('; ')]),
   };
 }
 
@@ -134,7 +134,7 @@ export function csvSafe(v: Cell): string {
 
 export function renderCsv(d: ReportData, dataset: CsvDataset): Buffer {
   const t = tableFor(d, dataset);
-  const header = [`# ${d.meta.orgName} — ${t.name} — period ${d.meta.periodDate} — generated ${d.meta.generatedAt}${d.meta.isPartial ? ' — PARTIAL REPORT' : ''}${d.meta.containsFixtureData ? ' — CONTAINS FIXTURE DATA' : ''}`];
+  const header = [`# ${d.meta.orgName} — ${t.name} — period ${d.meta.periodDate} — generated ${d.meta.generatedAt}${d.meta.isPartial ? ' — PARTIAL REPORT' : ''}`];
   const lines = [...header, t.columns.map(csvSafe).join(','), ...t.rows.map((r) => r.map(csvSafe).join(','))];
   return Buffer.from('﻿' + lines.join('\r\n') + '\r\n', 'utf8');
 }
@@ -155,7 +155,6 @@ export async function renderXlsx(d: ReportData): Promise<Buffer> {
   put('Timezone', d.meta.timezone);
   put('Reporting currency', d.meta.reportingCurrency);
   put('Status', d.meta.isPartial ? 'PARTIAL — see notes' : 'Complete');
-  put('Contains fixture data', d.meta.containsFixtureData ? 'YES — demonstration data, not live' : 'no');
   put('Headline', d.headline);
   if (d.aiSummary) put('AI summary (validated)', d.aiSummary.text);
   sum.addRow([]);
@@ -254,7 +253,6 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
     doc.moveDown(0.4);
     p('PARTIAL REPORT — some websites were incomplete or unavailable. See the data notes below. Missing data is never treated as zero.', { bold: true, color: '#8a3b12' });
   }
-  if (d.meta.containsFixtureData) p('CONTAINS FIXTURE DATA — demonstration data from local test sites; not live market data.', { bold: true, color: '#8a3b12' });
   doc.moveDown(0.5);
   p(d.headline, { size: 12, bold: true });
   if (d.aiSummary) p(`Summary (AI-written; every number verified against the data): ${d.aiSummary.text}`, { size: 9, color: MUTE });
@@ -302,7 +300,7 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
 
   h2('Your stock');
   if (!d.stock.length) p('No low-stock, out-of-stock or unknown-availability items were found.');
-  else table([{ h: 'Product', w: 6 }, { h: 'State', w: 2 }, { h: 'Quantity', w: 2.2, align: 'right' }, { h: 'Basis', w: 3.4 }, { h: 'Observed', w: 2 }], d.stock.slice(0, 40).map((s) => [s.title, s.state.split('_').join(' '), s.quantity === null ? 'unknown' : String(s.quantity), s.quantitySource === 'authorised_inventory' ? 'authorised inventory' : s.quantitySource === 'simulated' ? 'SIMULATED' : s.quantitySource === 'public_claim' ? 'public claim' : (s.note ?? 'public availability'), s.stale ? 'stale' : formatAge(s.observedAt, new Date(d.meta.generatedAt))]), 40);
+  else table([{ h: 'Product', w: 6 }, { h: 'State', w: 2 }, { h: 'Quantity', w: 2.2, align: 'right' }, { h: 'Basis', w: 3.4 }, { h: 'Observed', w: 2 }], d.stock.slice(0, 40).map((s) => [s.title, s.state.split('_').join(' '), s.quantity === null ? 'unknown' : String(s.quantity), s.quantitySource === 'authorised_inventory' ? 'authorised inventory' : s.quantitySource === 'public_claim' ? 'public claim' : (s.note ?? 'public availability'), s.stale ? 'stale' : formatAge(s.observedAt, new Date(d.meta.generatedAt))]), 40);
 
   h2('Marketing activity (observed)');
   if (d.marketingSummary) {
@@ -320,7 +318,7 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
   p('Observed public content only. It does not show whether any item is a paid advertisement.', { size: 8, color: MUTE });
 
   h2('Data coverage and freshness');
-  table([{ h: 'Website', w: 3 }, { h: 'Role', w: 1.6 }, { h: 'Capability', w: 1.6 }, { h: 'Products', w: 1.4, align: 'right' }, { h: 'Stale', w: 1.2, align: 'right' }, { h: 'Coverage', w: 1.4, align: 'right' }, { h: 'Last collection', w: 3 }], d.sites.map((s) => [s.name + (s.isFixture ? ' (fixture)' : ''), s.role, s.capability ?? '—', String(s.productsKnown), String(s.productsStale), s.coveragePct === null ? 'n/a' : `${s.coveragePct}%`, s.lastScanAt ? `${s.lastScanStatus} · ${formatDateTime(s.lastScanAt, tz)}` : 'never']), 20);
+  table([{ h: 'Website', w: 3 }, { h: 'Role', w: 1.6 }, { h: 'Capability', w: 1.6 }, { h: 'Products', w: 1.4, align: 'right' }, { h: 'Stale', w: 1.2, align: 'right' }, { h: 'Coverage', w: 1.4, align: 'right' }, { h: 'Last collection', w: 3 }], d.sites.map((s) => [s.name, s.role, s.capability ?? '—', String(s.productsKnown), String(s.productsStale), s.coveragePct === null ? 'n/a' : `${s.coveragePct}%`, s.lastScanAt ? `${s.lastScanStatus} · ${formatDateTime(s.lastScanAt, tz)}` : 'never']), 20);
 
   h2('Exchange rates used');
   if (!d.fx.length) p('All prices were in the reporting currency.');

@@ -20,7 +20,7 @@ export interface StockInput {
 export interface Classification {
   state: StockState;
   /** How the state was derived, shown to the customer. */
-  basis: 'authorised_quantity' | 'simulated_quantity' | 'public_quantity_claim' | 'public_limited_flag' | 'public_availability' | 'none';
+  basis: 'authorised_quantity' | 'public_quantity_claim' | 'public_limited_flag' | 'public_availability' | 'none';
   quantity: number | null;
 }
 
@@ -29,11 +29,7 @@ export function classifyStock(input: StockInput, threshold: number): Classificat
   if (hasQty) {
     const q = input.quantity as number;
     const basis =
-      input.quantitySource === 'authorised_inventory'
-        ? 'authorised_quantity'
-        : input.quantitySource === 'simulated'
-          ? 'simulated_quantity'
-          : 'public_quantity_claim';
+      input.quantitySource === 'authorised_inventory' ? 'authorised_quantity' : 'public_quantity_claim';
     if (q <= 0) return { state: 'out_of_stock', basis, quantity: q };
     if (q <= threshold) return { state: 'low_stock', basis, quantity: q };
     return { state: 'in_stock', basis, quantity: q };

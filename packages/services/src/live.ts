@@ -68,9 +68,9 @@ export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold
   for (const r of rows) {
     const state: StockState = (r.state as StockState | null) ?? 'unknown';
     out.counts[state === 'low_stock' ? 'low' : state === 'out_of_stock' ? 'out' : state === 'unknown' ? 'unknown' : 'in']++;
-    const qty = r.stateQtySource === 'authorised_inventory' || r.stateQtySource === 'simulated' || r.stateQtySource === 'public_claim' ? r.stateQty : null;
+    const qty = r.stateQtySource === 'authorised_inventory' || r.stateQtySource === 'public_claim' ? r.stateQty : null;
     // An authorised quantity outranks the public flag, but when the two disagree the owner needs to know (e.g. the product page says sold out while inventory holds units).
-    const fromInventory = r.stateQtySource === 'authorised_inventory' || r.stateQtySource === 'simulated';
+    const fromInventory = r.stateQtySource === 'authorised_inventory';
     const conflict = fromInventory && qty !== null && ((qty > 0 && r.availability === 'out_of_stock') || (qty <= 0 && r.availability === 'in_stock'));
     if (state === 'in_stock' && !opts.includeInStock && !conflict) continue;
     const obs = r.observedAt?.toISOString() ?? null;
@@ -79,7 +79,7 @@ export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold
       availability: r.availability as Availability, quantity: qty, quantitySource: qty !== null ? r.stateQtySource : null, threshold: r.vThreshold ?? threshold, observedAt: obs,
       stale: !obs || now.getTime() - new Date(obs).getTime() > staleHours * 3_600_000, lastChangeAt: r.lastChangeAt?.toISOString() ?? null,
       conflict,
-      note: conflict ? `Your public page says "${r.availability === 'out_of_stock' ? 'out of stock' : 'in stock'}" but your inventory shows ${qty} unit${qty === 1 ? '' : 's'}. Check that the product page matches your stock.` : state === 'unknown' ? 'Availability not published by your site' : qty === null && state === 'low_stock' ? 'Limited availability flagged by your site; unit count unknown' : r.stateQtySource === 'simulated' ? 'SIMULATED inventory' : null,
+      note: conflict ? `Your public page says "${r.availability === 'out_of_stock' ? 'out of stock' : 'in stock'}" but your inventory shows ${qty} unit${qty === 1 ? '' : 's'}. Check that the product page matches your stock.` : state === 'unknown' ? 'Availability not published by your site' : qty === null && state === 'low_stock' ? 'Limited availability flagged by your site; unit count unknown' : null,
     });
   }
   const order: Record<StockState, number> = { out_of_stock: 0, low_stock: 1, unknown: 2, in_stock: 3 };

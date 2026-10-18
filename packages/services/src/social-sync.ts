@@ -68,8 +68,8 @@ export async function syncSocial(svc: Services, db: DbLike, orgId: string, opts:
         .insert(marketingActivities)
         .values({
           orgId, siteId: a.siteId, platform: a.platform, kind: p.kind, title: p.title, excerpt: p.text?.slice(0, 400) ?? null, url: p.url, publishedAt: p.publishedAt, firstSeenAt: now, lastSeenAt: now,
-          classification: cls.classification, confidence: cls.confidence, extractionMethod: 'official_api', dedupeKey: `${a.platform}:${sha256Hex(p.externalId).slice(0, 20)}`, isFixture: site.isFixture,
-          provenance: provenanceFor({ isFixture: site.isFixture, official: true }),
+          classification: cls.classification, confidence: cls.confidence, extractionMethod: 'official_api', dedupeKey: `${a.platform}:${sha256Hex(p.externalId).slice(0, 20)}`,
+          provenance: provenanceFor({ official: true }),
           engagement: eng, engagementObservedAt: eng ? now : null,
         })
         // Counts change over time: refresh them when the platform gives them; when it stops giving them, keep the last known counts with their own timestamp.

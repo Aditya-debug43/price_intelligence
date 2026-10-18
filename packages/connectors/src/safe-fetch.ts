@@ -56,7 +56,7 @@ export interface FetchPolicy {
   maxJsonBytes: number;
   maxPdfBytes: number;
   maxRedirects: number;
-  /** Permit loopback targets (local fixture servers only). Never enable in production. */
+  /** Permit loopback targets. A constructor-level test seam only: `fetchPolicyFrom(config)` always sets it to false and no setting or request can change that. */
   allowLoopback: boolean;
   /** Consecutive access denials (401/403/challenge) tolerated per host before the host is treated as blocked. */
   maxConsecutiveDenials: number;

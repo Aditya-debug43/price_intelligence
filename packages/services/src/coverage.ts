@@ -73,7 +73,6 @@ export async function loadCoverage(db: DbLike, orgId: string, now: Date, staleAf
       name: s.name,
       hostname: s.hostname,
       role: s.role,
-      isFixture: s.isFixture,
       capability: s.capabilityStatus,
       connector: last?.connector ?? null,
       lastScanStatus: last?.status ?? null,

@@ -22,7 +22,7 @@ const svc = createServices(config, rootDb, {
 
 const app = await buildApp({ svc, rootDb });
 await app.listen({ host: config.API_HOST, port: config.API_PORT });
-log.info('API listening', { host: config.API_HOST, port: config.API_PORT, env: config.NODE_ENV, schedulerMode: config.SCHEDULER_MODE });
+log.info('API listening', { host: config.API_HOST, port: config.API_PORT, env: config.NODE_ENV });
 
 installShutdown({
   name: 'api',

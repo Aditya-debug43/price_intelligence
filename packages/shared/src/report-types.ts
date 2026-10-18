@@ -254,7 +254,6 @@ export interface SiteCoverage {
   name: string;
   hostname: string;
   role: SiteRole;
-  isFixture: boolean;
   capability: CapabilityStatus | null;
   connector: string | null;
   lastScanStatus: ScanStatus | null;
@@ -334,7 +333,6 @@ export interface ReportData {
     readyBeforeDeadline: boolean | null;
     isPartial: boolean;
     kind: 'scheduled' | 'manual';
-    containsFixtureData: boolean;
     staleAfterHours: number;
   };
   fx: FxRateUsed[];

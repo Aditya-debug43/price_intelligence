@@ -3,7 +3,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { formatDateTime } from '@ci/shared';
 import { api, errorMessage, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { Age, ArrowIcon, Card, CapabilityPill, DataState, EmptyState, FixturePill, PageHead, SiteStatusPill, StandingBar, useToast } from '../ui';
+import { Age, ArrowIcon, Card, CapabilityPill, DataState, EmptyState, PageHead, SiteStatusPill, StandingBar, useToast } from '../ui';
 import { JourneyCard } from '../journey';
 import type { DashboardData } from '../types';
 
@@ -54,7 +54,6 @@ function DashboardBody({ d }: { d: DashboardData }) {
   return (
     <div className="stack">
       <JourneyCard compact />
-      {r?.containsFixture && <div className="callout warn"><b>Demonstration data.</b> This workspace contains fixture sites — fictional data from local test websites, not live market prices.</div>}
       <div className="grid2" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
         <Card title={r ? `Price position — report of ${r.periodDate}` : 'Price position'} actions={r && <Link className="small" to={`/o/${orgId}/reports/${r.id}`}>Open report</Link>}>
           {r && k ? (
@@ -155,7 +154,7 @@ function DashboardBody({ d }: { d: DashboardData }) {
             <tbody>
               {d.coverage.map((c) => (
                 <tr key={c.siteId}>
-                  <td><Link to={`/o/${orgId}/websites/${c.siteId}`} className="title">{c.name}</Link> {c.isFixture && <FixturePill />}<div className="sub">{c.role === 'source' ? 'Your website' : 'Competitor'}</div></td>
+                  <td><Link to={`/o/${orgId}/websites/${c.siteId}`} className="title">{c.name}</Link><div className="sub">{c.role === 'source' ? 'Your website' : 'Competitor'}</div></td>
                   <td><SiteStatusPill status={c.status} />{c.lastScanAt && <div className="sub">last collection <Age iso={c.lastScanAt} /></div>}</td>
                   <td><CapabilityPill status={c.capability} /></td>
                   <td className="r num">{c.productsKnown}</td>

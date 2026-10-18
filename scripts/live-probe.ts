@@ -3,8 +3,10 @@
  * production safety settings (no loopback, robots.txt honoured, honest user agent, polite delay, request budget).
  * It reads robots.txt, the homepage, sitemap index files and up to three sample product pages per site (~10–25 requests).
  *
- *   npm run live:probe                       # the demo candidates
  *   npm run live:probe -- https://example-shop.com https://other.com
+ *
+ * It sends real requests to the websites you name, so no address is built in: you must pass at least one, and it is your responsibility to be
+ * entitled to look at it. Nothing is collected or stored beyond the JSON record of what was found.
  *
  * Writes docs/live-probe-<date>-<time>.json (one file per run, never overwritten) so the exact findings are recorded.
  */
@@ -12,11 +14,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadDotEnv } from '@ci/core';
 import { DomainLimiter, SafeFetcher, profileSite } from '@ci/connectors';
-import { root } from './lib/cli.ts';
+import { root } from './lib/root.ts';
 
 loadDotEnv(root);
-const DEFAULT_TARGETS = ['https://groceriestogoaruba.com/', 'https://shop.lingandsons.com/', 'https://shop.superfoodaruba.com/', 'https://doit.aw/'];
-const targets = process.argv.slice(2).filter((a) => a.startsWith('http')).length ? process.argv.slice(2).filter((a) => a.startsWith('http')) : DEFAULT_TARGETS;
+const targets = process.argv.slice(2).filter((a) => /^https?:\/\//i.test(a));
+if (!targets.length) {
+  console.error('Usage: npm run live:probe -- https://website-one.example https://website-two.example\nNo website is built in; name the sites you want to inspect.');
+  process.exit(1);
+}
 const ua = process.env.COLLECTOR_USER_AGENT ?? 'CompetitorIntelBot/1.0 (+https://example.invalid/bot; respects robots.txt)';
 const delay = Number(process.env.COLLECTOR_DEFAULT_DELAY_MS ?? 1500);
 

@@ -7,7 +7,7 @@ import type { Services } from './context.ts';
 import { recordEvidence } from './evidence.ts';
 import { ActionNotPossibleError, provenanceFor } from './workspace.ts';
 
-type SiteRef = { id: string; orgId: string; isFixture: boolean; origin: string; currency: string | null };
+type SiteRef = { id: string; orgId: string; origin: string; currency: string | null };
 
 const shortHash = (s: string) => sha256Hex(s.toLowerCase().replace(/\s+/g, ' ').trim()).slice(0, 16);
 
@@ -30,7 +30,7 @@ export async function recordSitePromotions(svc: Services, db: DbLike, site: Site
       await db.update(offers).set({ lastSeenAt: now, status: 'active', missedCompleteScans: 0 }).where(eq(offers.id, existing.id));
     } else {
       await db.insert(offers).values({
-      provenance: provenanceFor({ isFixture: site.isFixture }),
+      provenance: provenanceFor(),
         orgId: site.orgId, siteId: site.id, kind: cls.kind as never, title: text.slice(0, 200), description: null, conditions: cls.conditions, conditional: cls.conditional,
         code: cls.code, originalPrice: null, salePrice: null, currency: site.currency, claimedDiscountPct: pct ? Number(pct[1]) : null, verification: 'unverified',
         verificationReason: 'Promotional banner: no product price to verify', firstSeenAt: now, lastSeenAt: now, status: 'active', sourceUrl: pageUrl, extractionMethod: 'public_banner',
@@ -41,7 +41,7 @@ export async function recordSitePromotions(svc: Services, db: DbLike, site: Site
     const mKey = `bar:${shortHash(text)}`;
     const r = await db
       .insert(marketingActivities)
-      .values({ provenance: provenanceFor({ isFixture: site.isFixture }), orgId: site.orgId, siteId: site.id, platform: 'site', kind: 'announcement_bar', title: text.slice(0, 160), excerpt: text.slice(0, 400), url: pageUrl, firstSeenAt: now, lastSeenAt: now, classification: 'promotion', confidence: 0.6, extractionMethod: 'public_banner', dedupeKey: mKey, isFixture: site.isFixture })
+      .values({ provenance: provenanceFor(), orgId: site.orgId, siteId: site.id, platform: 'site', kind: 'announcement_bar', title: text.slice(0, 160), excerpt: text.slice(0, 400), url: pageUrl, firstSeenAt: now, lastSeenAt: now, classification: 'promotion', confidence: 0.6, extractionMethod: 'public_banner', dedupeKey: mKey })
       .onConflictDoUpdate({ target: [marketingActivities.orgId, marketingActivities.siteId, marketingActivities.dedupeKey], set: { lastSeenAt: now } })
       .returning({ first: marketingActivities.firstSeenAt });
     if (r[0] && r[0].first.getTime() === now.getTime()) marketingCount++;
@@ -50,7 +50,7 @@ export async function recordSitePromotions(svc: Services, db: DbLike, site: Site
   for (const link of promos.saleLinks) {
     const r = await db
       .insert(marketingActivities)
-      .values({ provenance: provenanceFor({ isFixture: site.isFixture }), orgId: site.orgId, siteId: site.id, platform: 'site', kind: 'sale_page', title: 'Sale / offers page', excerpt: null, url: link, firstSeenAt: now, lastSeenAt: now, classification: 'promotion', confidence: 0.5, extractionMethod: 'public_banner', dedupeKey: `sale:${shortHash(link)}`, isFixture: site.isFixture })
+      .values({ provenance: provenanceFor(), orgId: site.orgId, siteId: site.id, platform: 'site', kind: 'sale_page', title: 'Sale / offers page', excerpt: null, url: link, firstSeenAt: now, lastSeenAt: now, classification: 'promotion', confidence: 0.5, extractionMethod: 'public_banner', dedupeKey: `sale:${shortHash(link)}` })
       .onConflictDoUpdate({ target: [marketingActivities.orgId, marketingActivities.siteId, marketingActivities.dedupeKey], set: { lastSeenAt: now } })
       .returning({ first: marketingActivities.firstSeenAt });
     if (r[0] && r[0].first.getTime() === now.getTime()) marketingCount++;
@@ -58,7 +58,7 @@ export async function recordSitePromotions(svc: Services, db: DbLike, site: Site
   for (const link of promos.flyerLinks) {
     const r = await db
       .insert(marketingActivities)
-      .values({ provenance: provenanceFor({ isFixture: site.isFixture }), orgId: site.orgId, siteId: site.id, platform: 'site', kind: 'flyer', title: 'Promotional flyer (PDF)', excerpt: null, url: link, firstSeenAt: now, lastSeenAt: now, classification: 'promotion', confidence: 0.6, extractionMethod: 'public_banner', dedupeKey: `flyer:${shortHash(link)}`, isFixture: site.isFixture })
+      .values({ provenance: provenanceFor(), orgId: site.orgId, siteId: site.id, platform: 'site', kind: 'flyer', title: 'Promotional flyer (PDF)', excerpt: null, url: link, firstSeenAt: now, lastSeenAt: now, classification: 'promotion', confidence: 0.6, extractionMethod: 'public_banner', dedupeKey: `flyer:${shortHash(link)}` })
       .onConflictDoUpdate({ target: [marketingActivities.orgId, marketingActivities.siteId, marketingActivities.dedupeKey], set: { lastSeenAt: now } })
       .returning({ first: marketingActivities.firstSeenAt });
     if (r[0] && r[0].first.getTime() === now.getTime()) marketingCount++;
@@ -138,7 +138,7 @@ export async function trackSalePrice(db: DbLike, site: SiteRef, o: SaleObservati
     await db.update(offers).set({ ...values, firstSeenAt: o.observedAt }).where(eq(offers.id, existing.id));
   } else {
     await db.insert(offers).values({
-      provenance: provenanceFor({ isFixture: site.isFixture }),
+      provenance: provenanceFor(),
       orgId: site.orgId, siteId: site.id, kind: 'sale_price', description: null, conditions: [], conditional: false, variantId: o.variantId, productTitle: o.title, firstSeenAt: o.observedAt,
       extractionMethod: o.extractionMethod, confidence: 0.9, needsReview: false, dedupeKey: key, ...values,
     });
@@ -161,7 +161,7 @@ export async function collectFlyers(svc: Services, db: DbLike, site: SiteRef & {
       const [dup] = await db.select().from(flyers).where(and(eq(flyers.siteId, site.id), eq(flyers.contentHash, res.contentHash)));
       if (dup) continue; // unchanged flyer: nothing new to extract
       const doc: EvidenceDoc = { url: res.url, fetchedAt: res.fetchedAt, httpStatus: res.status, contentType: res.contentType, contentHash: res.contentHash, bytes: res.body.length, snippet: 'Promotional flyer PDF', body: res.body };
-      const evId = await recordEvidence(svc, db, { orgId: site.orgId, siteId: site.id, doc, method: 'flyer_pdf', version: '1.0', isFixture: site.isFixture });
+      const evId = await recordEvidence(svc, db, { orgId: site.orgId, siteId: site.id, doc, method: 'flyer_pdf', version: '1.0' });
       const ex = await extractFlyer(res.body, { siteCurrency: site.currency, now });
       await db.insert(flyers).values({ orgId: site.orgId, siteId: site.id, url: res.url, contentHash: res.contentHash, title: ex.title, pageCount: ex.pageCount, status: ex.status, itemsFound: ex.items.length, needsReview: ex.items.filter((i) => i.needsReview).length, message: ex.message, evidenceId: evId });
       flyerCount++;
@@ -172,7 +172,7 @@ export async function collectFlyers(svc: Services, db: DbLike, site: SiteRef & {
         await db
           .insert(offers)
           .values({
-            provenance: provenanceFor({ isFixture: site.isFixture }),
+            provenance: provenanceFor(),
             orgId: site.orgId, siteId: site.id, kind: 'flyer', title: item.name, description: item.rawLine, conditions: item.conditions, conditional: item.conditions.length > 0,
             productTitle: item.name, originalPrice: item.originalPrice, salePrice: item.salePrice, currency: item.currency, claimedDiscountPct: pct, verification: 'unverified',
             verificationReason: 'Flyer price: no price history is linked yet', validFrom: ex.validFrom, validTo: ex.validTo, firstSeenAt: now, lastSeenAt: now, status: 'active',

@@ -10,7 +10,6 @@ type Tab = 'open' | 'acknowledged' | 'resolved' | 'all';
 
 const BASIS: Record<string, string> = {
   authorised_quantity: 'a quantity from your authorised inventory connection',
-  simulated_quantity: 'a simulated quantity (development only)',
   public_quantity_claim: 'a quantity your website states publicly',
   public_limited_flag: 'your website flagging the item as limited',
   public_availability: 'the availability your website shows',
@@ -76,7 +75,7 @@ function StatusText({ a }: { a: AlertDetail }) {
 function AlertHistory({ a }: { a: AlertDetail }) {
   const d = a.data as { quantity?: number | null; threshold?: number; basis?: string; from?: string | null; to?: string; quantitySource?: string | null; observedAt?: string; connectionId?: string | null };
   const basis = d.basis ? BASIS[d.basis] : null;
-  const fromConnection = !a.evidence && (d.quantitySource === 'authorised_inventory' || d.quantitySource === 'simulated' || !!d.connectionId);
+  const fromConnection = !a.evidence && (d.quantitySource === 'authorised_inventory' || !!d.connectionId);
   const hasAnything = a.evidence || basis || a.resolution || fromConnection;
   if (!hasAnything) return null;
   return (

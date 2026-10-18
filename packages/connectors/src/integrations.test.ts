@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import { describe, expect, it } from 'vitest';
 import { extractFlyer, parseFlyerLines, parseValidity } from './flyer.ts';
 import { allSocialStatuses, classifyPost, fetchFacebook, fetchInstagram, fetchYouTube, type HttpJson } from './social.ts';
-import { DevInventoryProvider, ShopifyInventoryProvider, buildShopifyAuthorizeUrl, exchangeShopifyCode, refreshShopifyToken, type ShopifyAppConfig } from './inventory.ts';
+import { ShopifyInventoryProvider, buildShopifyAuthorizeUrl, exchangeShopifyCode, refreshShopifyToken, type ShopifyAppConfig } from './inventory.ts';
 
 function pdf(lines: string[]): Promise<Buffer> {
   const doc = new PDFDocument();
@@ -198,10 +198,5 @@ describe('Shopify authorised inventory (read-only)', () => {
     const revoked = new ShopifyInventoryProvider('demo.myshopify.com', '2026-07', async () => 't', async () => ({ status: 401, json: {} }));
     await expect(revoked.listInventory()).rejects.toMatchObject({ code: 'unauthorized' });
     expect(() => new ShopifyInventoryProvider('x.evil.com', '2026-07', async () => 't')).toThrow();
-  });
-  it('the dev simulator is explicitly marked simulated', async () => {
-    const dev = new DevInventoryProvider([{ sku: 'A', productTitle: 'A', levels: [{ locationId: 'l', locationName: 'Main', available: 3 }] }]);
-    expect(dev.simulated).toBe(true);
-    expect((await dev.listInventory())[0]!.externalVariantId).toBe('sim:A');
   });
 });

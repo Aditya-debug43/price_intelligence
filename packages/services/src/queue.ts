@@ -76,7 +76,7 @@ interface Pending {
 }
 
 /**
- * Deterministic queue used by tests and demo scripts: jobs are recorded, de-duplicated by singletonKey while queued,
+ * Deterministic queue used by automated tests: jobs are recorded, de-duplicated by singletonKey while queued,
  * and run only when `drain()` is called, so a whole pipeline can be stepped through without timers.
  */
 export class InlineQueue implements JobQueue {

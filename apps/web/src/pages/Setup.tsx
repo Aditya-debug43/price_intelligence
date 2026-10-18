@@ -14,8 +14,18 @@ interface Row {
   error?: string;
 }
 
+/** Whether two addresses are different websites (a different host), as opposed to the same website written another way. */
+function differentWebsite(a: string, b: string): boolean {
+  try {
+    const host = (u: string) => new URL(/^[a-z][a-z0-9+.-]*:/i.test(u) ? u : `https://${u}`).hostname.toLowerCase();
+    return host(a) !== host(b);
+  } catch {
+    return false; // not an address yet: let the server say what is wrong with it
+  }
+}
+
 export function SetupPage() {
-  const { orgId, isAdmin, isDemo } = useOrg();
+  const { orgId, isAdmin } = useOrg();
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
@@ -73,6 +83,16 @@ export function SetupPage() {
           await api.del(orgPath(orgId, `/sites/${row.id}`));
           set({ url: '', name: '' });
         } else if (url && !row.id) {
+          const r = await api.post<{ site: { id: string } }>(orgPath(orgId, '/sites'), { url, role, name: row.name.trim() || undefined });
+          touched.push(r.site.id);
+          set({ ...row, id: r.site.id, original: url, error: undefined });
+        } else if (url && row.id && row.original && url !== row.original && differentWebsite(url, row.original)) {
+          // A different website is a new entry: the old one's collected products and history belong to it and are not carried over.
+          if (!window.confirm(`Replace ${row.original} with ${url}?\n\nEverything collected from ${row.original} (products, prices, history) will be removed, and ${url} starts empty.`)) {
+            set({ ...row, url: row.original, error: undefined });
+            return;
+          }
+          await api.del(orgPath(orgId, `/sites/${row.id}`));
           const r = await api.post<{ site: { id: string } }>(orgPath(orgId, '/sites'), { url, role, name: row.name.trim() || undefined });
           touched.push(r.site.id);
           set({ ...row, id: r.site.id, original: url, error: undefined });
@@ -157,7 +177,6 @@ export function SetupPage() {
                     </div>
                   ))}
                   {filled < min && <div className="hint">Add at least {min} competitors for meaningful comparisons. You can save now and add the rest later.</div>}
-                  {isDemo && meta.data?.allowLocalFixtures && <div className="callout info small">Demo workspace: local fixture sites such as <code>http://127.0.0.1:4101</code> are accepted. They are always labelled as fixtures.</div>}
                 </div>
               </Card>
             </div>

@@ -13,10 +13,6 @@ const tsx = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const vite = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 const procs: ChildProcess[] = [];
 
-// `npm run dev:demo` lets the app reach the local fictional fixture sites and enables the developer scheduler. Never use it with real data.
-const demo = process.argv.includes('--demo');
-const demoEnv: NodeJS.ProcessEnv = demo ? { ALLOW_LOCAL_FIXTURES: 'true', SCHEDULER_MODE: 'dev' } : {};
-
 const COLORS = { db: '\x1b[35m', worker: '\x1b[33m', api: '\x1b[36m', web: '\x1b[32m' } as const;
 function run(name: keyof typeof COLORS, args: string[], cwd = root, env: NodeJS.ProcessEnv = {}): ChildProcess {
   const p = spawn(node, args, { cwd, env: { ...process.env, FORCE_COLOR: '1', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -54,9 +50,9 @@ if (!(await portOpen(dbPort))) {
   await new Promise((r) => setTimeout(r, 4000)); // roles + migrations run right after the server accepts connections
 } else console.log('Using the PostgreSQL already listening on', dbPort);
 
-run('worker', [tsx, 'watch', 'apps/worker/src/main.ts'], root, demoEnv);
+run('worker', [tsx, 'watch', 'apps/worker/src/main.ts'], root);
 await new Promise((r) => setTimeout(r, 3500)); // the worker creates the queue schema the API enqueues into
-run('api', [tsx, 'watch', 'apps/api/src/main.ts'], root, demoEnv);
+run('api', [tsx, 'watch', 'apps/api/src/main.ts'], root);
 run('web', [vite], path.join(root, 'apps', 'web'));
 console.log('\nWeb: http://localhost:5173    API: http://localhost:4000/api/v1/health\n');
 

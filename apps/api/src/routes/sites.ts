@@ -87,7 +87,7 @@ export async function siteRoutes(app: FastifyInstance) {
     return reply.status(created ? 202 : 200).send({ scan: run, alreadyRunning: !created });
   });
 
-  /** "Small live refresh": a limited sample from every consented site, so a demo never needs a full recrawl. */
+  /** "Small live refresh": a limited sample from every consented site, so fresh data can be seen without waiting for a full recrawl. */
   app.post('/refresh', async (req, reply) => {
     requireRole(req, 'admin');
     const body = parse(z.object({ limit: z.number().int().min(1).max(200).default(25) }), req.body ?? {});

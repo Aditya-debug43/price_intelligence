@@ -77,7 +77,7 @@ export interface ConnectorBatch {
 }
 
 export interface ConnectorContext {
-  site: { id: string; origin: string; hostname: string; isFixture: boolean };
+  site: { id: string; origin: string; hostname: string };
   profile: SiteProfileData | null;
   fetcher: SafeFetcher;
   /** Currency detected for the site (used when a feed carries prices without a currency code). */

@@ -1,15 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { devSimulateInventorySchema, shopifyStartSchema, socialAccountSchema } from '@ci/shared';
+import { shopifyStartSchema, socialAccountSchema } from '@ci/shared';
 import { verifyShopifyWebhookHmac } from '@ci/core';
 import {
   addSocialAccount,
   completeShopifyOAuth,
   confirmSocialAccount,
-  createDevInventory,
   disconnectIntegration,
   integrationOverview,
-  simulateQuantity,
   startShopifyOAuth,
   IntegrationError,
   assertCanSyncSocial,
@@ -38,18 +36,6 @@ export async function integrationRoutes(app: FastifyInstance) {
     requireRole(req, 'admin');
     const { connectionId } = parse(z.object({ connectionId: z.uuid() }), req.params);
     return req.tx((tx) => disconnectIntegration(app.svc, tx, req.orgId!, req.user!.id, connectionId));
-  });
-
-  // development simulator (never available in production)
-  app.post('/integrations/dev-inventory', async (req, reply) => {
-    requireRole(req, 'admin');
-    return reply.status(201).send(await req.tx((tx) => createDevInventory(app.svc, tx, req.orgId!, req.user!.id)));
-  });
-
-  app.post('/integrations/dev-inventory/simulate', async (req) => {
-    requireRole(req, 'admin');
-    const b = parse(devSimulateInventorySchema, req.body);
-    return req.tx((tx) => simulateQuantity(app.svc, tx, req.orgId!, b.connectionId, { sku: b.sku, locationName: b.locationName, quantity: b.quantity }));
   });
 
   // social accounts (mapped from official site links; confirmed by the customer before any API call)

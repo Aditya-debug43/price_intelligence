@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { CAPABILITY_EXPLANATIONS, adviceForLimitation, formatDateTime, type FieldKey } from '@ci/shared';
 import { api, errorMessage, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, FixturePill, Modal, PageHead, SiteStatusPill, Spinner, useToast } from '../ui';
+import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Modal, PageHead, SiteStatusPill, Spinner, useToast } from '../ui';
 import { JourneyCard } from '../journey';
 import type { ProfileResponse, ScanDetailData, ScanRun, SiteItem, SitesResponse } from '../types';
 
@@ -42,7 +42,7 @@ export function WebsitesPage() {
                 <tbody>
                   {d.sites.map((s) => (
                     <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => nav(`/o/${orgId}/websites/${s.id}`)}>
-                      <td><Link to={`/o/${orgId}/websites/${s.id}`} className="title" onClick={(e) => e.stopPropagation()}>{s.name}</Link> {s.isFixture && <FixturePill />}<div className="sub">{s.role === 'source' ? 'Your website' : 'Competitor'} · {s.hostname}</div></td>
+                      <td><Link to={`/o/${orgId}/websites/${s.id}`} className="title" onClick={(e) => e.stopPropagation()}>{s.name}</Link><div className="sub">{s.role === 'source' ? 'Your website' : 'Competitor'} · {s.hostname}</div></td>
                       <td style={{ maxWidth: 260 }}><SiteStatusPill status={s.status} />{s.status && <div className="sub" style={{ whiteSpace: 'normal' }}>{s.status.nextAction ? <b>Next: {s.status.nextAction}.</b> : s.status.detail}{s.lastScan?.finishedAt && <> · last collection <Age iso={s.lastScan.finishedAt} /></>}</div>}</td>
                       <td><CapabilityPill status={s.capabilityStatus} /><div className="sub">{s.lastProfiledAt ? <>checked <Age iso={s.lastProfiledAt} /></> : 'not checked yet'}</div></td>
                       <td>{s.consentStatus === 'confirmed' ? <span className="pill good">Recorded</span> : s.consentStatus === 'revoked' ? <span className="pill bad">Withdrawn</span> : <span className="pill warn">Needed</span>}</td>
@@ -101,7 +101,7 @@ export function SiteDetailPage() {
       <PageHead
         eyebrow={site.role === 'source' ? 'Your website' : 'Competitor website'}
         docTitle={site.name}
-        title={<>{site.name} {site.isFixture && <FixturePill />}</>}
+        title={<>{site.name}</>}
         subtitle={<><a href={site.url} target="_blank" rel="noreferrer noopener">{site.url} <ArrowIcon /></a></>}
         actions={isAdmin && (
           <>

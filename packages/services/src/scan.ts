@@ -19,7 +19,6 @@ import { ingestBatch, type IngestContext, type IngestSite } from './ingest.ts';
 import { capabilitiesOf, runProfile } from './profiling.ts';
 import { collectFlyers, expireOffers, sweepMissingSaleOffers } from './promotions.ts';
 import { recordCollectionOutcome } from './stock.ts';
-import { getOrgMode, loopbackAllowed } from './workspace.ts';
 
 export class ConsentRequiredError extends Error {
   constructor(message = 'Record consent for this website before collecting from it.') {
@@ -336,8 +335,8 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
   };
 
   const alertIds: string[] = [];
-  const siteRef: IngestSite = { id: site.id, orgId: site.orgId, name: site.name, origin: site.origin, role: site.role, isFixture: site.isFixture, currency: site.currency };
-  const fetcher = svc.makeFetcher({ allowLoopback: loopbackAllowed({ allowLocalFixtures: svc.config.ALLOW_LOCAL_FIXTURES, mode: await getOrgMode(svc.db, site.orgId), isFixture: site.isFixture }) });
+  const siteRef: IngestSite = { id: site.id, orgId: site.orgId, name: site.name, origin: site.origin, role: site.role, currency: site.currency };
+  const fetcher = svc.makeFetcher();
   try {
     // ── capability profile (reuse a fresh one)
     let [prof] = await svc.db.select().from(siteProfiles).where(eq(siteProfiles.siteId, site.id)).orderBy(desc(siteProfiles.createdAt)).limit(1);
@@ -378,7 +377,7 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     const [settings] = await svc.db.select().from(orgSettings).where(eq(orgSettings.orgId, site.orgId));
     const ic: IngestContext = { svc, site: siteRef, scanRunId: run.id, threshold: settings?.lowStockThreshold ?? 5, alertIds };
     const ctx: ConnectorContext = {
-      site: { id: site.id, origin: site.origin, hostname: site.hostname, isFixture: site.isFixture },
+      site: { id: site.id, origin: site.origin, hostname: site.hostname },
       profile,
       fetcher,
       siteCurrency: siteRef.currency,

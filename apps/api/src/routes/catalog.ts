@@ -55,7 +55,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     const { evidenceId } = parse(z.object({ evidenceId: uuid }), req.params);
     const e = await req.tx((tx) => getEvidence(tx, req.orgId!, evidenceId));
     if (!e) throw new HttpError(404, 'not_found', 'Evidence not found.');
-    return { evidence: { id: e.id, url: e.url, fetchedAt: e.fetchedAt, httpStatus: e.httpStatus, contentType: e.contentType, contentHash: e.contentHash, bytes: e.bytes, snippet: e.snippet, method: e.extractionMethod, version: e.extractionVersion, snapshotAvailable: !!e.snapshotRef, snapshotPurgedAt: e.snapshotPurgedAt, isFixture: e.isFixture, provenance: e.provenance } };
+    return { evidence: { id: e.id, url: e.url, fetchedAt: e.fetchedAt, httpStatus: e.httpStatus, contentType: e.contentType, contentHash: e.contentHash, bytes: e.bytes, snippet: e.snippet, method: e.extractionMethod, version: e.extractionVersion, snapshotAvailable: !!e.snapshotRef, snapshotPurgedAt: e.snapshotPurgedAt, provenance: e.provenance } };
   });
 
   app.get('/evidence/:evidenceId/snapshot', async (req, reply) => {
@@ -190,12 +190,10 @@ export async function catalogRoutes(app: FastifyInstance) {
       return {
         ...view,
         threshold: settings?.lowStockThreshold ?? DEFAULTS.lowStockThreshold,
-        mode: conn ? (conn.isSimulated ? 'simulated' : 'authorised') : 'public',
-        connection: conn ? { id: conn.id, provider: conn.provider, simulated: conn.isSimulated, lastSyncAt: conn.lastSyncAt, lastError: conn.lastError, syncHealth: connectionSyncHealth(conn, app.svc.clock(), DEFAULTS.staleAfterHours) } : null,
+        mode: conn ? 'authorised' : 'public',
+        connection: conn ? { id: conn.id, provider: conn.provider, lastSyncAt: conn.lastSyncAt, lastError: conn.lastError, syncHealth: connectionSyncHealth(conn, app.svc.clock(), DEFAULTS.staleAfterHours) } : null,
         explanation: conn
-          ? conn.isSimulated
-            ? 'SIMULATED inventory: quantities come from the development simulator, not a real store.'
-            : 'Quantities come from your authorised, read-only inventory connection.'
+          ? 'Quantities come from your authorised, read-only inventory connection.'
           : 'Your website only publishes available / unavailable. Exact unit counts are shown only when you connect your store inventory; nothing is estimated.',
       };
     });

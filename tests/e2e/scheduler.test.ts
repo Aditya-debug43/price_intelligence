@@ -189,25 +189,6 @@ describe('late and disabled schedules', () => {
     expect(r.started.find((x) => x.orgId === off.orgId)).toBeUndefined();
   });
 
-  it('does not schedule a demonstration workspace on a server that does not serve its fictional websites (no false failure alerts every morning)', async () => {
-    const demo = await h.newTenant('DemoNoFixtures'); // demo workspaces are the harness default
-    await demo.addFixtureSite('source', 'source');
-    await demo.addFixtureSite('woo', 'competitor');
-    await demo.tx((tx) => tx.update(orgSettings).set({ scheduleEnabled: true }).where(eq(orgSettings.orgId, demo.orgId)));
-    const config = h.svc.config as { ALLOW_LOCAL_FIXTURES: boolean };
-    h.setNow(ARUBA('2026-10-23', '08:00'));
-    try {
-      config.ALLOW_LOCAL_FIXTURES = false;
-      expect((await schedulerTick(h.svc)).started.find((x) => x.orgId === demo.orgId)).toBeUndefined();
-      expect(await db().select().from(dailyRuns).where(eq(dailyRuns.orgId, demo.orgId))).toHaveLength(0);
-      config.ALLOW_LOCAL_FIXTURES = true; // a server that does serve them schedules it as usual
-      expect((await schedulerTick(h.svc)).started.find((x) => x.orgId === demo.orgId)).toMatchObject({ date: '2026-10-23' });
-    } finally {
-      config.ALLOW_LOCAL_FIXTURES = true;
-      h.queue.pending.length = 0;
-    }
-  });
-
   it('re-queues scans whose worker died (no heartbeat) so they resume', async () => {
     const run = (await db().select().from(scanRuns).where(eq(scanRuns.orgId, t.orgId)))[0]!;
     await db().update(scanRuns).set({ status: 'running', heartbeatAt: new Date(h.svc.clock().getTime() - 3_600_000) }).where(eq(scanRuns.id, run.id));

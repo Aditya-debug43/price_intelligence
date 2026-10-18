@@ -1,22 +1,46 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import PDFDocument from 'pdfkit';
+import type { SafeFetcherDeps } from '@ci/connectors';
 import { SITE_SPECS, buildCatalogue, MASTER, type FixtureProduct, type SiteSpec } from './catalogue.ts';
 
 /**
- * Local FIXTURE websites with deterministic behaviour (Shopify feed, WooCommerce Store API, JSON-LD pages, plain HTML,
- * robots-blocked, bot-challenge, failing, JavaScript-only, login-gated, flaky). They exist so tests and demos can
- * exercise blocked / partial / successful / failed outcomes without touching any real business. Data is fictional.
+ * TEST-ONLY. Fictional websites with deterministic behaviour (Shopify feed, WooCommerce Store API, JSON-LD pages, plain HTML,
+ * robots-blocked, bot-challenge, failing, JavaScript-only, login-gated, flaky), used by automated tests to exercise
+ * blocked / partial / successful / failed outcomes without touching any real business. All data is fictional.
+ *
+ * This module lives under tests/ and is imported by no application, worker, script or package: it is not part of any production bundle,
+ * and nothing in the product can start it. Each site has an ordinary-looking public hostname ("mine.test", "rival-woo.test"); the product's
+ * normal public-host rules apply to those names (no loopback exception exists anywhere in the product), and only the final network
+ * hop is replaced — `fixtures.transport` serves each hostname from the matching local listener.
  */
+
+/** The public-looking hostname each fixture site is served under. */
+export const FIXTURE_HOSTNAMES: Record<string, string> = {
+  source: 'mine.test',
+  woo: 'rival-woo.test',
+  jsonld: 'rival-ld.test',
+  html: 'rival-html.test',
+  blocked: 'rival-robots.test',
+  challenge: 'rival-challenge.test',
+  failing: 'rival-down.test',
+  jsrender: 'rival-spa.test',
+  login: 'rival-login.test',
+  flaky: 'rival-flaky.test',
+};
+/** What the test DNS stub answers for every fixture hostname: a public (documentation-range-adjacent) address, so the normal host screening passes. */
+export const FIXTURE_PUBLIC_ADDRESS = '93.184.216.34';
 
 export type FixtureMode = 'ok' | 'http500' | 'http403';
 
 export interface FixtureSiteHandle {
   key: string;
   spec: SiteSpec;
+  /** The real local listening port (the product never sees it). */
   port: number;
+  /** The public origin the product uses, e.g. http://mine.test */
   origin: string;
-  /** host:port — how the platform identifies the site. */
+  /** The public hostname — how the platform identifies the site. */
   host: string;
   products: FixtureProduct[];
   mode: FixtureMode;
@@ -35,6 +59,10 @@ export interface FixtureSiteHandle {
 export interface FixtureServer {
   sites: Record<string, FixtureSiteHandle>;
   origin(key: string): string;
+  /** Network hop for the product's fetcher: serves each fixture hostname from its local listener. Pass as SafeFetcher's `transport`. */
+  transport: NonNullable<SafeFetcherDeps['transport']>;
+  /** DNS stub for the product's fetcher: every fixture hostname resolves to a public address. */
+  resolver(hostname: string): Promise<{ address: string; family: number }[]>;
   close(): Promise<void>;
 }
 
@@ -83,13 +111,13 @@ async function flyerPdf(now: Date, currency: string, products: FixtureProduct[])
   return done;
 }
 
-export async function startFixtureServer(opts: { host?: string; now?: () => Date; /** Fixed, sequential ports starting here (0 = random). */ basePort?: number } = {}): Promise<FixtureServer> {
-  const host = opts.host ?? '127.0.0.1';
+export async function startFixtureServer(opts: { now?: () => Date } = {}): Promise<FixtureServer> {
+  const host = '127.0.0.1';
   const now = opts.now ?? (() => new Date());
   const sites: Record<string, FixtureSiteHandle> = {};
   const servers: http.Server[] = [];
 
-  for (const [index, spec] of SITE_SPECS.entries()) {
+  for (const spec of SITE_SPECS) {
     const handle: FixtureSiteHandle = {
       key: spec.key,
       spec,
@@ -138,18 +166,31 @@ export async function startFixtureServer(opts: { host?: string; now?: () => Date
     });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(opts.basePort ? opts.basePort + index : 0, host, resolve);
+      server.listen(0, host, resolve);
     });
     handle.port = (server.address() as AddressInfo).port;
-    handle.origin = `http://${host}:${handle.port}`;
-    handle.host = `${host}:${handle.port}`;
+    handle.host = FIXTURE_HOSTNAMES[spec.key] ?? `rival-${spec.key}.test`;
+    handle.origin = `http://${handle.host}`;
     servers.push(server);
     sites[spec.key] = handle;
   }
 
+  const byHost = new Map(Object.values(sites).map((s) => [s.host, s]));
   return {
     sites,
     origin: (key) => sites[key]!.origin,
+    resolver: async (hostname) => (byHost.has(hostname) ? [{ address: FIXTURE_PUBLIC_ADDRESS, family: 4 }] : []),
+    transport: async (url, init) => {
+      const site = byHost.get(url.hostname);
+      if (!site) throw new Error(`no fixture site answers for ${url.hostname}`);
+      const headers = { ...init.headers };
+      delete headers['host'];
+      const res = await fetch(new URL(url.pathname + url.search, `http://${host}:${site.port}`), { method: init.method, headers, signal: init.signal, redirect: 'manual' });
+      const buf = new Uint8Array(await res.arrayBuffer());
+      const out: Record<string, string> = {};
+      for (const [k, v] of res.headers.entries()) if (!['content-length', 'content-encoding', 'transfer-encoding'].includes(k)) out[k] = v;
+      return { status: res.status, headers: out, body: (async function* () { yield buf; })() };
+    },
     async close() {
       await Promise.all(servers.map((s) => new Promise<void>((r) => { s.closeAllConnections?.(); s.close(() => r()); })));
     },

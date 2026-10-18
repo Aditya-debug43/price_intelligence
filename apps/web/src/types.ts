@@ -2,14 +2,11 @@ import type { SiteStatusView, CapabilityStatus, ReportData, SiteProfileData, Ins
 
 export interface Me {
   user: { id: string; email: string; displayName: string; emailVerified: boolean };
-  memberships: { orgId: string; name: string; slug: string; role: 'owner' | 'admin' | 'staff'; mode: 'live' | 'demo' }[];
+  memberships: { orgId: string; name: string; slug: string; role: 'owner' | 'admin' | 'staff' }[];
 }
 
 export interface Meta {
   appBaseUrl: string;
-  schedulerMode: 'normal' | 'dev';
-  devTools: boolean;
-  allowLocalFixtures: boolean;
   emailConfigured: boolean;
   emailVerificationEnforced: boolean;
   aiProvider: string;
@@ -37,7 +34,6 @@ export interface SiteItem {
   url: string;
   hostname: string;
   role: SiteRole;
-  isFixture: boolean;
   active: boolean;
   consentStatus: 'pending' | 'confirmed' | 'revoked';
   consentAt: string | null;
@@ -103,7 +99,6 @@ export interface DashboardData {
     periodDate: string;
     generatedAt: string | null;
     isPartial: boolean;
-    containsFixture: boolean;
     headline: string;
     readyBeforeDeadline: boolean | null;
     kpis: ReportKpis;
@@ -169,8 +164,8 @@ export interface StockResponse {
   counts: { low: number; out: number; unknown: number; in: number };
   total: number;
   threshold: number;
-  mode: 'public' | 'authorised' | 'simulated';
-  connection: { id: string; provider: string; simulated: boolean; lastSyncAt: string | null; lastError: string | null; syncHealth: 'ok' | 'failed' | 'stale' | 'never' } | null;
+  mode: 'public' | 'authorised';
+  connection: { id: string; provider: string; lastSyncAt: string | null; lastError: string | null; syncHealth: 'ok' | 'failed' | 'stale' | 'never' } | null;
   explanation: string;
 }
 
@@ -181,7 +176,6 @@ export interface ReportListItem {
   kind: string;
   periodDate: string;
   isPartial: boolean;
-  containsFixture: boolean;
   generatedAt: string | null;
   createdAt: string;
   readyBeforeDeadline: boolean | null;

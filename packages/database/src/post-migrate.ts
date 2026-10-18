@@ -71,33 +71,11 @@ DROP TRIGGER IF EXISTS reports_immutable ON reports;
 CREATE TRIGGER reports_immutable BEFORE UPDATE ON reports
   FOR EACH ROW EXECUTE FUNCTION ci_reports_immutable();
 
--- A workspace is live or demo from the day it is created; nothing may flip it afterwards.
-CREATE OR REPLACE FUNCTION ci_org_mode_immutable() RETURNS trigger AS $fn$
-BEGIN
-  IF NEW.mode IS DISTINCT FROM OLD.mode THEN
-    RAISE EXCEPTION 'a workspace cannot change between live and demo mode';
-  END IF;
-  RETURN NEW;
-END
-$fn$ LANGUAGE plpgsql;
-
+-- The demo/live workspace split no longer exists (migration 0008): every workspace is a real customer's. These guards belonged to it.
 DROP TRIGGER IF EXISTS organizations_mode_immutable ON organizations;
-CREATE TRIGGER organizations_mode_immutable BEFORE UPDATE ON organizations
-  FOR EACH ROW EXECUTE FUNCTION ci_org_mode_immutable();
-
--- Fictional fixture websites can only exist in demo workspaces: demo data can never appear in a real customer's workspace.
-CREATE OR REPLACE FUNCTION ci_fixture_only_in_demo() RETURNS trigger AS $fn$
-BEGIN
-  IF NEW.is_fixture AND COALESCE((SELECT mode FROM organizations WHERE id = NEW.org_id), 'live') <> 'demo' THEN
-    RAISE EXCEPTION 'fixture websites can only exist in demo workspaces';
-  END IF;
-  RETURN NEW;
-END
-$fn$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS sites_fixture_only_in_demo ON sites;
-CREATE TRIGGER sites_fixture_only_in_demo BEFORE INSERT OR UPDATE ON sites
-  FOR EACH ROW EXECUTE FUNCTION ci_fixture_only_in_demo();
+DROP FUNCTION IF EXISTS ci_org_mode_immutable();
+DROP FUNCTION IF EXISTS ci_fixture_only_in_demo();
 
 DO $$
 DECLARE role_name text;

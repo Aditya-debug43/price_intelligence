@@ -4,7 +4,6 @@ import { isValidShopDomain } from '@ci/core';
  * Authorised, read-only inventory access for the customer's OWN shop.
  *  - Shopify: OAuth authorization-code flow with expiring offline tokens (mandatory for all public apps from
  *    2027-01-01), scopes limited to read_products, read_inventory, read_locations. GraphQL Admin API.
- *  - Dev/simulated: a clearly-labelled in-database simulator used to exercise the alert workflow without a live store.
  * Nothing in this file writes to the merchant's store.
  */
 
@@ -26,8 +25,7 @@ export interface InventoryItemRecord {
 }
 
 export interface InventoryProvider {
-  readonly id: 'shopify' | 'dev_inventory';
-  readonly simulated: boolean;
+  readonly id: 'shopify';
   listInventory(): Promise<InventoryItemRecord[]>;
 }
 
@@ -143,7 +141,6 @@ type Gql = (query: string, variables: Record<string, unknown>) => Promise<{ stat
 
 export class ShopifyInventoryProvider implements InventoryProvider {
   readonly id = 'shopify' as const;
-  readonly simulated = false;
 
   constructor(
     private readonly shop: string,
@@ -209,32 +206,5 @@ export class ShopifyInventoryProvider implements InventoryProvider {
       cursor = data.pageInfo.endCursor;
     }
     return items;
-  }
-}
-
-// ───────────────────────────────────────────────────────── development simulator
-
-export interface SimulatedRow {
-  sku: string;
-  productTitle: string;
-  variantTitle?: string | null;
-  tracked?: boolean;
-  levels: { locationId: string; locationName: string; available: number | null }[];
-}
-
-/** Reads rows held in the connection's metadata. Always labelled SIMULATED in every UI and report. */
-export class DevInventoryProvider implements InventoryProvider {
-  readonly id = 'dev_inventory' as const;
-  readonly simulated = true;
-  constructor(private readonly rows: SimulatedRow[]) {}
-  async listInventory(): Promise<InventoryItemRecord[]> {
-    return this.rows.map((r) => ({
-      externalVariantId: `sim:${r.sku}`,
-      sku: r.sku,
-      productTitle: r.productTitle,
-      variantTitle: r.variantTitle ?? null,
-      tracked: r.tracked ?? true,
-      levels: r.levels,
-    }));
   }
 }

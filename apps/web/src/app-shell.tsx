@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'reac
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { ApiError, api, orgPath } from './api';
 import type { DashboardData, Me, Meta } from './types';
-import { Age, CapabilityPill, FixturePill, Icon, Spinner } from './ui';
+import { Age, CapabilityPill, Icon, Spinner } from './ui';
 
 // ───────────────────────────────────────────────────────────── session + metadata
 export function useMe() {
@@ -26,7 +26,7 @@ export function useMeta() {
   return useQuery<Meta>({ queryKey: ['meta'], queryFn: () => api.get<Meta>('/api/v1/meta'), staleTime: 300_000 });
 }
 
-const OrgCtx = createContext<{ orgId: string; name: string; role: 'owner' | 'admin' | 'staff'; isAdmin: boolean; mode: 'live' | 'demo'; isDemo: boolean } | null>(null);
+const OrgCtx = createContext<{ orgId: string; name: string; role: 'owner' | 'admin' | 'staff'; isAdmin: boolean } | null>(null);
 export function useOrg() {
   const v = useContext(OrgCtx);
   if (!v) throw new Error('useOrg outside an organisation route');
@@ -107,15 +107,10 @@ export function OrgLayout() {
   if (!me.data) return <NavigateToLogin />;
   if (!m || !orgId) return <WorkspaceNotFound />;
   return (
-    <OrgCtx.Provider value={{ orgId, name: m.name, role: m.role, isAdmin: m.role !== 'staff', mode: m.mode, isDemo: m.mode === 'demo' }}>
+    <OrgCtx.Provider value={{ orgId, name: m.name, role: m.role, isAdmin: m.role !== 'staff' }}>
       <div className="shell">
         <Sidebar name={m.name} role={m.role} user={me.data.user.displayName} onLogout={() => logout.mutate()} workspaces={me.data.memberships} />
         <div className="main">
-          {m.mode === 'demo' && (
-            <div className="demo-banner" role="note">
-              <b>Demonstration workspace.</b> Everything here comes from fictional local test websites. It is not real market information and never will be.
-            </div>
-          )}
           {!me.data.user.emailVerified && <VerifyBanner email={me.data.user.email} />}
           <HonestyBar />
           <main className="page" id="main">
@@ -207,7 +202,6 @@ function Sidebar({ name, role, user, onLogout, workspaces }: { name: string; rol
       ))}
       <div className="side-foot">
         <b>{name}</b>
-        {workspaces.find((w) => w.orgId === orgId)?.mode === 'demo' && <span className="pill fixture" style={{ marginRight: 6 }}>Demo</span>}
         {user} · {role}
         <br />
         <button onClick={onLogout}>Sign out</button>
@@ -227,7 +221,6 @@ function HonestyBar() {
   const complete = d.coverage.filter((c) => c.complete).length;
   const problems = d.coverage.filter((c) => c.status ? c.status.severity === 'bad' : !!c.failureReason || c.capability === 'blocked' || c.capability === 'failed').length;
   const level = d.coverage.length === 0 ? 'idle' : problems ? 'bad' : complete === d.coverage.length ? '' : 'warn';
-  const hasFixture = d.coverage.some((c) => c.isFixture);
   return (
     <div className="honesty" role="region" aria-label="Data coverage and freshness">
       <span className="item">
@@ -250,7 +243,6 @@ function HonestyBar() {
         <span className="item"><Spinner /> Collecting from {d.activeScans.length} website{d.activeScans.length === 1 ? '' : 's'}…</span>
       )}
       {d.latestReport?.isPartial && <span className="pill warn" title={d.latestReport.warnings[0]}>Latest report is partial</span>}
-      {hasFixture && <FixturePill />}
       <span className="spacer" />
       <Link to={`/o/${orgId}/quality`}>Data quality</Link>
     </div>
