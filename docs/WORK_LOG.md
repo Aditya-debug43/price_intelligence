@@ -255,3 +255,25 @@ Wrote `docs/PRODUCTION_READINESS.md`: the verdict (**not ready for production us
 **Final verification at `aa30324`:** `npx vitest run` → **695 passed / 0 failed, 40 files**; typecheck clean; lint 0 errors (2 intentional warnings). Counts in README, verification report and project context updated.
 
 **Not done, and why:** the single authorised real-world collection (needs the user's per-site permission); Docker build, restore drill, real SIGTERM (no Docker / PostgreSQL client tools / POSIX signals on this machine); live verification of Shopify, Meta, YouTube, SMTP, FX (no credentials; none invented).
+
+---
+
+# Directive 3 (2026-10-18) — "Remove the demo product and finish real Shelfwatch"
+
+Verbatim text: `docs/original-prompt/03_DIRECTIVE_REMOVE_DEMO_2026-10-18.md`. Phases: 1 baseline · 2 demo removal + audit · 3 genuine authentication · 4 Gmail SMTP (ask the user when a real test is possible) · 5 real URL input + honest collection basis · 6 real catalogue collection (ask the user for the first authorised real site) · 7 real price comparison + FX · 8 stock/offers/marketing/reports without mock data · 9 credential checklist · 10 tests/security/production · 11 keep docs current. Status vocabulary for the docs from now on: *Implemented, not tested · Tested with automated mocks · Tested using isolated test fixtures · Tested against a real local service · Tested against a real external service · Verified end to end with real website data · Blocked pending credentials or permission.*
+
+## Phase 1 — baseline (before any change)
+
+| Item | Value |
+| --- | --- |
+| Original prompt | Accessible and re-read: `docs/original-prompt/01_ORIGINAL_PROMPT.md` (1,250 lines); directive 2 in `02_…`; this directive in `03_…` |
+| Git | `main` = `origin/main` = **`2574a4a`** (one public commit; the 35-commit development history exists only in the local branch `full-history`), **0 uncommitted changes** at the start |
+| GitHub | https://github.com/Aditya-debug43/price_intelligence (public) |
+| `.env` | Present, git-ignored, **not touched**. Non-empty variables (names only): app/db/collector settings, `TOKEN_ENCRYPTION_KEY`, `EMAIL_FROM` (placeholder address), plus **`ALLOW_LOCAL_FIXTURES=false`, `DEMO_AUTO_CONSENT=false`, `SCHEDULER_MODE=normal`**. Empty: `SMTP_URL`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`, `META_*`, `SHOPIFY_CLIENT_ID/SECRET/REDIRECT_URI`, `S3_*`. So **email delivery is not configured**, and no external provider credential exists |
+| Dev database (embedded PostgreSQL on 54329, still running) | 2 workspaces: *"Fixture Demo — Groceries To Go (not live data)"* (mode `demo`, 6 fictional fixture sites — created by my `demo:fixtures` script) and *"Audit Co (live audit workspace)"* (mode `live`, 3 sites, created during my browser audit); 2 users (1 verified); 114 products, 687 price observations, 11 reports, 3 integration connections (incl. simulated), 24 outbox rows. **Nothing was deleted.** Both workspaces are my own test artefacts; removing them needs the user's approval (see Phase 2) |
+| `npm run typecheck` | clean |
+| `npm run lint` | 0 errors, 2 intentional `any` warnings |
+| `npm run build` | web, API, worker build |
+| `npx vitest run` | **694 passed, 1 failed**, 40 files. The failure — `tests/e2e/live-journey.test.ts` "a flyer offer … expires when that date passes" — is a **defect in the test fixture, not in the product**: the fixture flyer server derives the PDF's validity dates from the *wall clock* (`opts.now ?? new Date()`) while the harness uses a fixed test clock; it passed on 2026-10-15 only because real time happened to be close to the test clock. Fix: give the fixture server the harness clock (done as part of moving the fixtures out of the product, Phase 2) |
+
+Baseline claims in `docs/PRODUCTION_READINESS.md` (695 passing) were therefore true on 2026-10-15 and are **stale** as of today for the reason above.
