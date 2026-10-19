@@ -181,3 +181,36 @@ export function classifyPromoText(text: string): BannerClassification {
     code: codeMatch ? codeMatch[1]! : null,
   };
 }
+
+export interface UniformCompareAt {
+  /** Share of the priced products that show a higher "regular" price beside the selling price (0–1). */
+  share: number;
+  /** The typical markup of that regular price over the selling price, in percent. */
+  medianMarkupPct: number;
+  /** How far apart the markups are (10th to 90th percentile), in percentage points. */
+  spreadPct: number;
+  /** How many priced products were looked at. */
+  products: number;
+}
+
+const MIN_PRODUCTS_FOR_PATTERN = 20;
+
+/**
+ * A shop can show a higher "regular price" beside nearly EVERY product at almost the same percentage (a live grocery shop showed one 7–8 %
+ * above on 2,383 of 2,385 products). That is a standing display, not a promotion: counting each product as "on sale" would bury the real
+ * offers and report thousands of discounts that were never advertised. Returns the pattern when at least 90 % of the priced products carry a
+ * regular price and the markups sit within 3 percentage points of each other; null otherwise (a normal mix of a few sales at varied depths).
+ * A genuinely catalogue-wide, uniform markdown looks the same on the first look — the run says what was seen so a person can tell.
+ */
+export function detectUniformCompareAt(items: { price: number | null; compareAt: number | null }[]): UniformCompareAt | null {
+  const priced = items.filter((i) => i.price !== null && i.price > 0);
+  if (priced.length < MIN_PRODUCTS_FOR_PATTERN) return null;
+  const marked = priced.filter((i) => i.compareAt !== null && i.compareAt > (i.price as number));
+  if (marked.length / priced.length < 0.9) return null;
+  const markups = marked.map((i) => ((i.compareAt as number) / (i.price as number) - 1) * 100).sort((a, b) => a - b);
+  const at = (q: number) => markups[Math.min(markups.length - 1, Math.floor(q * markups.length))]!;
+  const spread = at(0.9) - at(0.1);
+  if (spread > 3) return null;
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  return { share: Math.round((marked.length / priced.length) * 1000) / 1000, medianMarkupPct: r1(at(0.5)), spreadPct: r1(spread), products: priced.length };
+}

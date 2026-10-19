@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../apps/api/src/app.ts';
+import { and, eq, inArray } from 'drizzle-orm';
+import { productMatches } from '@ci/database';
 import { createOrganization, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
@@ -122,6 +124,64 @@ describe('reviewing a proposed match', () => {
     expect((await stranger.get(`/api/v1/orgs/${strangerOrg}/matches/candidates?sourceVariantId=${target.sourceVariantId}`)).status).toBe(404);
     // …and the stranger cannot even address this workspace
     expect((await stranger.post(`${base()}/matches/manual`, { sourceVariantId: target.sourceVariantId, competitorVariantId: chosenVariant, matchClass: 'identical' })).status).toBe(404);
+  });
+});
+
+describe('accepting many proposals at once', () => {
+  type Bulk = { count: number; accepted: boolean; examples: { sourceTitle: string; competitorTitle: string; competitorSite: string; confidence: number }[] };
+  const bulk = async (body: Record<string, unknown>) => owner.post(`${base()}/matches/bulk`, body);
+
+  it('a dry run counts and samples the waiting proposals and changes nothing', async () => {
+    // put eight confident pairs back to "waiting", as they sit when the shops publish no barcodes or brands
+    const confident = await h.db.worker.select({ id: productMatches.id }).from(productMatches).where(and(eq(productMatches.orgId, org), eq(productMatches.status, 'auto'), eq(productMatches.matchClass, 'identical'))).limit(8);
+    expect(confident.length).toBeGreaterThanOrEqual(5);
+    await h.db.worker.update(productMatches).set({ status: 'needs_review' }).where(inArray(productMatches.id, confident.map((m) => m.id)));
+    const waiting = (await list('needs_review')).filter((m) => m.matchClass === 'identical');
+    expect(waiting.length).toBeGreaterThanOrEqual(5);
+    const r = await bulk({ matchClass: 'identical', minConfidence: 0.5, dryRun: true });
+    expect(r.status).toBe(200);
+    const b = r.body as Bulk;
+    expect(b.accepted).toBe(false);
+    expect(b.count).toBe((await owner.get(`${base()}/matches?status=needs_review&class=identical&minConfidence=0.5&pageSize=1`)).body.total);
+    expect(b.examples.length).toBeGreaterThan(0);
+    expect(b.examples.length).toBeLessThanOrEqual(6);
+    expect(b.examples.every((e) => e.sourceTitle && e.competitorTitle && e.competitorSite)).toBe(true);
+    expect((await list('needs_review')).filter((m) => m.matchClass === 'identical')).toHaveLength(waiting.length);
+  });
+
+  it('accepts exactly the waiting proposals that fit, records them as the person’s decision, and never touches a pair someone already decided', async () => {
+    const waiting = (await list('needs_review')).filter((m) => m.matchClass === 'identical');
+    const keepRejected = waiting[0]!;
+    expect((await owner.post(`${base()}/matches/${keepRejected.id}/decision`, { decision: 'reject' })).status).toBe(200);
+    const r = await bulk({ matchClass: 'identical', minConfidence: 0.5, note: 'Looked at the sample' });
+    expect(r.status).toBe(200);
+    const b = r.body as Bulk;
+    expect(b).toMatchObject({ accepted: true, count: waiting.length - 1 });
+    expect((await list('needs_review')).filter((m) => m.matchClass === 'identical')).toHaveLength(0);
+    const accepted = await list('accepted');
+    for (const m of waiting.slice(1)) expect(accepted.find((a) => a.id === m.id), m.id).toMatchObject({ status: 'accepted' });
+    expect((await list('rejected')).some((m) => m.id === keepRejected.id)).toBe(true); // the person's rejection stands
+    expect(accepted.some((m) => m.id === keepRejected.id)).toBe(false);
+    // recorded as a decision by a person, with the note
+    const row = (await owner.get(`${base()}/matches?status=accepted&class=identical&pageSize=50`)).body.rows.find((m: { id: string }) => m.id === waiting[1]!.id);
+    expect(row).toMatchObject({ decidedByPerson: true, decisionNote: 'Looked at the sample' });
+  });
+
+  it('is kept by the next matching run', async () => {
+    const before = (await list('accepted')).filter((m) => m.matchClass === 'identical').length;
+    await runMatching(h.svc, h.db.worker, org);
+    expect((await list('accepted')).filter((m) => m.matchClass === 'identical').length).toBe(before);
+  });
+
+  it('asking again finds nothing left to accept; nonsense is refused; another workspace cannot use it', async () => {
+    const again = await bulk({ matchClass: 'identical', minConfidence: 0.5 });
+    expect(again.body).toMatchObject({ count: 0, accepted: false });
+    expect((await bulk({ matchClass: 'not_comparable', minConfidence: 0.5 })).status).toBe(400);
+    expect((await bulk({ matchClass: 'identical', minConfidence: 0.2 })).status).toBe(400); // below the floor: a coin toss is not a proposal
+    expect((await bulk({ matchClass: 'identical', minConfidence: 0.7, siteId: 'not-a-uuid' })).status).toBe(400);
+    const stranger = new ApiClient(app);
+    await signUp(stranger, h, { email: `bulk-stranger-${Date.now()}@example.test`, password: PASSWORD, displayName: 'S' });
+    expect((await stranger.post(`${base()}/matches/bulk`, { matchClass: 'identical', minConfidence: 0.5 })).status).toBe(404);
   });
 });
 

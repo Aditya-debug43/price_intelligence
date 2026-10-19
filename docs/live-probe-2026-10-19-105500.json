@@ -1,0 +1,1266 @@
+[
+  {
+    "url": "https://groceriestogoaruba.com/",
+    "probedAt": "2026-10-19T10:52:31.069Z",
+    "profile": {
+      "status": "full",
+      "summary": "Full access: a public product feed on shopify exposes prices and availability for the whole catalogue (about 2382 products). Exact stock counts are not public.",
+      "site": {
+        "requestedUrl": "https://groceriestogoaruba.com/",
+        "finalUrl": "https://groceriestogoaruba.com/",
+        "origin": "https://groceriestogoaruba.com",
+        "canonicalHost": "groceriestogoaruba.com",
+        "title": "GroceriesToGo Aruba",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 704,
+        "redirectChain": [],
+        "entryPath": null
+      },
+      "platform": {
+        "id": "shopify",
+        "confidence": 1,
+        "evidence": [
+          "Shopify CDN assets",
+          "Shopify JavaScript object",
+          "Shopify response headers"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": null,
+          "sitemaps": [
+            "https://groceriestogoaruba.com/sitemap.xml"
+          ],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://groceriestogoaruba.com/sitemap.xml",
+            "kind": "index",
+            "urlCount": 8
+          },
+          {
+            "url": "https://groceriestogoaruba.com/sitemap_products_1.xml?from=7028434043020&to=7028506689676",
+            "kind": "products",
+            "urlCount": 1001
+          },
+          {
+            "url": "https://groceriestogoaruba.com/sitemap_products_2.xml?from=7028506755212&to=7028613808268",
+            "kind": "products",
+            "urlCount": 1000
+          },
+          {
+            "url": "https://groceriestogoaruba.com/sitemap_products_3.xml?from=7028613906572&to=8248857624716",
+            "kind": "products",
+            "urlCount": 381
+          }
+        ],
+        "productUrlSample": [
+          "https://groceriestogoaruba.com/products/jolly-rancher-crunch-n-chew-candy-assortment",
+          "https://groceriestogoaruba.com/products/glutino-gluten-free-crackers-original",
+          "https://groceriestogoaruba.com/products/dos-equis-mini-cerveza-bottles-24-7-fluid-oz-bottles"
+        ],
+        "estimatedProducts": 2382,
+        "estimateBasis": "Sum of 3 product sitemap(s)",
+        "publicApis": [
+          {
+            "kind": "shopify_products_json",
+            "url": "https://groceriestogoaruba.com/products.json",
+            "usable": true,
+            "total": null,
+            "notes": "The public product feed responds and lists products with prices and availability."
+          }
+        ]
+      },
+      "fields": {
+        "title": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "Shopify product feed"
+        },
+        "price": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "Shopify product feed"
+        },
+        "compare_at_price": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "currency": {
+          "availability": "available",
+          "coverage": null,
+          "source": "USD (homepage metadata); USD (product page metadata); USD (json_ld on product pages)"
+        },
+        "availability": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "Shopify product feed",
+          "note": "Available / unavailable only — not a unit count"
+        },
+        "brand": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "Shopify product feed",
+          "note": "The “vendor” field is sometimes the store name rather than the brand"
+        },
+        "sku": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "gtin": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "Shopify product feed",
+          "note": "Barcodes are not published in this feed; matching relies on names, brands and sizes"
+        },
+        "description": {
+          "availability": "available",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "category": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "image": {
+          "availability": "available",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "variants": {
+          "availability": "available",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "size_or_weight": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "product titles",
+          "note": "Parsed from titles"
+        },
+        "shipping_cost": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null,
+          "note": "Shipping cost is not published in product data"
+        },
+        "stock_quantity": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "Shopify product feed",
+          "note": "Quantities are not public; they need an authorised inventory connection (own shop only)"
+        }
+      },
+      "currency": {
+        "detected": "USD",
+        "candidates": [
+          "USD"
+        ],
+        "evidence": [
+          "USD (homepage metadata)",
+          "USD (product page metadata)",
+          "USD (json_ld on product pages)"
+        ],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": false,
+        "evidence": "6933 characters of server-rendered text"
+      },
+      "promotions": {
+        "bannerTexts": [],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": "https://www.facebook.com/GroceriesToGoAruba",
+        "instagram": "https://www.instagram.com/groceriestogoaruba",
+        "youtube": null,
+        "other": [
+          "https://twitter.com/GtgAruba",
+          "https://www.pinterest.com/GroceriesToGo",
+          "https://www.linkedin.com/company/groceriestogo-aruba"
+        ]
+      },
+      "strategy": {
+        "recommended": [
+          "shopify-products-json",
+          "sitemap-structured-data",
+          "html-generic"
+        ],
+        "primary": "shopify-products-json",
+        "reason": "The Shopify product feed (/products.json) is publicly available"
+      },
+      "effort": {
+        "requestsEstimate": 12,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 1500,
+        "maxRequestsPerRun": 2000,
+        "notes": "A machine-readable feed lets the whole catalogue be refreshed in a handful of requests."
+      },
+      "sampledProducts": [
+        {
+          "url": "https://groceriestogoaruba.com/products/jolly-rancher-crunch-n-chew-candy-assortment",
+          "title": "Jolly Rancher Crunch N Chew Candy Assortment",
+          "price": 3.27,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": "Aruba",
+          "method": "json_ld"
+        },
+        {
+          "url": "https://groceriestogoaruba.com/products/glutino-gluten-free-crackers-original",
+          "title": "Glutino Gluten Free Crackers Original",
+          "price": 7.88,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": "Aruba",
+          "method": "json_ld"
+        },
+        {
+          "url": "https://groceriestogoaruba.com/products/dos-equis-mini-cerveza-bottles-24-7-fluid-oz-bottles",
+          "title": "Dos Equis Mini Cerveza Bottles (24 7 Fluid OZ bottles)",
+          "price": 42.11,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": "GroceriesToGo Aruba",
+          "method": "json_ld"
+        }
+      ],
+      "limitations": [
+        {
+          "code": "no_gtin",
+          "severity": "info",
+          "message": "Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 10,
+      "durationMs": 13274
+    }
+  },
+  {
+    "url": "https://www.lingandsons.com/",
+    "probedAt": "2026-10-19T10:52:52.383Z",
+    "profile": {
+      "status": "limited",
+      "summary": "We could reach the website (a custom or unrecognised platform) but could not find product prices on the sampled pages. Only general information, promotions and social links are available.",
+      "site": {
+        "requestedUrl": "https://www.lingandsons.com/",
+        "finalUrl": "https://www.lingandsons.com/",
+        "origin": "https://www.lingandsons.com",
+        "canonicalHost": "www.lingandsons.com",
+        "title": "Ling and Sons - Food Market",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 1190,
+        "redirectChain": [],
+        "entryPath": null
+      },
+      "platform": {
+        "id": "unknown",
+        "confidence": 0,
+        "evidence": [
+          "No known e-commerce platform signature found"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": null,
+          "sitemaps": [],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://www.lingandsons.com/sitemap.xml",
+            "kind": "other",
+            "urlCount": 19
+          }
+        ],
+        "productUrlSample": [
+          "http://www.lingandsons.com/special-deals",
+          "http://www.lingandsons.com/manageArticle.do?dispatch=view&id=337",
+          "http://www.lingandsons.com/manageArticle.do?dispatch=view&id=266"
+        ],
+        "estimatedProducts": 19,
+        "estimateBasis": "Sum of 1 product sitemap(s)",
+        "publicApis": []
+      },
+      "fields": {
+        "title": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "price": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "compare_at_price": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages",
+          "note": "Present only on items currently on sale"
+        },
+        "currency": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null
+        },
+        "availability": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "brand": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "sku": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "gtin": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "description": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "category": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "image": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "variants": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": "sampled product pages"
+        },
+        "size_or_weight": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages",
+          "note": "Parsed from titles and descriptions"
+        },
+        "shipping_cost": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages"
+        },
+        "stock_quantity": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "sampled product pages",
+          "note": "Only explicit “only N left” statements count"
+        }
+      },
+      "currency": {
+        "detected": null,
+        "candidates": [],
+        "evidence": [],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": false,
+        "evidence": "806 characters of server-rendered text"
+      },
+      "promotions": {
+        "bannerTexts": [],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": "https://www.facebook.com/lingandsons",
+        "instagram": "https://www.instagram.com/lingandsonsfoodmarket",
+        "youtube": null,
+        "other": []
+      },
+      "strategy": {
+        "recommended": [],
+        "primary": null,
+        "reason": "No reliable collection method was found for this site"
+      },
+      "effort": {
+        "requestsEstimate": 20,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 1500,
+        "maxRequestsPerRun": 2000,
+        "notes": "Each product page is one request; large catalogues are refreshed on a rolling basis within the request budget."
+      },
+      "sampledProducts": [
+        {
+          "url": "http://www.lingandsons.com/special-deals",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        },
+        {
+          "url": "http://www.lingandsons.com/manageArticle.do?dispatch=view&id=337",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        },
+        {
+          "url": "http://www.lingandsons.com/manageArticle.do?dispatch=view&id=266",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        }
+      ],
+      "limitations": [
+        {
+          "code": "currency_unknown",
+          "severity": "warning",
+          "message": "The currency of the prices could not be determined, so prices cannot be converted for comparison until you confirm it."
+        },
+        {
+          "code": "no_gtin",
+          "severity": "info",
+          "message": "Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        },
+        {
+          "code": "no_brand",
+          "severity": "info",
+          "message": "Brands are not published, which makes product matching less certain."
+        },
+        {
+          "code": "weak_structured_data",
+          "severity": "info",
+          "message": "Some product pages publish no structured data, so layout-based extraction (lower confidence) is used."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 15,
+      "durationMs": 21310
+    }
+  },
+  {
+    "url": "https://foodstore2go.com/",
+    "probedAt": "2026-10-19T10:53:02.479Z",
+    "profile": {
+      "status": "full",
+      "summary": "Full access: a public product feed on shopify exposes prices and availability for the whole catalogue (about 864 products). Exact stock counts are not public.",
+      "site": {
+        "requestedUrl": "https://foodstore2go.com/",
+        "finalUrl": "https://foodstore2go.com/",
+        "origin": "https://foodstore2go.com",
+        "canonicalHost": "foodstore2go.com",
+        "title": "FoodStore2Go",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 380,
+        "redirectChain": [],
+        "entryPath": null
+      },
+      "platform": {
+        "id": "shopify",
+        "confidence": 1,
+        "evidence": [
+          "Shopify CDN assets",
+          "Shopify JavaScript object",
+          "Shopify response headers"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": null,
+          "sitemaps": [
+            "https://foodstore2go.com/sitemap.xml"
+          ],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://foodstore2go.com/sitemap.xml",
+            "kind": "index",
+            "urlCount": 6
+          },
+          {
+            "url": "https://foodstore2go.com/sitemap_products_1.xml?from=7833047793775&to=15542424404079",
+            "kind": "products",
+            "urlCount": 864
+          }
+        ],
+        "productUrlSample": [
+          "https://foodstore2go.com/products/corona-bottles",
+          "https://foodstore2go.com/products/black-beans",
+          "https://foodstore2go.com/products/michelob-beer-24-24oz-btl-case"
+        ],
+        "estimatedProducts": 864,
+        "estimateBasis": "Sum of 1 product sitemap(s)",
+        "publicApis": [
+          {
+            "kind": "shopify_products_json",
+            "url": "https://foodstore2go.com/products.json",
+            "usable": true,
+            "total": null,
+            "notes": "The public product feed responds and lists products with prices and availability."
+          }
+        ]
+      },
+      "fields": {
+        "title": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "Shopify product feed"
+        },
+        "price": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "Shopify product feed"
+        },
+        "compare_at_price": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "currency": {
+          "availability": "available",
+          "coverage": null,
+          "source": "USD (homepage metadata); USD (product page metadata); USD (json_ld on product pages)"
+        },
+        "availability": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "Shopify product feed",
+          "note": "Available / unavailable only — not a unit count"
+        },
+        "brand": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "Shopify product feed",
+          "note": "The “vendor” field is sometimes the store name rather than the brand"
+        },
+        "sku": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "gtin": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "Shopify product feed",
+          "note": "Barcodes are not published in this feed; matching relies on names, brands and sizes"
+        },
+        "description": {
+          "availability": "available",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "category": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "image": {
+          "availability": "available",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "variants": {
+          "availability": "available",
+          "coverage": null,
+          "source": "Shopify product feed"
+        },
+        "size_or_weight": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "product titles",
+          "note": "Parsed from titles"
+        },
+        "shipping_cost": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null,
+          "note": "Shipping cost is not published in product data"
+        },
+        "stock_quantity": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "Shopify product feed",
+          "note": "Quantities are not public; they need an authorised inventory connection (own shop only)"
+        }
+      },
+      "currency": {
+        "detected": "USD",
+        "candidates": [
+          "USD"
+        ],
+        "evidence": [
+          "USD (homepage metadata)",
+          "USD (product page metadata)",
+          "USD (json_ld on product pages)"
+        ],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": false,
+        "evidence": "9311 characters of server-rendered text"
+      },
+      "promotions": {
+        "bannerTexts": [
+          "DO YOU RENT OR OWN AN AIRBNB IN NASSAU, THE BAHAMAS, OR THE CARIBBEAN? We Offer Kitchen Pre-Stocking Service for Vacation Rentals Properties Shop Now",
+          "We Offer Kitchen Pre-Stocking Service for Vacation Rentals Properties"
+        ],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": "https://www.facebook.com/FoodStore2Go",
+        "instagram": "https://www.instagram.com/foodstore2go_bahamas",
+        "youtube": "https://www.youtube.com/@FoodStore2Go-s2w",
+        "other": [
+          "https://in.pinterest.com/ramakant0959/food-store-2go",
+          "https://www.tiktok.com/@foodstore2go_bahamas"
+        ]
+      },
+      "strategy": {
+        "recommended": [
+          "shopify-products-json",
+          "sitemap-structured-data",
+          "html-generic"
+        ],
+        "primary": "shopify-products-json",
+        "reason": "The Shopify product feed (/products.json) is publicly available"
+      },
+      "effort": {
+        "requestsEstimate": 6,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 1500,
+        "maxRequestsPerRun": 2000,
+        "notes": "A machine-readable feed lets the whole catalogue be refreshed in a handful of requests."
+      },
+      "sampledProducts": [
+        {
+          "url": "https://foodstore2go.com/products/corona-bottles",
+          "title": "Corona Bottles",
+          "price": 42,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": "Your Brand",
+          "method": "json_ld"
+        },
+        {
+          "url": "https://foodstore2go.com/products/black-beans",
+          "title": "Black Beans",
+          "price": 4.93,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": "Your Brand",
+          "method": "json_ld"
+        },
+        {
+          "url": "https://foodstore2go.com/products/michelob-beer-24-24oz-btl-case",
+          "title": "Michelob Beer 24/24oz Btl Case",
+          "price": 70,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": "FoodStore2Go",
+          "method": "json_ld"
+        }
+      ],
+      "limitations": [
+        {
+          "code": "no_gtin",
+          "severity": "info",
+          "message": "Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 8,
+      "durationMs": 10095
+    }
+  },
+  {
+    "url": "https://shop.superfoodaruba.com/",
+    "probedAt": "2026-10-19T10:54:36.845Z",
+    "profile": {
+      "status": "limited",
+      "summary": "We could reach the website (freshop) but could not find product prices on the sampled pages. Only general information, promotions and social links are available.",
+      "site": {
+        "requestedUrl": "https://shop.superfoodaruba.com/",
+        "finalUrl": "https://shop.superfoodaruba.com/",
+        "origin": "https://shop.superfoodaruba.com",
+        "canonicalHost": "shop.superfoodaruba.com",
+        "title": "Super Food Plaza",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 1137,
+        "redirectChain": [],
+        "entryPath": null
+      },
+      "platform": {
+        "id": "freshop",
+        "confidence": 0.7,
+        "evidence": [
+          "Freshop online-grocery storefront assets"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": 10,
+          "sitemaps": [
+            "https://shop.superfoodaruba.com/wp-sitemap.xml",
+            "https://shop.superfoodaruba.com/wp-content/uploads/freshop_sitemap.xml.gz",
+            "https://shop.superfoodaruba.com/sitemap.xml",
+            "https://shop.superfoodaruba.com/sitemap.html"
+          ],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://shop.superfoodaruba.com/wp-sitemap.xml",
+            "kind": "other",
+            "urlCount": null,
+            "failed": true
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/wp-content/uploads/freshop_sitemap.xml.gz",
+            "kind": "products",
+            "urlCount": null,
+            "failed": true
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/sitemap.xml",
+            "kind": "index",
+            "urlCount": 3
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/sitemap-misc.xml",
+            "kind": "other",
+            "urlCount": 2
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/post-sitemap.xml",
+            "kind": "pages",
+            "urlCount": 3
+          },
+          {
+            "url": "https://shop.superfoodaruba.com/page-sitemap.xml",
+            "kind": "pages",
+            "urlCount": 31
+          }
+        ],
+        "productUrlSample": [],
+        "estimatedProducts": 2,
+        "estimateBasis": "Sum of 1 product sitemap(s)",
+        "publicApis": [
+          {
+            "kind": "woocommerce_store_api",
+            "url": "https://shop.superfoodaruba.com/wp-json/wc/store/v1/products",
+            "usable": false,
+            "total": null,
+            "notes": "The Store API returned HTTP 404; it is disabled or restricted on this site."
+          }
+        ]
+      },
+      "fields": {
+        "title": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "price": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "compare_at_price": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "currency": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null
+        },
+        "availability": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "brand": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "sku": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "gtin": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "description": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "category": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "image": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "variants": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "size_or_weight": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "shipping_cost": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        },
+        "stock_quantity": {
+          "availability": "unknown",
+          "coverage": null,
+          "source": null
+        }
+      },
+      "currency": {
+        "detected": null,
+        "candidates": [],
+        "evidence": [],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": false,
+        "evidence": "2683 characters of server-rendered text"
+      },
+      "promotions": {
+        "bannerTexts": [],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": "https://www.facebook.com/superfoodaruba",
+        "instagram": null,
+        "youtube": "https://www.youtube.com/channel/UCNobOat9itzCZBNOClj-Dtg",
+        "other": []
+      },
+      "strategy": {
+        "recommended": [],
+        "primary": null,
+        "reason": "No reliable collection method was found for this site"
+      },
+      "effort": {
+        "requestsEstimate": 8,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 10000,
+        "maxRequestsPerRun": 2000,
+        "notes": "Each product page is one request; large catalogues are refreshed on a rolling basis within the request budget."
+      },
+      "sampledProducts": [],
+      "limitations": [
+        {
+          "code": "crawl_delay",
+          "severity": "info",
+          "message": "The site asks crawlers to wait 10 s between requests; this is applied."
+        },
+        {
+          "code": "currency_unknown",
+          "severity": "warning",
+          "message": "The currency of the prices could not be determined, so prices cannot be converted for comparison until you confirm it."
+        },
+        {
+          "code": "freshop_storefront",
+          "severity": "warning",
+          "message": "Products are served by a Freshop online-grocery storefront. Its product data is loaded by JavaScript from the vendor’s own service, so plain page requests contain no prices. Collecting it would need browser rendering or access arranged with the store/vendor — we do not reverse-engineer private APIs."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        },
+        {
+          "code": "few_samples",
+          "severity": "info",
+          "message": "Fewer than two product pages could be sampled, so field coverage is a rough indication only."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 11,
+      "durationMs": 94357
+    }
+  },
+  {
+    "url": "https://quickmartaruba.com/",
+    "probedAt": "2026-10-19T10:55:00.582Z",
+    "profile": {
+      "status": "full",
+      "summary": "Full access: a public product feed on woocommerce exposes prices and availability for the whole catalogue (about 2566 products). Exact stock counts are not public.",
+      "site": {
+        "requestedUrl": "https://quickmartaruba.com/",
+        "finalUrl": "https://quickmartaruba.com/",
+        "origin": "https://quickmartaruba.com",
+        "canonicalHost": "quickmartaruba.com",
+        "title": "Quickmart Aruba",
+        "httpStatus": 200,
+        "reachable": true,
+        "responseTimeMs": 1369,
+        "redirectChain": [],
+        "entryPath": null
+      },
+      "platform": {
+        "id": "woocommerce",
+        "confidence": 1,
+        "evidence": [
+          "WooCommerce markup/assets",
+          "WooCommerce generator tag",
+          "WordPress REST API advertised"
+        ]
+      },
+      "access": {
+        "robots": {
+          "fetched": true,
+          "httpStatus": 200,
+          "allowsHome": true,
+          "disallowsAll": false,
+          "crawlDelaySeconds": null,
+          "sitemaps": [
+            "https://quickmartaruba.com/sitemap_index.xml"
+          ],
+          "note": null
+        },
+        "loginRequired": false,
+        "challengeDetected": false,
+        "challengeKind": null,
+        "barriers": []
+      },
+      "catalogue": {
+        "sitemaps": [
+          {
+            "url": "https://quickmartaruba.com/sitemap_index.xml",
+            "kind": "index",
+            "urlCount": 6
+          },
+          {
+            "url": "https://quickmartaruba.com/product-sitemap.xml",
+            "kind": "products",
+            "urlCount": 1001
+          },
+          {
+            "url": "https://quickmartaruba.com/product-sitemap2.xml",
+            "kind": "products",
+            "urlCount": 1000
+          },
+          {
+            "url": "https://quickmartaruba.com/product-sitemap3.xml",
+            "kind": "products",
+            "urlCount": 566
+          },
+          {
+            "url": "https://quickmartaruba.com/product_cat-sitemap.xml",
+            "kind": "products",
+            "urlCount": 211
+          },
+          {
+            "url": "https://quickmartaruba.com/sitemap.xml",
+            "kind": "index",
+            "urlCount": 6
+          }
+        ],
+        "productUrlSample": [
+          "https://quickmartaruba.com/shop",
+          "https://quickmartaruba.com/product/gillette-gillette-clear-yellow-antiperspirant-and-deodorant-for-men-cool-wave-scent-3-8-oz-3-8-oz",
+          "https://quickmartaruba.com/product-category/home-away-supplies/ziplock-bags"
+        ],
+        "estimatedProducts": 2566,
+        "estimateBasis": "Catalogue size reported by the WooCommerce Store API",
+        "publicApis": [
+          {
+            "kind": "woocommerce_store_api",
+            "url": "https://quickmartaruba.com/wp-json/wc/store/v1/products",
+            "usable": true,
+            "total": 2566,
+            "notes": "The public WooCommerce Store API responds with prices, availability and the catalogue size."
+          }
+        ]
+      },
+      "fields": {
+        "title": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "WooCommerce Store API"
+        },
+        "price": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "WooCommerce Store API"
+        },
+        "compare_at_price": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "currency": {
+          "availability": "available",
+          "coverage": null,
+          "source": "USD (WooCommerce Store API); USD (json_ld on product pages)"
+        },
+        "availability": {
+          "availability": "available",
+          "coverage": 1,
+          "source": "WooCommerce Store API",
+          "note": "Available / unavailable only — not a unit count"
+        },
+        "brand": {
+          "availability": "missing",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "sku": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "gtin": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": "WooCommerce Store API",
+          "note": "Barcodes are not published in this feed; matching relies on names, brands and sizes"
+        },
+        "description": {
+          "availability": "available",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "category": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "image": {
+          "availability": "available",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "variants": {
+          "availability": "available",
+          "coverage": null,
+          "source": "WooCommerce Store API"
+        },
+        "size_or_weight": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "product titles",
+          "note": "Parsed from titles"
+        },
+        "shipping_cost": {
+          "availability": "missing",
+          "coverage": 0,
+          "source": null,
+          "note": "Shipping cost is not published in product data"
+        },
+        "stock_quantity": {
+          "availability": "partial",
+          "coverage": null,
+          "source": "WooCommerce Store API",
+          "note": "Quantity is published only when stock is low (explicit public claim)"
+        }
+      },
+      "currency": {
+        "detected": "USD",
+        "candidates": [
+          "USD"
+        ],
+        "evidence": [
+          "USD (WooCommerce Store API)",
+          "USD (json_ld on product pages)"
+        ],
+        "conflicting": false
+      },
+      "rendering": {
+        "requiresJavaScript": false,
+        "evidence": "3524 characters of server-rendered text"
+      },
+      "promotions": {
+        "bannerTexts": [],
+        "saleLinks": [],
+        "flyerLinks": [],
+        "couponMentions": []
+      },
+      "social": {
+        "facebook": "https://www.facebook.com/quickmartaruba",
+        "instagram": null,
+        "youtube": null,
+        "other": []
+      },
+      "strategy": {
+        "recommended": [
+          "woocommerce-store-api",
+          "html-generic"
+        ],
+        "primary": "woocommerce-store-api",
+        "reason": "The WooCommerce Store API is publicly available"
+      },
+      "effort": {
+        "requestsEstimate": 28,
+        "minutesEstimate": 1,
+        "crawlDelayMs": 1500,
+        "maxRequestsPerRun": 2000,
+        "notes": "A machine-readable feed lets the whole catalogue be refreshed in a handful of requests."
+      },
+      "sampledProducts": [
+        {
+          "url": "https://quickmartaruba.com/shop",
+          "title": null,
+          "price": null,
+          "currency": null,
+          "availability": null,
+          "gtin": null,
+          "brand": null,
+          "method": null
+        },
+        {
+          "url": "https://quickmartaruba.com/product/gillette-gillette-clear-yellow-antiperspirant-and-deodorant-for-men-cool-wave-scent-3-8-oz-3-8-oz",
+          "title": "Gillette Gillette Clear Yellow Antiperspirant And Deodorant For Men Cool Wave Scent 3.8 Oz, 3.8 oz",
+          "price": 10.7,
+          "currency": "USD",
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": null,
+          "method": "json_ld"
+        },
+        {
+          "url": "https://quickmartaruba.com/product-category/home-away-supplies/ziplock-bags",
+          "title": "Ziplock Bags Archives | Quickmart Aruba",
+          "price": 0,
+          "currency": null,
+          "availability": "in_stock",
+          "gtin": null,
+          "brand": null,
+          "method": "html_heuristic"
+        }
+      ],
+      "limitations": [
+        {
+          "code": "no_gtin",
+          "severity": "info",
+          "message": "Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review."
+        },
+        {
+          "code": "no_stock_quantity",
+          "severity": "info",
+          "message": "Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown."
+        },
+        {
+          "code": "no_brand",
+          "severity": "info",
+          "message": "Brands are not published, which makes product matching less certain."
+        }
+      ],
+      "conflicts": [],
+      "requestsMade": 16,
+      "durationMs": 23736
+    }
+  }
+]

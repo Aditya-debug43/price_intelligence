@@ -60,7 +60,8 @@ export function classifySitemapUrl(url: string): SitemapSummary['kind'] {
   }
   // "sitemap" itself contains "item"; strip it so it cannot cause false product matches.
   name = name.replace(/sitemap/g, ' ');
-  if (/collection|categor|brand|tag/.test(name)) return 'collections';
+  // WooCommerce publishes its category pages as "product_cat-sitemap.xml": a list of category pages, not of products.
+  if (/collection|categor|product[_-]?cat\b|brand|tag/.test(name)) return 'collections';
   if (/page|blog|post|article|news|image|video/.test(name)) return 'pages';
   if (/product|catalog|sku|item|shop/.test(name)) return 'products';
   return 'other';

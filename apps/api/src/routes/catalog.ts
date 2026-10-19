@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { DEFAULTS, MATCH_CLASSES, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
+import { DEFAULTS, MATCH_CLASSES, bulkAcceptSchema, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
 import { integrationConnections, reports, sites } from '@ci/database';
 import {
-  dataQuality, decideMatch, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
+  bulkAcceptMatches, dataQuality, decideMatch, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
   loadStock, setVariantThreshold, assertCanMatch, loadReadiness, loadJourney, searchMatchCandidates, setManualMatch, reviewOffer,
 } from '@ci/services';
 import { HttpError, parse, requireRole } from '../app.ts';
@@ -107,6 +107,13 @@ export async function catalogRoutes(app: FastifyInstance) {
     const body = parse(manualMatchSchema, req.body);
     const r = await req.tx((tx) => setManualMatch(tx, req.orgId!, req.user!.id, body, app.svc.clock()));
     return reply.status(201).send(r);
+  });
+
+  /** A person accepts every waiting proposal of one class at or above a confidence in one decision (after a dry run that counts and samples them). */
+  app.post('/matches/bulk', async (req) => {
+    requireRole(req, 'admin');
+    const body = parse(bulkAcceptSchema, req.body);
+    return req.tx((tx) => bulkAcceptMatches(tx, req.orgId!, req.user!.id, body, app.svc.clock()));
   });
 
   app.post('/matches/:matchId/decision', async (req) => {

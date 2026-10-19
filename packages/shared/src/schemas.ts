@@ -105,6 +105,19 @@ export const matchDecisionSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+/**
+ * Accepting many proposals at once. Names and sizes can agree on hundreds of pairs when the shops publish no barcodes or brands; going through
+ * them one by one is not realistic, so a person may accept every waiting proposal of one class at or above a confidence — after seeing how
+ * many there are and a sample. `dryRun` only counts and samples.
+ */
+export const bulkAcceptSchema = z.object({
+  matchClass: z.enum(['identical', 'different_pack', 'comparable']),
+  minConfidence: z.number().min(0.5).max(1),
+  siteId: z.uuid().optional(),
+  dryRun: z.boolean().default(false),
+  note: z.string().max(300).optional(),
+});
+
 /** A person chooses the competitor product that corresponds to one of their own products (instead of, or in addition to, a suggestion). */
 export const manualMatchSchema = z.object({
   sourceVariantId: z.uuid(),

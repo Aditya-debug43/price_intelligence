@@ -38,7 +38,7 @@ export interface ListingPage {
 /** A grid needs this many cards to be recognised on an arbitrary page. A page we already know is a later page of a listing may hold fewer (the last one often does). */
 const MIN_CARDS = 3;
 const NON_CATALOGUE = /\/(cart|basket|checkout|account|my-account|login|signin|sign-in|register|wishlist|compare|contact|about|blog|news|policy|policies|privacy|terms|faq|help|search|track|returns?|shipping|gift-?cards?|careers|stores?|locations?)(\/|\.html?|$|\?)/i;
-const PRICE_SYMBOL = /[£€₹¥₩₺₽₱₫]|\$|\b(?:USD|EUR|GBP|AWG|ANG|CAD|AUD|NZD|INR|AED|CHF|SEK|NOK|DKK|JPY|CNY|MXN|BRL|COP)\b|\b(?:Afl|NAf|Rs|kr|zł)\.?/i;
+const PRICE_SYMBOL = /[£€₹¥₩₺₽₱₫ƒ]|\$|\b(?:USD|EUR|GBP|AWG|ANG|CAD|AUD|NZD|INR|AED|CHF|SEK|NOK|DKK|JPY|CNY|MXN|BRL|COP)\b|\b(?:Afl|NAf|Rs|kr|zł)\.?/i;
 
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
 

@@ -1,10 +1,12 @@
-import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   UNTRUSTED_PREAMBLE,
   applyAdjudication,
   buildMatches,
   collectKnownBrands,
+  isPlaceholderBrand,
+  placeholderBrandKeys,
   prepareVariant,
   scorePair,
   wrapUntrusted,
@@ -71,8 +73,10 @@ async function loadMatchable(db: DbLike, orgId: string) {
 export async function runMatching(svc: Services, db: DbLike, orgId: string): Promise<MatchRunResult> {
   const rows = await loadMatchable(db, orgId);
   const [settings] = await db.select().from(orgSettings).where(eq(orgSettings.orgId, orgId));
+  // A vendor field that holds the shop's own name, the country or a platform default is not a brand (see core/brands.ts): matching uses none.
+  const placeholders = placeholderBrandKeys(rows.map((r) => ({ siteId: r.siteId, brand: r.brand, title: r.title })));
   const matchables: (MatchableVariant & { role: 'source' | 'competitor' })[] = rows.map((r) => ({
-    variantId: r.variantId, productId: r.productId, siteId: r.siteId, role: r.role, title: r.title, variantTitle: r.variantTitle, brand: r.brand, category: r.category, gtin: r.gtin, sku: r.sku,
+    variantId: r.variantId, productId: r.productId, siteId: r.siteId, role: r.role, title: r.title, variantTitle: r.variantTitle, brand: isPlaceholderBrand(placeholders, r.siteId, r.brand) ? null : r.brand, category: r.category, gtin: r.gtin, sku: r.sku,
     mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null],
   }));
   const brands = collectKnownBrands(matchables);
@@ -137,6 +141,57 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
     result.removed = stale.length;
   }
   return result;
+}
+
+export interface BulkAcceptInput {
+  matchClass: 'identical' | 'different_pack' | 'comparable';
+  minConfidence: number;
+  siteId?: string;
+  dryRun?: boolean;
+  note?: string;
+}
+export interface BulkAcceptResult {
+  /** How many waiting proposals fit (and were accepted, unless this was a dry run). */
+  count: number;
+  accepted: boolean;
+  /** A sample of the pairs (spread across the list), so the person can see what they are accepting. */
+  examples: { competitorSite: string; sourceTitle: string; sourcePrice: number | null; sourceCurrency: string | null; competitorTitle: string; competitorPrice: number | null; competitorCurrency: string | null; confidence: number; reasons: string[] }[];
+}
+
+const BULK_LIMIT = 5000;
+
+/**
+ * A person accepts every waiting proposal of one class at or above a confidence in one decision. Only proposals that are still waiting
+ * for review are touched (never one a person already decided), each is stored as the person's decision, and one audit entry records
+ * the whole action with its filter and count.
+ */
+export async function bulkAcceptMatches(db: DbLike, orgId: string, userId: string, p: BulkAcceptInput, now: Date): Promise<BulkAcceptResult> {
+  const where = and(
+    eq(productMatches.orgId, orgId),
+    eq(productMatches.status, 'needs_review'),
+    eq(productMatches.matchClass, p.matchClass),
+    gte(productMatches.confidence, p.minConfidence),
+    ...(p.siteId ? [eq(productMatches.competitorSiteId, p.siteId)] : []),
+  );
+  const ids = (await db.select({ id: productMatches.id }).from(productMatches).where(where).orderBy(productMatches.id).limit(BULK_LIMIT)).map((r) => r.id);
+  const pick = ids.length <= 6 ? ids : Array.from({ length: 6 }, (_, i) => ids[Math.floor((i * (ids.length - 1)) / 5)]!);
+  const sample = pick.length
+    ? await db.execute<{ competitorSite: string; sourceTitle: string; sourcePrice: number | null; sourceCurrency: string | null; competitorTitle: string; competitorPrice: number | null; competitorCurrency: string | null; confidence: number; reasons: string[] }>(sql`
+        select sc.name as "competitorSite", ps.title as "sourceTitle", vs.price as "sourcePrice", vs.currency as "sourceCurrency", pc.title as "competitorTitle", vc.price as "competitorPrice", vc.currency as "competitorCurrency", m.confidence, m.reasons
+        from product_matches m join variants vs on vs.id = m.source_variant_id join products ps on ps.id = vs.product_id
+        join variants vc on vc.id = m.competitor_variant_id join products pc on pc.id = vc.product_id join sites sc on sc.id = m.competitor_site_id
+        where m.org_id = ${orgId} and m.id in (${sql.join(pick.map((id) => sql`${id}::uuid`), sql`, `)}) order by m.id`)
+    : { rows: [] };
+  const examples = sample.rows.map((r) => ({ ...r, sourcePrice: r.sourcePrice === null ? null : Number(r.sourcePrice), competitorPrice: r.competitorPrice === null ? null : Number(r.competitorPrice), confidence: Number(r.confidence) }));
+  if (p.dryRun || !ids.length) return { count: ids.length, accepted: false, examples };
+  for (let i = 0; i < ids.length; i += 500) {
+    await db
+      .update(productMatches)
+      .set({ status: 'accepted', decidedBy: userId, decidedAt: now, decisionNote: p.note ?? 'Accepted together with other proposals of the same kind', updatedAt: now })
+      .where(and(inArray(productMatches.id, ids.slice(i, i + 500)), eq(productMatches.orgId, orgId), eq(productMatches.status, 'needs_review')));
+  }
+  await db.insert(auditEvents).values({ orgId, userId, action: 'match.bulk_accept', target: orgId, meta: { matchClass: p.matchClass, minConfidence: p.minConfidence, siteId: p.siteId ?? null, count: ids.length } });
+  return { count: ids.length, accepted: true, examples };
 }
 
 export class MatchError extends Error {

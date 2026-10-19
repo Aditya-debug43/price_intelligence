@@ -291,7 +291,7 @@ export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidat
   // 4 ── brand unknown on one side
   if (brand === 'unknown') {
     if (sim >= 0.9 && qtyRel === 'same_total') {
-      reasons.push('Names and sizes agree', `Name similarity ${r2(sim)}`, 'Brand missing on one product, so identity is unconfirmed');
+      reasons.push('Names and sizes agree', `Name similarity ${r2(sim)}`, !a.brandKey && !b.brandKey ? 'Neither product names a brand, so identity rests on the name and size alone' : 'Brand missing on one product, so identity is unconfirmed');
       return {
         ...base,
         matchClass: 'identical',
@@ -303,7 +303,7 @@ export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidat
       };
     }
     if (sim >= 0.7 && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
-      reasons.push(`Similar product, brand unknown on one side (name similarity ${r2(sim)})`);
+      reasons.push(!a.brandKey && !b.brandKey ? `Similar product, no brand named on either (name similarity ${r2(sim)})` : `Similar product, brand unknown on one side (name similarity ${r2(sim)})`);
       return {
         ...base,
         matchClass: 'comparable',

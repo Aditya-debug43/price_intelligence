@@ -103,6 +103,12 @@ function classify(e: unknown): { state: State; code: string; message: string; te
   return { state: 'failed', code, message: (e as Error).message ?? String(e), terminal: false };
 }
 
+/** Says once per run that a catalogue-wide "regular price" was seen and not counted as sales. */
+function standingDisplayNote(notes: string[], u: { share: number; medianMarkupPct: number } | undefined): void {
+  if (!u || notes.some((n) => n.startsWith('Nearly every product'))) return;
+  notes.push(`Nearly every product (${Math.round(u.share * 100)} %) shows a regular price about ${u.medianMarkupPct} % above its selling price. That looks like a standing display, not a promotion, so these were not counted as offers.`);
+}
+
 async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> {
   const { svc, run, ic, ctx } = env;
   const limit = run.kind === 'sample' ? (run.limitProducts ?? 25) : null;
@@ -127,6 +133,7 @@ async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> 
     saved += r.products;
     estimated = batch.progress.estimatedTotal ?? estimated;
     notes.push(...batch.warnings);
+    standingDisplayNote(notes, r.uniformCompareAt);
     cursor = batch.done ? null : batch.cursor;
     await heartbeat(svc, run.id, {
       cursor,
@@ -242,6 +249,7 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
           const r = await ingestBatch(ic, batch);
           saved += r.products;
           run.variantsSaved += r.variants;
+          standingDisplayNote(notes, r.uniformCompareAt);
         }
         notes.push(...batch.warnings.filter((w) => !/HTTP 404|HTTP 410/.test(w)).slice(0, 2));
         if (batch.discoveredUrls?.length) {

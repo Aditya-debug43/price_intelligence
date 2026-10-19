@@ -21,6 +21,14 @@ const divCards = grid(`<div class="catalog">${([['Delta Lamp', '12,50 €'], ['E
   .map(([t, p], i) => `<div class="card"><a href="/p/${i}"><img src="/i/${i}.jpg"></a><div class="card-body"><a class="card-title" href="/p/${i}">${t}</a><div class="cost">${p}</div></div></div>`).join('')}</div>`);
 
 describe('listing pages', () => {
+  it('reads prices written with the Aruban florin sign (ƒ6.80) and with "Afl", as the currency AWG', () => {
+    const cards = (prices: string[]) => grid(`<div class="catalog">${prices.map((p, i) => `<div class="card"><a href="/p/${i}"><img src="/i/${i}.jpg"></a><div class="card-body"><a class="card-title" href="/p/${i}">Item ${i} 12 ct</a><div class="cost">${p}</div></div></div>`).join('')}</div>`);
+    for (const prices of [['ƒ6.80', 'ƒ4.95', 'ƒ8.29', 'ƒ15.95'], ['Afl 6.80', 'Afl 4.95', 'Afl 8.29', 'Afl 15.95']]) {
+      const r = extractListingPage(cards(prices), 'https://shop.example/shop/dairy');
+      expect(r.cards.map((c) => [c.amount, c.currency])).toEqual([[6.8, 'AWG'], [4.95, 'AWG'], [8.29, 'AWG'], [15.95, 'AWG']]);
+    }
+  });
+
   it('reads a grid of product cards: title from the heading’s title, price with its currency, link, image, availability', () => {
     const r = extractListingPage(podPage, 'https://shop.example/catalogue/index.html');
     expect(r.cards).toHaveLength(4);

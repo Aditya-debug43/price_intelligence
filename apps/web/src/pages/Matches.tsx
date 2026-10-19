@@ -37,6 +37,7 @@ export function MatchesPage() {
     <>
       <PageHead eyebrow="Market" title="Match review" subtitle="Similar names don’t prove identical products. Pairs we aren’t sure about wait here, and they are not used for price conclusions until you confirm them. Your decisions are never overwritten."
         actions={isAdmin && <button className="btn" onClick={() => rerun.mutate(undefined)} disabled={rerun.isPending}>Run matching again</button>} />
+      {isAdmin && tab === 'needs_review' && (q.data?.total ?? 0) > 0 && <BulkAccept />}
       {(decide.error || rerun.error) && <div className="callout bad" role="alert" style={{ marginBottom: 12 }}>{errorMessage(decide.error ?? rerun.error)}</div>}
       <Tabs value={tab} onChange={(t) => { setTab(t); setPage(1); }} tabs={[{ id: 'needs_review', label: 'Needs review' }, { id: 'auto', label: 'Auto-accepted' }, { id: 'accepted', label: 'Confirmed by you' }, { id: 'rejected', label: 'Rejected' }]} />
       <DataState q={q} isEmpty={(d) => d.total === 0} empty={<Card><EmptyState title={tab === 'needs_review' ? 'Nothing to review' : 'Nothing here'}>{tab === 'needs_review' ? 'Every match is either confirmed or was accepted with strong evidence.' : 'No matches in this list.'}</EmptyState></Card>}>
@@ -76,6 +77,64 @@ export function MatchesPage() {
       </DataState>
       {choosing && <ChooseProduct row={choosing} onClose={() => setChoosing(null)} />}
     </>
+  );
+}
+
+interface BulkResult {
+  count: number;
+  accepted: boolean;
+  examples: { competitorSite: string; sourceTitle: string; sourcePrice: number | null; sourceCurrency: string | null; competitorTitle: string; competitorPrice: number | null; competitorCurrency: string | null; confidence: number; reasons: string[] }[];
+}
+
+/**
+ * When shops publish no barcodes or brands, hundreds of pairs agree on name and size and all wait for review. A person can accept them together —
+ * but only after seeing how many there are and a sample, and nothing a person already decided is touched.
+ */
+function BulkAccept() {
+  const toast = useToast();
+  const [cls, setCls] = useState<'identical' | 'different_pack' | 'comparable'>('identical');
+  const [min, setMin] = useState(0.7);
+  const [preview, setPreview] = useState<BulkResult | null>(null);
+  const body = (dryRun: boolean) => ({ matchClass: cls, minConfidence: min, dryRun });
+  const check = useOrgMutation((id, _: void) => api.post<BulkResult>(orgPath(id, '/matches/bulk'), body(true)), [], (r) => setPreview(r));
+  const accept = useOrgMutation((id, _: void) => api.post<BulkResult>(orgPath(id, '/matches/bulk'), body(false)), ['matches', 'comparison', 'dashboard', 'journey'], (r) => {
+    toast.push(`Accepted ${r.count} ${CLASS_LABEL[cls] ?? cls} matches. They are now used for price conclusions.`);
+    setPreview(null);
+  });
+  return (
+    <Card title="Accept many at once">
+      <div className="stack-s">
+        <p className="small muted" style={{ margin: 0 }}>Shops that publish no barcodes or brands leave hundreds of pairs agreeing on name and size, all waiting here. You can accept a whole group together — you will see how many there are and a sample first. Pairs you already decided are never touched.</p>
+        <div className="row" style={{ alignItems: 'end' }}>
+          <div className="field"><label htmlFor="bulk-class">Accept pairs that are</label><select id="bulk-class" value={cls} onChange={(e) => setCls(e.target.value as typeof cls)}>{CLASSES.map(([c2, l]) => <option key={c2} value={c2}>{l}</option>)}</select></div>
+          <div className="field"><label htmlFor="bulk-min">with confidence of at least</label><select id="bulk-min" value={min} onChange={(e) => setMin(Number(e.target.value))}>{[0.6, 0.7, 0.8, 0.9].map((v) => <option key={v} value={v}>{Math.round(v * 100)}%</option>)}</select></div>
+          <button className="btn" onClick={() => check.mutate(undefined)} disabled={check.isPending}>Show me which ones</button>
+        </div>
+        {check.error && <div className="callout bad" role="alert">{errorMessage(check.error)}</div>}
+      </div>
+      {preview && (
+        <Modal
+          title={preview.count === 0 ? 'No pairs fit' : `Accept ${preview.count} ${CLASS_LABEL[cls] ?? cls} matches?`}
+          onClose={() => setPreview(null)}
+          footer={preview.count > 0 ? <><button className="btn" onClick={() => setPreview(null)}>Cancel</button><button className="btn btn-primary" onClick={() => accept.mutate(undefined)} disabled={accept.isPending}>Accept all {preview.count}</button></> : <button className="btn" onClick={() => setPreview(null)}>Close</button>}
+        >
+          <div className="stack-s">
+            {preview.count === 0 ? <p className="muted">Nothing waiting for review is {CLASS_LABEL[cls] ?? cls} at {Math.round(min * 100)}% or higher.</p> : (
+              <>
+                <p style={{ margin: 0 }}>These pairs are waiting for review. Accepting them says <b>you</b> judge each one to be {CLASS_LABEL[cls] ?? cls}; they are then used for price conclusions. A sample, spread across the list:</p>
+                <div className="table-wrap"><table className="table"><tbody>
+                  {preview.examples.map((e, i) => (
+                    <tr key={i}><td><div className="title">{e.sourceTitle}</div><div className="sub">{e.sourcePrice === null ? '—' : `${e.sourcePrice.toFixed(2)} ${e.sourceCurrency ?? '?'}`}</div></td><td aria-hidden="true">≟</td><td><div className="title">{e.competitorTitle}</div><div className="sub">{e.competitorSite} · {e.competitorPrice === null ? '—' : `${e.competitorPrice.toFixed(2)} ${e.competitorCurrency ?? '?'}`} · {Math.round(e.confidence * 100)}%</div></td></tr>
+                  ))}
+                </tbody></table></div>
+                <p className="small muted" style={{ margin: 0 }}>If something in the sample is wrong, cancel and use a higher confidence or review those pairs one at a time. A wrong pair you accept can still be rejected afterwards.</p>
+                {accept.error && <div className="callout bad" role="alert">{errorMessage(accept.error)}</div>}
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
+    </Card>
   );
 }
 

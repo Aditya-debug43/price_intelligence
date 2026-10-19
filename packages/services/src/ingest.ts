@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { parseQuantity, reinterpretOzForBeverage } from '@ci/core';
+import { detectUniformCompareAt, parseQuantity, reinterpretOzForBeverage, type UniformCompareAt } from '@ci/core';
 import type { ConnectorBatch, EvidenceDoc, ExtractedProduct, ExtractedVariant } from '@ci/connectors';
-import { priceObservations, products, stockObservations, variants, type DbLike, type Db } from '@ci/database';
+import { offers, priceObservations, products, stockObservations, variants, type DbLike, type Db } from '@ci/database';
 import type { Services } from './context.ts';
 import { recordEvidence } from './evidence.ts';
 import { trackSalePrice } from './promotions.ts';
@@ -24,6 +24,8 @@ export interface IngestContext {
   threshold: number;
   /** Alerts created during this scan; emailed as ONE digest when the scan ends. */
   alertIds: string[];
+  /** Once one batch of a run shows a standing "regular price" display, the rest of the run is treated the same (a short last batch cannot show the pattern on its own). */
+  uniformCompareAt?: UniformCompareAt;
 }
 
 export interface IngestResult {
@@ -31,6 +33,8 @@ export interface IngestResult {
   variants: number;
   newProducts: number;
   evidenceIds: string[];
+  /** Set when nearly every product in the batch showed a higher "regular" price at about the same percentage (a standing display, not sales). */
+  uniformCompareAt?: UniformCompareAt;
 }
 
 const chunk = <T>(arr: T[], n: number): T[][] => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, (i + 1) * n));
@@ -57,6 +61,10 @@ function dedupeVariants(vs: ExtractedVariant[]): ExtractedVariant[] {
 export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Promise<IngestResult> {
   const { svc, site } = ic;
   const list = dedupe(batch.products);
+  // A price of 0 is not a price: it is how a shop lists a gift card whose amount the buyer chooses, or an item that is not for sale. Stored as "no price".
+  for (const p of list) for (const v of p.variants) if (v.price !== null && v.price <= 0) { v.price = null; v.compareAtPrice = null; }
+  const uniformCompareAt = detectUniformCompareAt(list.flatMap((p) => p.variants.map((v) => ({ price: v.price, compareAt: v.compareAtPrice })))) ?? ic.uniformCompareAt;
+  if (uniformCompareAt) ic.uniformCompareAt = uniformCompareAt;
   const evidenceIds: string[] = [];
   for (const doc of batch.evidence) {
     // Evidence is recorded outside the batch transaction: a retry must not lose the fact that a page was fetched.
@@ -64,6 +72,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
     evidenceIds.push(await recordEvidence(svc, svc.db, { orgId: site.orgId, siteId: site.id, doc: doc as EvidenceDoc, method, version: list[0]?.methodVersion ?? null }));
   }
   if (!list.length) return { products: 0, variants: 0, newProducts: 0, evidenceIds };
+  const result = (r: IngestResult): IngestResult => ({ ...r, ...(uniformCompareAt ? { uniformCompareAt } : {}) });
 
   return svc.db.transaction(async (tx) => {
     const db = tx as unknown as DbLike;
@@ -189,7 +198,12 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
     }
 
     // Sale / compare-at tracking (any site), verified against the product's own history.
-    for (const t of touched) {
+    if (uniformCompareAt) {
+      // Not promotions: stop tracking any sale that an earlier look recorded for these variants, and do not start new ones.
+      const keys = touched.map((t) => `sale:${t.variantId}`);
+      for (const part of chunk(keys, 400)) await db.update(offers).set({ status: 'ended', missedCompleteScans: 0 }).where(and(eq(offers.siteId, site.id), inArray(offers.dedupeKey, part), inArray(offers.status, ['active', 'presumed_ended'])));
+    }
+    for (const t of uniformCompareAt ? [] : touched) {
       await trackSalePrice(db, site, {
         variantId: t.variantId, title: t.product.title, url: t.v.url, price: t.v.price, compareAt: t.v.compareAtPrice, currency: t.v.currency, observedAt: t.product.observedAt, evidenceId: t.evidenceId, extractionMethod: t.product.method,
       });
@@ -210,7 +224,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
         ic.alertIds.push(...r.alertIds);
       }
     }
-    return { products: list.length, variants: variantCount, newProducts, evidenceIds };
+    return result({ products: list.length, variants: variantCount, newProducts, evidenceIds });
   });
 }
 

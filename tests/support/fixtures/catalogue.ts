@@ -106,6 +106,12 @@ export interface SiteSpec {
   limited?: number[];
   onSale?: Record<number, number>;
   hasFlyer?: boolean;
+  /** What the shop puts in the platform's vendor field instead of the maker's name ("Aruba", its own name…). */
+  vendorLabel?: string;
+  /** A "regular price" shown above EVERY selling price by this factor — a standing display, not a sale. */
+  uniformCompareAt?: number;
+  /** Items listed at 0.00 (a gift card whose amount the buyer chooses). */
+  zeroPriceItems?: number[];
 }
 
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
@@ -137,6 +143,10 @@ export const SITE_SPECS: SiteSpec[] = [
   {
     key: 'homegrid', kind: 'homegrid', label: 'Fixture Storefront (home page is page 1 of the whole catalogue)', currency: 'GBP', factor: 0.74,
     items: range(0, 27), titleStyle: 'full', exposeGtin: [], outOfStock: [5],
+  },
+  {
+    key: 'vendorshop', kind: 'shopify', label: 'Fixture Vendor-Label Shop (vendor field holds the country, every item shows a regular price 8% higher)', currency: 'USD', factor: 1,
+    items: [...range(0, 24), 30], titleStyle: 'full', exposeGtin: [], outOfStock: [], vendorLabel: 'Aruba', uniformCompareAt: 1.08, zeroPriceItems: [30],
   },
   { key: 'catblocked', kind: 'catblocked', label: 'Fixture Closed Catalogue (robots.txt forbids the shop pages)', currency: 'USD', factor: 1, items: range(0, 8), titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'blocked', kind: 'blocked', label: 'Fixture Blocked (robots.txt disallows)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
@@ -172,7 +182,7 @@ export function buildCatalogue(spec: SiteSpec): FixtureProduct[] {
     const { title, brand } = titleFor(item, spec.titleStyle);
     const regular = round2(item.usd * spec.factor);
     const saleFactor = spec.onSale?.[id];
-    const price = saleFactor ? round2(regular * saleFactor) : regular;
+    const price = spec.zeroPriceItems?.includes(id) ? 0 : saleFactor ? round2(regular * saleFactor) : regular;
     return {
       itemId: id,
       handle: `${item.brand}-${item.name}-${item.size}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
@@ -181,7 +191,7 @@ export function buildCatalogue(spec: SiteSpec): FixtureProduct[] {
       category: item.category,
       size: item.size,
       price,
-      compareAt: saleFactor ? regular : null,
+      compareAt: saleFactor ? regular : spec.uniformCompareAt && price > 0 ? round2(price * spec.uniformCompareAt) : null,
       currency: spec.currency,
       available: !spec.outOfStock.includes(id),
       claimedLeft: spec.claimedLeft?.[id] ?? null,

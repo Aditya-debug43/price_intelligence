@@ -131,6 +131,9 @@ describe('sitemaps', () => {
     expect(classifySitemapUrl('https://s.com/sitemap_products_1.xml')).toBe('products');
     expect(classifySitemapUrl('https://s.com/sitemap_collections_1.xml')).toBe('collections');
     expect(classifySitemapUrl('https://s.com/sitemap-blog.xml')).toBe('pages');
+    // a WooCommerce shop lists its products in product-sitemap*.xml and its category pages in product_cat-sitemap.xml
+    expect(classifySitemapUrl('https://s.com/product-sitemap2.xml')).toBe('products');
+    expect(classifySitemapUrl('https://s.com/product_cat-sitemap.xml')).toBe('collections');
     expect(looksLikeProductUrl('https://s.com/products/abc')).toBe(true);
     expect(looksLikeProductUrl('https://s.com/blog/hello')).toBe(false);
     expect(looksLikeProductUrl('https://s.com/cart')).toBe(false);
