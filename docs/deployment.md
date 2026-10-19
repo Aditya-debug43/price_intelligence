@@ -24,14 +24,14 @@ up to hit a competitor harder.
 
 Copy `.env.example`; every value is validated at start-up and an unsafe production configuration stops the process.
 
-- `NODE_ENV=production`, `APP_BASE_URL=https://your-domain` (cookies are `Secure`; terminate TLS in front of the API).
+- `NODE_ENV=production`, `APP_BASE_URL=https://your-domain` (cookies are `Secure`; terminate TLS in front of the API). The process **refuses to start** unless `APP_BASE_URL` is a public `https://` address, because verification, password-reset and invitation links in emails are built from it.
 - Three database URLs; use a different strong password for each (`DATABASE_URL`, `WORKER_DATABASE_URL`, `DATABASE_ADMIN_URL`).
   `npm run db:setup` creates the roles from the passwords in those URLs.
 - `TOKEN_ENCRYPTION_KEY` — required; losing it makes stored integration tokens unreadable. Keys can be rotated by listing the new
   key first: `k2:<base64>,k1:<base64>`.
 - There is no setting that allows loopback or private addresses, fakes data or changes the clock: those switches no longer exist.
 - `COLLECTOR_USER_AGENT` with a real contact URL.
-- `SMTP_URL` + `EMAIL_FROM` for real email; without them messages stay in the database outbox.
+- **Email is required for anyone to register**: `SMTP_HOST`, `SMTP_PORT` (587 with STARTTLS, or 465 with `SMTP_SECURE=true`), `SMTP_USER`, `SMTP_PASSWORD` (for Gmail, an App Password), `EMAIL_FROM` (empty for Gmail). Check with `npm run email:check -- you@example.com` on the server before opening sign-up. Without it the app answers `503 email_not_configured` to registration and password reset (and `/api/v1/ready` reports `degraded`); nothing is ever reported as sent that was not. A normal Gmail account allows roughly 500 messages a day — use a transactional provider for a real customer base ([integrations.md](integrations.md#email)).
 - `STORAGE_DRIVER=local` with a persistent volume, or `s3` with the `S3_*` settings (the S3 driver is tested only against an S3-compatible fake, not a real service).
 - Optional: `FX_PROVIDER=open-er-api` (attribution is shown in the app), `YOUTUBE_API_KEY`, Meta and Shopify settings
   ([limitations.md](limitations.md) lists what each needs), `BROWSER_RENDERING_ENABLED=true` only where Chromium is installed.
@@ -124,4 +124,4 @@ if it is missing), that `node_modules` is present for the external packages, and
 - The daily report time, time zone, retention and alert recipients are per-workspace settings, not environment variables.
 - Rendering workers (`BROWSER_RENDERING_ENABLED=true`) should run behind an **egress firewall** that blocks private, link-local and cloud-metadata ranges — the
   application screens every request, but DNS rebinding between the browser's own resolution and ours cannot be closed in application code ([limitations.md](limitations.md)).
-- Email: until `SMTP_URL` is set, new accounts stay visibly unverified and messages stay in the outbox (never reported as delivered).
+- Email: every message is written to `email_outbox` first and moves through `queued → sent | retrying | failed | not_configured` with the provider's Message-ID and final answer; Settings → Notifications shows the latest messages. Watch for `failed` rows (a permanent refusal, usually revoked credentials) and for `retrying` that never clears.

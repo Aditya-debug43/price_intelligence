@@ -272,7 +272,7 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
       }
       if (limit && saved >= limit) return await pagesOutcome(env, saved, failures, false, estimated, [...notes, `Small live refresh: stopped after ${saved} products by design.`], undefined);
     }
-    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, urlsFetched: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id} and status <> 'pending')` as unknown as number, requestsMade: env.fetcher.requestsMade, errorsCount: failures, cursor: { discoveryComplete, droppedDiscovered: dropped } });
+    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, urlsFetched: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id} and status <> 'pending')` as unknown as number, urlsDiscovered: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id})` as unknown as number, requestsMade: env.fetcher.requestsMade, errorsCount: failures, cursor: { discoveryComplete, droppedDiscovered: dropped } });
   }
   return await pagesOutcome(env, saved, failures, discoveryComplete && dropped === 0, estimated, notes, undefined);
 }
@@ -346,10 +346,18 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
   await svc.db.update(scanRuns).set({ status: 'running', startedAt: run.startedAt ?? now, heartbeatAt: now }).where(eq(scanRuns.id, run.id));
   run.startedAt ??= now;
 
+  const frontierCounts = async () => {
+    const [q] = await svc.db
+      .select({ total: sql<number>`count(*)::int`, read: sql<number>`(count(*) filter (where status <> 'pending'))::int` })
+      .from(crawlQueue)
+      .where(eq(crawlQueue.scanRunId, run.id));
+    return q && q.total > 0 ? { urlsDiscovered: q.total, urlsFetched: q.read } : {};
+  };
   const finish = async (status: ScanStatus, o: { productsSaved: number; errorCode?: string; error?: string; notes: string[]; complete: boolean; connector: string | null; connectorVersion?: string | null; estimatedTotal?: number | null; requests?: number }) => {
+    const frontier = await frontierCounts();
     await svc.db
       .update(scanRuns)
-      .set({ status, finishedAt: svc.clock(), productsSaved: o.productsSaved, isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}) })
+      .set({ ...frontier, status, finishedAt: svc.clock(), productsSaved: o.productsSaved, isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}) })
       .where(eq(scanRuns.id, run.id));
     return { scanRunId: run.id, status, productsSaved: o.productsSaved, isComplete: o.complete, connector: o.connector } as ScanResult;
   };

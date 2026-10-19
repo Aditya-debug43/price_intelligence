@@ -11,8 +11,9 @@ Update this file after every major phase and before stopping for any usage limit
 1. Read `docs/PROJECT_CONTEXT.md`, then this file from the bottom up, then `docs/original-prompt/*`.
 2. `git status` and `git log --oneline | head` — commits listed below are the checkpoints (see the commit list at the bottom of the latest entry).
 3. Baseline commands: `npm run lint && npm run typecheck && npm test && npm run build`.
-4. Live dev: `npm run dev:db` (terminal 1), `npm run dev` (terminal 2) → http://localhost:5173 . Demo data only with `npm run demo:fixtures` + `npm run dev:demo`.
-5. **Do not run live catalogue collection against any real website until the user has confirmed permission for that site.** Never invent the Cmart URL.
+4. Live dev: `npm run dev:db` (terminal 1), `npm run dev` (terminal 2) → http://localhost:5173 . There is no demo mode or demo data any more (removed 2026-10-18); registering needs working email (`npm run email:check`).
+5. **Do not run live catalogue collection against any website the user has not named.** `npm run test:live` defaults to public scraping sandboxes only; for the user's sites set `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`. Never invent the Cmart URL. Never ask for, print or store the Gmail App Password (the user types it into `.env`).
+6. Current open items and what to ask the user for: `docs/PROJECT_CONTEXT.md` → "Update 3", and `docs/PRODUCTION_READINESS.md` → "The precise next step".
 
 ---
 
@@ -277,3 +278,52 @@ Verbatim text: `docs/original-prompt/03_DIRECTIVE_REMOVE_DEMO_2026-10-18.md`. Ph
 | `npx vitest run` | **694 passed, 1 failed**, 40 files. The failure — `tests/e2e/live-journey.test.ts` "a flyer offer … expires when that date passes" — is a **defect in the test fixture, not in the product**: the fixture flyer server derives the PDF's validity dates from the *wall clock* (`opts.now ?? new Date()`) while the harness uses a fixed test clock; it passed on 2026-10-15 only because real time happened to be close to the test clock. Fix: give the fixture server the harness clock (done as part of moving the fixtures out of the product, Phase 2) |
 
 Baseline claims in `docs/PRODUCTION_READINESS.md` (695 passing) were therefore true on 2026-10-15 and are **stale** as of today for the reason above.
+
+## Phase 2 — demo removal (done; commit `1c4a882`; audit in `docs/DEMO_REMOVAL_AUDIT.md`)
+
+* Removed the whole demo product: the `live`/`demo` workspace split, fixture and simulator flags, developer routes (`/dev/outbox`, scheduler clock), the inventory simulator, demo banners and pills, a fabricated example price on the sign-in page, the demo/bootstrap/fixture scripts, the fixture servers from `@ci/connectors`, and the settings `ALLOW_LOCAL_FIXTURES`, `DEMO_AUTO_CONSENT`, `SCHEDULER_MODE`. Migration `0008` drops the columns/triggers and **refuses to run while demo data exists** (it never deletes). `live-probe` no longer has the four Aruba shops built in.
+* Fictional websites now exist only in `tests/support`, under public-looking hostnames (`mine.test`, `rival-woo.test`…) and served through the product's **unchanged** fetch policy and host rules (only the last network hop is replaced). The harness now feeds them the test clock — which also fixed the baseline's one failing test (flyer validity was derived from the wall clock).
+* **Real defect found in the user's dev data and fixed:** the "demo" workspace's six sites had been re-pointed by editing their addresses to *amazon.in, myntra.com, snapdeal.com, nykaa.com, flipkart.com, meesho.com* while keeping the fictional test catalogues collected from `127.0.0.1` — fictional data standing in for real shop names. Fix: a website cannot be re-pointed at a different host (409); the Setup page offers a confirmed replace. With the user's approval the dev database folder was backed up (`.data/postgres-backup-2026-10-18`, git-ignored) and only that workspace removed via `npm run db:purge-demo -- --yes`; migration 0008 then applied on the real dev database.
+* Result: 695 → 696 tests, all passing; `npm run typecheck` now also covers `tests/` and `scripts/` (it did not before — latent type errors in tests were fixed).
+
+## Phase 3 & 4 — genuine authentication and real email (done in code; Gmail not yet exercised)
+
+Verified against: automated mocks (a test mail server stand-in), an in-process SMTP server (real SMTP conversation), a real local PostgreSQL. **Not yet verified against Gmail** — blocked on the owner's address and App Password (instructions in `docs/integrations.md`).
+
+* Registration creates an unverified account (scrypt hash) and queues an emailed link (48 h, single use, hashed in the database); **nobody is signed in by registering and sign-in always requires a verified address**. A new link cancels the older ones; at most one a minute per account.
+* **No email configured ⇒ registration, resend and password reset answer 503 with the reason** and create nothing; the registration page, Settings, `/ready` and `/meta` say so. Previously registration auto-signed-in and the "development outbox" viewer exposed links.
+* Anti-enumeration: registering an existing address answers exactly like a new one (the real owner receives a throttled "you already have an account" email); resend/forgot answer identically for unknown addresses; login errors are identical and timing-equalised; repeated failures lock the account for 15 minutes.
+* Password reset: link valid one hour, single use, replaced by newer requests, signs every session out; using it also verifies the address. New `POST /auth/change-password` (current password required, other sessions revoked).
+* **SMTP configuration** is now `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`, `APP_BASE_URL` (the old single `SMTP_URL` is gone: a Gmail App Password has spaces and an address has "@", which break URLs). Gmail rules are enforced in `core/smtp.ts` (App Password spaces stripped, sender must equal the account, STARTTLS required unless the server is local); failures are translated into advice (wrong password, App Password required, blocked port, TLS mismatch, quota…) without echoing secrets.
+* **Delivery is recorded, never assumed:** `email_outbox` statuses `queued → sent` (the mail server accepted it; Message-ID and final response stored) / `retrying` (temporary failure; up to six attempts) / `failed` (permanent, with the reason) / `not_configured` (never sent). Migration `0009` adds the delivery columns and converts old `dev_logged` rows to `not_configured`.
+* Settings → Notifications has an **Email delivery** panel (configured or not, "Send me a test email" showing the server's own answer, latest messages with status). `npm run email:check [-- address]` does the same from the terminal.
+* Tests: `auth.test.ts` (32 — verification, expiry, single use, resend, duplicates, lockout, sessions, reset, change password, delivery failures/retries, the panel), `smtp.test.ts` (13), plus the in-process SMTP delivery tests; all existing API tests now sign up through the real verify-by-link flow.
+
+## Phase 5 — collection rules (customer's confirmation, not a competitor's approval)
+
+The "permission" step is now **Confirm collection rules**. The wording (`v2`) says plainly that this is the customer's own confirmation — that they understand what the software does (only what every visitor sees, polite pace, robots.txt, no sign-in or challenge-solving, stops when refused), that it is *not* the website owner's approval, and that they accept responsibility for the website's terms and the law. No competitor sign-off is needed or implied; robots.txt, blocks and logins still end collection. The source website's wording and the separate merchant-authorised inventory connection are distinct. See `docs/consent-and-compliance.md`.
+
+
+## Phases 6, 7, 9, 10, 11 — real collection, honest comparison, integration checklist, production readiness, documentation (2026-10-18/19; commit `2a1ad8e` + docs)
+
+**Real-network evidence first.** `npm run test:live` (new; `tests/live`, opt-in project) sends real, polite (1.5 s per host), robots-obeying requests through the production fetch policy to real websites and checks the *stored* values against the *raw pages the collector kept*. Default targets are public scraping sandboxes (not the user's sites): books.toscrape.com, scrapeme.live, scrapingcourse.com. Four runs, each one teaching something:
+
+| Run | What the real network showed | Fix |
+| --- | --- | --- |
+| 1 (earlier) | books.toscrape.com has no sitemap or structured data → "limited", nothing collectable; a catalogue whose robots.txt forbids its product pages was reported "limited" instead of blocked; a rule for `/shop/` did not stop `/shop` | Built the **listing-crawl connector** (product cards on landing/category pages, pagination and category links, resumable queue); profiler reports **blocked** when robots.txt forbids product pages; `/shop` ≡ `/shop/` for robots rules |
+| 2 | books.toscrape.com: 53 pages requested but only the first page's 20 products stored; scrapingcourse.com still "limited" (the typed `/ecommerce/` path was dropped, only the home page was checked) | Root cause 1: for a shop whose listing starts on the home page, `canonicalizeUrl('')` threw `Invalid URL` on every later page (fixtures always had a category start page) → fixed + a `homegrid` fixture shaped like the real shop + regression test (verified to fail without the fix). Root cause 2: **the typed page is now kept** (`sites.entry_path`, migration `0010`), robots.txt is checked against it, and listings are looked for there first |
+| 3 | books 40/40 stored values found in their raw pages; scrapeme.live (WooCommerce API) 40; scrapingcourse.com **blocked, 0 pages read**; real FX fetch: 164 rates, USD→GBP 0.7508, source and provider time stored. One test failed only because the AWG peg was not seeded before the FX test | Test order fixed (seed the peg first); a provider outage now shows as a *skipped* test, never a pass |
+| 4 | **9 of 9 pass**; the comparison step correctly finds no matches between books and monsters (40 source products, 40 without counterpart) | Page counters (`urlsFetched`/`urlsDiscovered`) now persist the true frontier counts at the end of a run and on every batch (a sample that reached its limit used to show 1 page read) |
+
+Also done:
+
+* **Entry page** (`entryPath` on `normalizeSiteUrl`, `sites`, profiler, listing seeds, API list, Websites page shows "the shop starts at this page").
+* **Honest "no equivalent found"** (`core/assortment.ts`: `assortmentBasis`, `assortmentNote`): the strong wording only when every competitor catalogue was read completely; blocked/failed/never-collected/stale/partial competitors are named with the reason, and an incomplete own catalogue weakens "missing from your shop". Saved in report snapshots, served by `/assortment`, shown in the report with a warning callout; card titles no longer claim "no competitor does".
+* **Production config** refuses a non-https or localhost `APP_BASE_URL` (emailed links are built from it).
+* **Text-reading fix** in listing extraction: neighbouring elements are joined in reading order (a count right after a link was read as one word).
+* **Docs:** `integrations.md` rewritten around the status vocabulary and a truthful checklist (mock vs real tested, blockers, verification steps, what is needed from the user); `limitations.md`, `PRODUCTION_READINESS.md`, `verification-report.md`, `README.md`, `architecture.md`, `deployment.md`, `data-reliability.md` (rules 15–16), `REQUIREMENTS_MATRIX.md` (Part 14 + stale rows), `PROJECT_CONTEXT.md` ("Update 3"); `docs/demo-runbook.md` deleted (it described the removed demo scripts).
+* **Not done / blocked (unchanged):** real Gmail delivery (needs the user's address and an App Password typed into `.env`); any website the user authorised; real price comparison on overlapping products; Docker; restore drill; load test; Shopify/YouTube/Meta/Anthropic/S3 live. The `.env` still holds a placeholder `EMAIL_FROM` that must be emptied before Gmail will accept it.
+
+Results at the end of this phase: typecheck clean; lint 0 errors (2 intentional `any` warnings); `npx vitest run` all passing (see `docs/verification-report.md` for counts); production bundles rebuilt and grepped — no fixture traces; live procedure 9/9.
+
+Commits: `2a1ad8e` (code, tests, scripts), followed by the documentation commit.

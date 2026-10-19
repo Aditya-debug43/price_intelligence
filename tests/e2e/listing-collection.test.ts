@@ -51,6 +51,9 @@ describe('a shop that shows its products only on listing pages', () => {
     expect(run).toMatchObject({ kind: 'sample', connector: 'listing-crawl', isComplete: false });
     expect(run.productsSaved, JSON.stringify({ s: run.status, n: run.notes, f: run.urlsFetched, d: run.urlsDiscovered, e: run.error })).toBeGreaterThanOrEqual(8);
     expect(run.productsSaved).toBeLessThan(liveItems().length);
+    // the counters shown to the customer are the real ones even though the run stopped between two progress updates
+    expect(run.urlsFetched).toBeGreaterThanOrEqual(2);
+    expect(run.urlsDiscovered).toBeGreaterThanOrEqual(run.urlsFetched);
   });
 
   it('collects the whole catalogue through the site’s own category and pagination links, and says it is complete', async () => {
@@ -65,6 +68,8 @@ describe('a shop that shows its products only on listing pages', () => {
     expect(queue.every((q) => q.kind === 'listing')).toBe(true);
     expect(queue.length).toBeGreaterThan(5); // more than one page per category
     expect(queue.every((q) => q.status === 'done')).toBe(true);
+    // pages found and pages read are the whole frontier, not just the pages the run started with
+    expect([run.urlsDiscovered, run.urlsFetched]).toEqual([queue.length, queue.length]);
   });
 
   it('every stored product has its own page as source, the price shown on the listing, its currency and availability — nothing invented', async () => {

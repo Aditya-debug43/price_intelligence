@@ -8,11 +8,39 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-10-15, after Phase 8 (commit `aa30324` + docs).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
+
+---
+
+# Update 3 — directive of 2026-10-18: remove the demo, make Shelfwatch real (CURRENT STATE — this section wins over anything below)
+
+Verbatim directive: `docs/original-prompt/03_DIRECTIVE_REMOVE_DEMO_2026-10-18.md`. Day-by-day record: `docs/WORK_LOG.md` (sections "Directive 3 …"). Status per
+requirement: `docs/REQUIREMENTS_MATRIX.md` Part 14. Audit of what was removed: `docs/DEMO_REMOVAL_AUDIT.md`.
+
+**What is true now (and where older text below is out of date):**
+
+- **One product, no demo.** There is no demo/live workspace mode, no fixture/simulated data, no simulator, no developer clock, no seeded or default user. Fictional websites exist only in `tests/support`. Sections A–E below that describe `organizations.mode`, `is_fixture`, `dev:demo`, `demo:fixtures`, `bootstrap:dev`, `dev_logged` and `SCHEDULER_MODE` describe the *old* state. Migrations are `0000`–`0010` (`0008` removes demo mode, `0009` email delivery tracking, `0010` the site entry path).
+- **Authentication is real.** Registration creates an *unverified* account and emails a single-use, expiring (48 h) token; sign-in needs a verified account; password reset (1 h token); no email configured ⇒ `503 email_not_configured`; generic answers (no enumeration); lockout after 8 failures; every message is an `email_outbox` row with a recorded outcome (`queued → sent | retrying | failed | not_configured`, provider Message-ID and response).
+- **Email = Gmail SMTP (or any SMTP).** `SMTP_HOST/PORT/SECURE/USER/PASSWORD`, `EMAIL_FROM`, `APP_BASE_URL` (production must be a public `https://` address — enforced at start-up). `npm run email:check [-- address]`. The **App Password is typed by the user into the local `.env` only**; never in chat, Git, logs, docs or fixtures; never printed.
+- **Websites.** Any public http(s) address; the page typed is kept as `sites.entry_path`; robots.txt is applied to it (and `/shop` ≡ `/shop/`). The customer's confirmation is called **collection rules** and is never presented as the competitor's approval.
+- **Collection.** New `listing-crawl` connector (product cards on category/landing pages, pagination, category links; resumable `crawl_queue` kind `listing`; complete only when the frontier ran dry). The profiler reports `blocked` when robots.txt forbids the product pages or the typed page.
+- **Comparison honesty.** `assortmentBasis`/`assortmentNote` (core): "no equivalent found" is worded as "nobody sells it" only when every competitor catalogue was read completely; the basis is saved in report snapshots and served by `/assortment`.
+- **FX.** `FX_PROVIDER=open-er-api` verified against the real provider once (164 rates); the AWG peg remains a stated constant.
+- **Live procedure.** `npm run test:live` (`tests/live`, project `live`, opt-in via `LIVE_TESTS=1`) sends real, polite, robots-obeying requests: default targets are public scraping sandboxes (books.toscrape.com, scrapeme.live, scrapingcourse.com); override with `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS` for the user's own authorised sites. Writes a JSON record to `.data/live-runs/` (git-ignored).
+
+**Verification state (2026-10-19):** `npx vitest run` → **760 passed, 0 failed, 44 files**; typecheck clean; lint 0 errors (2 intentional `any` warnings). Live run 2026-10-18/19: books.toscrape.com collected via listing pages (40-product sample, 40/40 stored values found in the raw pages, 0 mismatches), scrapeme.live via the WooCommerce Store API (40), scrapingcourse.com blocked by robots.txt (0 pages read); real FX fetch OK.
+
+**Still not done / blocked (do not claim otherwise):** real Gmail delivery (needs the user's address and an App Password in `.env`); a website the user authorised (needs the first source + competitor URLs), hence **no real price comparison on overlapping products and no "verified end to end with real website data"**; Shopify/YouTube/Meta/Anthropic/S3 live; Docker never built; restore drill not run; no load test; the Cmart URL was never supplied and is never guessed.
+
+**Ask the user for (in this order):** (1) Gmail address, and tell them to type the App Password into `.env` as `SMTP_PASSWORD=` themselves; (2) the first authorised real website pair (own site + one competitor) — then run `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live` and the app flow; (3) only later, credentials for optional integrations.
+
+**Status vocabulary** (used in `docs/integrations.md`, `docs/limitations.md`, the matrix): Implemented, not tested · Tested with automated mocks · Tested using isolated test fixtures · Tested against a real local service · Tested against a real external service · Verified end to end with real website data · Blocked pending credentials or permission.
+
+**Commands now:** `npm run dev:db`, `npm run dev`, `npm run email:check`, `npm run live:probe -- <urls>`, `npm run test:live`, `npm run db:setup|migrate|generate`, `npm run db:purge-demo` (one-off upgrade tool), `npm test`, `npm run lint|typecheck|build`. Removed: `dev:demo`, `demo:fixtures`, `demo:setup`, `fixtures:serve`, `bootstrap:dev`.
 
 ---
 
@@ -433,10 +461,9 @@ Snapshots: purged after `snapshotRetentionDays` (default 90) — evidence rows s
 | Install | `npm install` (Node ≥ 22) |
 | Start database (embedded PG 18 on 127.0.0.1:54329; creates roles/migrations and a git-ignored `.env` with random local secrets on first run) | `npm run dev:db` |
 | Worker + API + web with live reload (starts DB if none listening) | `npm run dev` |
-| Same with fixture sites reachable and developer scheduler on (**demo only**) | `npm run dev:demo` |
-| Fictional-fixture demo workspace | `npm run demo:fixtures` (keeps fixture servers running) |
-| Intended live-demo workspace with consent pending | `npm run demo:setup [-- --profile]` |
-| Create local dev user (random password → `.data/dev-credentials.json`, git-ignored) | `npm run bootstrap:dev` |
+| Check the mail server (and send one real message) | `npm run email:check [-- address]` |
+| The live procedure against real websites (opt-in; sends real requests) | `npm run test:live` (`LIVE_SOURCE_URL`, `LIVE_COMPETITOR_URLS`, `LIVE_SAMPLE`) |
+| One-off upgrade tool for databases created before 0008 | `npm run db:purge-demo [-- --yes]` |
 | Live capability probe of real sites (read-only) | `npm run live:probe -- <urls>` |
 | Roles + migrations / migrations only / generate migration | `npm run db:setup` / `npm run db:migrate` / `npm run db:generate` |
 | Tests (all / unit / integration) | `npm test` / `npm run test:unit` / `npm run test:integration` |
@@ -455,18 +482,16 @@ Status column: **set** = generated locally by `dev:db`; **unset** = not provided
 | `SESSION_TTL_DAYS`, `SESSION_COOKIE_SECURE` | session lifetime; Secure cookie (default true in production) | no | API |
 | `TOKEN_ENCRYPTION_KEY` | AES-256-GCM key ring for integration tokens (`id:base64`) | required in production | integrations — set (dev) |
 | `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | evidence snapshots/export storage | S3 vars only for `s3` | unset (local used); S3 **unverified on a real service** |
-| `SMTP_URL`, `EMAIL_FROM` | real email delivery; sender | for real email | unset → outbox only (`dev_logged`); SMTP path tested against an in-process server only |
-| `SCHEDULER_MODE` | `normal` or `dev` (manual clock; forbidden in production) | no | API/worker |
-| `ALLOW_LOCAL_FIXTURES`, `DEMO_AUTO_CONSENT` | permit loopback/private fixture sites; auto-confirm consent for fixtures — **both forbidden in production** | no | API/worker/fetcher |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | real email delivery (Gmail: `smtp.gmail.com`, 587, an App Password; `EMAIL_FROM` empty) | **yes for anyone to register** | unset → registration answers 503, outbox rows `not_configured`; SMTP path tested against an in-process SMTP server only — **Gmail not yet exercised** (the user types `SMTP_PASSWORD` into `.env` themselves) |
 | `COLLECTOR_USER_AGENT`, `COLLECTOR_TIMEOUT_MS`, `COLLECTOR_MAX_HTML_BYTES`, `COLLECTOR_MAX_JSON_BYTES`, `COLLECTOR_MAX_PDF_BYTES`, `COLLECTOR_DEFAULT_DELAY_MS`, `COLLECTOR_DEFAULT_MAX_REQUESTS` | collector identity, limits, politeness | no (set a real contact URL in the UA) | fetcher/scans |
 | `BROWSER_RENDERING_ENABLED`, `BROWSER_CHANNEL`, `BROWSER_EXECUTABLE_PATH` | optional headless rendering and which browser | no | worker — verified with real Chrome on local pages |
 | `RETENTION_SNAPSHOT_DAYS`, `RETENTION_HISTORY_DAYS` | retention defaults (also per-org settings) | no | retention job |
-| `FX_PROVIDER` | `peg` (default) or `open-er-api` | no | FX — open-er-api **unverified live** |
+| `FX_PROVIDER` | `peg` (default) or `open-er-api` | no | FX — open-er-api **verified once against the real provider (2026-10-18)** |
 | `AI_PROVIDER`, `ANTHROPIC_API_KEY`, `AI_MODEL` | optional AI | no | unset → AI off |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 | for YouTube | unset (**B**) |
 | `META_APP_ID`, `META_APP_SECRET`, `META_ACCESS_TOKEN`, `META_INSTAGRAM_BUSINESS_ACCOUNT_ID` | Instagram Business Discovery / Facebook | for Meta | unset (**B**; needs Meta app + review) |
 | `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_SCOPES`, `SHOPIFY_API_VERSION`, `SHOPIFY_REDIRECT_URI` | Shopify read-only inventory OAuth | for Shopify | unset (**B**) |
-| `FIXTURE_BASE_PORT`, `FIXTURE_CONTROL_PORT`, `DEV_DB_PORT`, `API_URL` | script-only helpers (fixtures/db/proxy) | no | scripts |
+| `DEV_DB_PORT`, `API_URL` | script-only helpers (db/proxy) | no | scripts |
 
 Docker deployment variables (`POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, `WORKER_DB_PASSWORD`) appear in `deploy.env.example`.
 
@@ -475,14 +500,14 @@ Docker deployment variables (`POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, `WORKER_DB_
 | Integration | Status |
 | --- | --- |
 | PostgreSQL (embedded) | **L** verified |
-| Real websites | capability probe only (read-only, 4 sites, 2026-10-14); **no catalogue collection** |
+| Real websites | **X** public scraping sandboxes collected 2026-10-18 (books.toscrape.com via listing pages, scrapeme.live via WooCommerce API, scrapingcourse.com blocked by robots.txt); capability probe of 4 shops 2026-10-14; **no website the user authorised yet** |
 | Headless Chrome | **L** (real Chrome, local pages); not on a live site |
 | Shopify inventory | **M** (local imitation of Shopify endpoints) — **B** credentials + merchant authorisation |
 | Facebook / Instagram / YouTube | **M** (local imitations of the provider answers: engagement, token health, quota/rate-limit/revocation, backoff) — **B** credentials/approvals; **no live call** |
-| SMTP | **M** (in-process SMTP server) — **B** provider |
+| SMTP / Gmail | **L** (real SMTP library in process: auth, STARTTLS rules, rejections, retries) — **B** Gmail address + App Password; **not yet sent through Gmail** |
 | S3-compatible storage | **M** (in-process fake) — not on a real service |
 | Anthropic | **M** (local imitation) — **B** key; optional |
-| open.er-api.com | **M** (local imitation); optional |
+| open.er-api.com | **X** one real fetch (164 rates, 2026-10-18); optional |
 | Docker / compose | written, **never built or run** (no Docker here) |
 
 ---

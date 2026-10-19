@@ -1,7 +1,7 @@
 # Requirements → implementation matrix
 
-Built in Phase 1 (2026-10-15) from the original prompt and the 2026-10-15 directive (`docs/original-prompt/`), checked against the
-repository. **Status legend:** ✅ implemented and verified (fixtures/local services) · 🟡 partial · ❌ missing · 🔒 blocked by
+**Updated 2026-10-19 for the third directive (Part 14 below, `docs/original-prompt/03_…`).** Parts 2–13 were built in Phase 1 (2026-10-15) from the original prompt and the 2026-10-15 directive (`docs/original-prompt/`), checked against the
+repository; rows that the third directive changed are marked *(updated)* — the demonstration mode they mention no longer exists. **Status legend:** ✅ implemented and verified (fixtures/local services) · 🟡 partial · ❌ missing · 🔒 blocked by
 credentials/permission · ⚠️ defect found. "Verified" never means "verified on a real customer site" unless stated.
 Phase = where in the directive's plan the gap is closed (P2 live/demo + onboarding, P3 collection, P4 price intelligence,
 P5 offers/stock/marketing, P6 reports/notifications/hardening, P7 full verification).
@@ -31,13 +31,13 @@ workspace (registration → workspace → setup → dashboard → report); cross
 
 | ID | Requirement | Status | Evidence | Gap / plan |
 | --- | --- | --- | --- | --- |
-| F1 | Demo vs live separation | ✅ | `organizations.mode` + DB triggers (mode immutable; fixture sites only in demo) + service/API enforcement + UI banner; 13 tests | — (P2 done) |
+| F1 | Demo vs live separation *(updated)* | ✅ superseded | There is no demo mode any more: one product, `organizations.mode` and its triggers dropped (migration 0008), fixtures test-only — see D1/D2 | — |
 | F2 | Live workspace starts empty / shows setup status | ✅ | live walk-through: empty setup, dashboard CTA | — |
 | F3 | No fabricated competitors/prices/stock/offers/campaigns in live | ✅ | audit: no hard-coded URLs/random data in production code (only `scripts/demo-setup.ts`) | guard against regression with tests — P2 |
 | F4 | Provenance stored (real obs / authorised API / user action / FX service / fixture) | ✅ | `provenance` column on 6 tables, written at every storage point, shown in the UI; backfilled | — |
 | F5 | Honest statuses (not configured … collected) | ✅ | unified site status + integration statuses | — |
 | F6 | Distinguish "no match found" from "could not be collected" | ✅ | matrix says "not available — <state>" unless the competitor was collected | — |
-| F7 | Mocks/fixtures only in dev/test paths | ✅ | `packages/connectors/src/fixtures`, scripts | restrict simulator/dev tools to demo orgs — P2 |
+| F7 | Mocks/fixtures only in dev/test paths *(updated)* | ✅ | `tests/support` only; imported by no application, worker, script or package (`real-product-only.test.ts` §6) | — |
 
 ## Part 4 — collection
 
@@ -114,7 +114,7 @@ workspace (registration → workspace → setup → dashboard → report); cross
 | RD2 | Report contents (comparison, cheapest, changes, availability, stock, offers, marketing, coverage, exceptions, evidence+time) | ✅ fixtures | report tabs | — |
 | RD3 | PDF/CSV/Excel from the same snapshot; test file **contents**; CSV injection-safe | ✅ | `reports.test.ts` | PDF visual review on real-size data — P6 |
 | RD4 | History + comparison over time | ✅ | compare page | — |
-| N1 | Dashboard alerts; email summary; **real** email when configured; outbox never shown as delivered | ✅ in-process SMTP / 🔒 provider | `email-smtp.test.ts` | SMTP provider choice/credentials — P6 |
+| N1 | Dashboard alerts; email summary; **real** email when configured; outbox never shown as delivered *(updated)* | ✅ real SMTP library in process / 🔒 Gmail | `email-smtp.test.ts`; outbox states with provider Message-ID | Gmail address + App Password from the user (D6) |
 | RT1 | Retention ≈1 year / 90-day snapshots, implemented + tested | ✅ | per-workspace windows, exact boundary, marketing/offers/flyers/daily runs/old profiles now expire, newest profile and people's match decisions kept, failing storage never stops the clean-up and is retried, idempotent; 13 tests in `retention.test.ts` | legal hold / export-before-delete not implemented |
 
 ## Part 10 — auth and tenancy
@@ -123,15 +123,15 @@ workspace (registration → workspace → setup → dashboard → report); cross
 | --- | --- | --- | --- | --- |
 | AU1 | Hashing, sessions, expiry, logout, reset, roles, CSRF, rate limits, safe errors | ✅ | `api.test.ts` | — |
 | AU2 | RLS + cross-tenant protection (API + DB level) | ✅ | 15 DB tests; 404 matrix; live probe this session | — |
-| AU3 | Don't treat unverified accounts as verified | ✅ | verification enforced when email is configured; otherwise accounts stay visibly unverified (banner, member list, `/auth/me`, `/meta.emailVerificationEnforced`); a reset link only verifies when mail is really delivered; 14 tests in `email-verification.test.ts` | a real email provider is needed in production (asked of the user) |
+| AU3 | Don't treat unverified accounts as verified *(updated)* | ✅ mocks + local / 🔒 Gmail | an account cannot sign in until its emailed single-use link is used; with no mail server registration answers `503 email_not_configured` (D4/D6); `auth.test.ts` | real Gmail delivery: blocked on the user's App Password |
 | AU4 | Member invitation/onboarding | ✅ | invitation flow: single-use 7-day link (hash stored), must be accepted by the invited address, nobody joins without accepting, resend replaces the link, revoke, role limits, 25-pending cap, tenant isolation, race-safe; `invitations.test.ts` (24); verified in the browser (wrong account, register-and-accept) | — |
-| AU5 | Dev owner must not be a default identity | ✅ | dev user only from `bootstrap:dev`/demo scripts | restrict scripts to demo orgs — P2 |
+| AU5 | Dev owner must not be a default identity *(updated)* | ✅ | no default identity exists: `bootstrap:dev` and the demo scripts were deleted; the first account is a person who registers and verifies an email address | — |
 
 ## Parts 11–13 — integrations, UI, hardening
 
 | ID | Requirement | Status | Evidence | Gap / plan |
 | --- | --- | --- | --- | --- |
-| I1 | Integration reference (provider, vars, permissions, essential?, works without?, how to verify) | ✅ | `docs/integrations.md`: 11-row reference table with every requested column, a "Verified" column that says imitation vs real, the credential workflow, and the state vocabulary the UI uses | — |
+| I1 | Integration reference (provider, vars, permissions, essential?, works without?, how to verify) *(updated)* | ✅ | `docs/integrations.md`: status vocabulary + checklist with mock vs real tests, blockers and verification steps per provider (D18) | — |
 | I2 | Credential workflow | n/a | — | ask the user when each integration is ready for live verification |
 | U1 | Guided setup journey (10 steps) | ✅ | journey card on the dashboard (`/journey`): workspace → own site → competitors → capabilities → permissions → collection → matches → report → alerts, each step done/next/blocked with the reason and a link; verified by the live-journey test and in the browser | — |
 | U2 | No misleading green "connected/success" | ✅ | audited every green pill/banner/toast against the fact it claims: simulated data is labelled; coverage “complete” requires a succeeded, complete (or refresh) run with nothing stale or failing; **Shopify “connected” and the stock page’s “Connected inventory mode” now go green only when the last sync succeeded and is under 36 h old — otherwise amber/red with the reason (`connectionSyncHealth`, tested at unit and API level)**; success toasts fire only from a mutation’s success callback | not covered: a future pill added without this check |
@@ -141,8 +141,40 @@ workspace (registration → workspace → setup → dashboard → report); cross
 | H3 | Backups/recovery guidance, deployment instructions | 🟡 | `docs/deployment.md`: what to back up (and what not to rely on), dump with the admin URL, role recreation, secret key loss consequences, step-by-step restore drill, what a restore reproduces | ⚠️ the restore drill has **not been executed** (no `pg_dump`/`pg_restore` on the dev machine) — stated in the doc |
 | H4 | Docker verified | ❌ | Dockerfile/compose written; **never built or run** (no Docker) | stated plainly in `docs/deployment.md` with a list of things to confirm; build and run before relying on it |
 
+## Part 14 — Directive 3 (2026-10-18): remove the demo, make Shelfwatch real
+
+Source: `docs/original-prompt/03_DIRECTIVE_REMOVE_DEMO_2026-10-18.md`. Evidence tiers use the vocabulary defined in `docs/integrations.md`
+(*mocks* = automated mocks · *fixtures* = isolated test fixtures · *local* = real local service · *external* = real external service ·
+*real data* = verified end to end with a website you authorised). Nothing below is claimed beyond its tier.
+
+| ID | Requirement | Status | Evidence | Gap / plan |
+| --- | --- | --- | --- | --- |
+| D1 | Demo / fixture / simulated functionality removed from the product and runtime; fixtures test-only | ✅ | One product, no modes: migration `0008_remove_demo_mode.sql` (guarded, non-destructive), `post-migrate.ts` drops the legacy triggers, dev routes, demo scripts, `ALLOW_LOCAL_FIXTURES` / `DEMO_AUTO_CONSENT` / `SCHEDULER_MODE` removed from the configuration (`domain.test.ts` proves they are ignored); fictional sites live in `tests/support`; `docs/DEMO_REMOVAL_AUDIT.md` | Re-grep the production bundles for fixture traces after each build |
+| D2 | Fictional data cannot enter a workspace by any path | ✅ fixtures | `tests/e2e/real-product-only.test.ts` (18): `.test` hosts, loopback and private addresses refused at add time and at fetch time; every stored observation is `public_web` / authorised; the API has no route that writes catalogue data | — |
+| D3 | Existing data handled with the user's approval | ✅ | The development database folder was copied to `.data/postgres-backup-2026-10-18` first (the user's choice, "Back up the folder, then delete"); then only the demonstration workspace was removed with `db:purge-demo -- --yes` (it lists first and needs `--yes`); other workspaces, accounts and `.env` were not touched (`docs/DEMO_REMOVAL_AUDIT.md` §5) | — |
+| D4 | Genuine registration: unverified until an emailed, single-use, expiring token is used; no auto-login; no enumeration | ✅ mocks + local / 🔒 Gmail | `tests/e2e/auth.test.ts`: tokens hashed in the DB, 48 h verify / 1 h reset, a new token cancels the old, 1/min throttle, lockout after 8 failures, change-password revokes other sessions, no email configured → `503 email_not_configured` | Real Gmail delivery has not run (blocked on the sender address and App Password) |
+| D5 | Password reset, resend, change password | ✅ mocks + local | same suites; invalid / expired / reused / replaced tokens covered | Real inbox: 🔒 |
+| D6 | Real email delivery (Gmail SMTP, App Password only in `.env`) | ✅ code, tested against a real SMTP library in process / 🔒 Gmail | `core/smtp.ts` rules (STARTTLS required off-loopback, App Password normalisation, plain-language errors), `OutboxMailer` states `queued → sent | retrying | failed | not_configured` with Message-ID and provider answer, `npm run email:check`, Settings → Notifications test message | **Blocked pending credentials**: Gmail address + App Password typed by the user into `.env` |
+| D7 | Accept arbitrary real URLs (1 own + 3–5 competitors) | ✅ | `addSite` / `normalizeSiteUrl`: any public http(s) host on port 80/443; private, loopback, metadata, odd ports, embedded credentials refused with a reason; the page typed is kept as the entry path (`entryPath`, migration `0010`) | — |
+| D8 | Honest collection-permission design | ✅ | "Collection rules": the customer's own confirmation (consent text v2, name and time recorded), never presented as the competitor's approval; robots.txt obeyed regardless; revocation stops collection; `docs/consent-and-compliance.md` | — |
+| D9 | robots.txt applies to the page the customer typed, and "/shop" ≡ "/shop/" | ✅ fixtures + external | `profiler.ts` entry check, `safe-fetch.ts` trailing-slash rule; `listing-collection.test.ts` (blocked, the path is never requested); live: scrapingcourse.com `/ecommerce/` (robots `Disallow: /ecommerce/*`) → **blocked, 0 pages read** | — |
+| D10 | Real catalogue collection for shops with no feed/sitemap: listing pages, pagination, categories; resumable; counts | ✅ fixtures + external | `listing-crawl` connector (`listing.ts`, `page-crawl.ts`), `crawl_queue` kind `listing`, 17 e2e tests in `listing-collection.test.ts`; live: books.toscrape.com collected through its listings (40-product sample, GBP) | A **complete** real-catalogue run (all 1,000 books) was not done; large real catalogues unmeasured |
+| D11 | Collection shows discovered / collected / skipped / failed; partial vs complete with the reason | ✅ | `scan_runs` counters, `explainScanRun`, run panel on the website page (`collection-observability.test.ts`, `listing-collection.test.ts`) | — |
+| D12 | Stored values equal the page: prices, names, currency, availability, URL, time | ✅ external | `tests/live/real-sites.live.test.ts`: all 40 stored observations (books.toscrape.com) and WooCommerce rows checked against the raw page copy; re-fetch of live pages still shows the price (3 of 3) | Only on public sandboxes; repeat on the user's sites |
+| D13 | Verified end to end with real website data of the user's own sites | 🔒 | `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live` is ready | **Blocked pending the first authorised website pair from the user** |
+| D14 | Price comparison on real overlapping products (matching, unit prices, never mix pack sizes) | ✅ fixtures / 🔒 real | matching + comparison suites on fixtures; against the sandboxes the correct "no matches, every source product has no counterpart" result was verified (`cmp`: 40 source products, 0 matched, 40 without counterpart) | Needs two real shops that sell the same goods — the user's |
+| D15 | "No equivalent found" is not "nobody sells it" unless the other catalogues were read completely | ✅ | `core/assortment.ts` (`assortmentBasis`, `assortmentNote`), saved in every report snapshot and served by `GET …/assortment`; `assortment.test.ts` (4) and e2e (blocked competitor + sampled source → named gaps; both complete → strong wording) | — |
+| D16 | FX with an attributable real source; AWG peg stays a stated constant; never fabricate history | ✅ external | `FX_PROVIDER=open-er-api` fetched live on 2026-10-18: 164 rates, USD→GBP 0.7508, source "open.er-api.com (market rate)", provider update time stored, `provenance = exchange_rate_service`; AWG rows are never written from the provider | The scheduler's 12-hourly refresh was not observed running over days |
+| D17 | Stock, offers, marketing, reports contain no mock data | ✅ | provenance on every table; no simulator route; marketing/stock providers are real clients that report *not set up* until credentials exist | Shopify / YouTube / Meta: 🔒 credentials; all tested with mocks only |
+| D18 | Truthful integration checklist (provider, feature, core/optional, env, permissions, status, mock vs real tests, blockers, verification) | ✅ | `docs/integrations.md` — checklist table, status vocabulary, "what I need from you" | Keep current as integrations are verified |
+| D19 | Testing / security / production readiness | 🟡 | unit + integration + e2e + live procedure; SSRF, RLS, token storage, rate limits re-checked; production config refuses a non-https `APP_BASE_URL`; `docs/PRODUCTION_READINESS.md` | Docker never built; restore drill not run; no load test; no real-device UI pass in this directive |
+| D20 | Documentation current (`PROJECT_CONTEXT`, `WORK_LOG`, this matrix, `PRODUCTION_READINESS`, `integrations`, `limitations`) | ✅ | updated 2026-10-18/19 | — |
+
+**What would let me claim "real end to end":** D6 (Gmail), D13 and D14 (your authorised sites). Until then the claim is limited to: *verified on public sandbox shops and
+a real SMTP server library; not yet on your websites or your inbox.*
+
 ## Acceptance criteria (Part 15) — current state
 
-Core: sign-in ✅ · correct organisation ✅ · enter source + competitors ✅ · new URLs without hard-coded catalogue ✅ · attempt to discover the complete accessible catalogue ✅ fixtures · persisted/presented completeness 🟡 · **one authorised real-world end-to-end run ❌ (needs user consent)** · normalise/match/review 🟡 · genuine comparisons ✅ fixtures · evidence+timestamps ✅ · no fabrication ✅ (with F1/F5 gaps) · promotions ✅ · own-stock with real/authorised data 🔒 · daily report/downloads/history ✅ fixtures · **demo data cannot leak into live workspaces ⚠️ (no enforcement yet)** · tenant isolation ✅.
-External: genuine connection status ✅ · requirements documented 🟡 · tested against real services ❌ (none) · unavailable integrations identified ✅.
+Core: sign-in ✅ · correct organisation ✅ · enter source + competitors ✅ · new URLs without hard-coded catalogue ✅ · attempt to discover the complete accessible catalogue ✅ fixtures + public sandbox shops (2026-10-18) · persisted/presented completeness ✅ · **one authorised real-world end-to-end run 🔒 (needs the user's first authorised website pair — D13)** · normalise/match/review 🟡 · genuine comparisons ✅ fixtures · evidence+timestamps ✅ · no fabrication ✅ (with F1/F5 gaps) · promotions ✅ · own-stock with real/authorised data 🔒 · daily report/downloads/history ✅ fixtures · **demo data cannot leak into live workspaces ✅ (there is no demo mode; fictional data exists only in tests — D1/D2)** · tenant isolation ✅.
+External: genuine connection status ✅ · requirements documented ✅ (`integrations.md`) · tested against real services 🟡 (public websites and the FX provider yes; Gmail, Shopify, Meta, YouTube, S3, Anthropic no) · unavailable integrations identified ✅.
 Engineering: existing functionality preserved ✅ · tests/lint/typecheck/build reported accurately ✅ · regression tests ✅ · auth/isolation tests ✅ · URL-security tests ✅ · docs match code ✅ (rewritten in Phase 7) · context + work log current ✅ (this phase).
