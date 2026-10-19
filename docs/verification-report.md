@@ -85,7 +85,7 @@ Performed on 2026-10-15 against the dev stack, **before** the demonstration mode
 
 Defects this found and fixed: the page title never changed; two tables without header cells; the dialog stole focus on every re-render; contrast failures; an unbroken long name widened the whole page.
 **Not covered:** a screen reader; tablet width; hover/focus-state contrast; any real device; Safari/Firefox.
-**Since then the registration/verification/reset screens, the Settings email panel, the Websites "shop starts at this page" line and the report's assortment wording changed; they were verified by tests and typecheck but have not had a fresh visual pass.**
+**Since then the registration/verification/reset screens, the Settings email panel, the Websites "shop starts at this page" line and the report's assortment wording changed. On 2026-10-19 the registration page was opened on the running dev stack with no mail server configured: it showed the honest "This server can't send email yet…" notice, no example prices, and no console errors. Every screen behind sign-in could not be opened there, because nobody can register until email works (the intended behaviour); those screens are verified by tests and typecheck only, and need a fresh visual pass once Gmail is set up.**
 
 ## Integrations exercised without a live service (no key, no cost)
 
