@@ -16,7 +16,7 @@ import { createHmac } from 'node:crypto';
 import { redact, redactString } from './redact.ts';
 import { collectAllowedNumbers, findUnsupportedNumbers, validateLlmExtraction, wrapUntrusted } from './llm.ts';
 import { loadConfig, ConfigError } from './config.ts';
-import { applyAdjudication, buildMatches, collectKnownBrands, prepareVariant, scorePair, type MatchableVariant } from './matching.ts';
+import { applyAdjudication, buildMatches, collectKnownBrands, prepareVariant, scorePair, yearsIn, type MatchableVariant } from './matching.ts';
 
 const qty = (quantity: number | null, source: StockInput['quantitySource'] = 'authorised_inventory'): StockInput => ({
   availability: 'unknown',
@@ -353,6 +353,80 @@ const prep = (variants: MatchableVariant[]) => {
   const brands = collectKnownBrands(variants);
   return variants.map((v) => prepareVariant(v, brands));
 };
+
+describe('matching on titles from real grocery shops (no barcodes, no brands)', () => {
+  const pair = (a: string, b: string, extra: Partial<MatchableVariant> = {}) => {
+    const [x, y] = prep([mv('src', a, extra), mv('rival', b, extra)]);
+    return scorePair(x!, y!)!;
+  };
+
+  it('the same product written two ways is identical, waiting for a person (name and size agree; no brand is named)', () => {
+    const m = pair('Dove Silky Smooth Dark Chocolate 3.3oz', 'Dove Silky Smooth Dark Chocolate, 3.3 oz');
+    expect(m).toMatchObject({ matchClass: 'identical', status: 'needs_review' });
+    expect(m.reasons.join(' ')).toMatch(/Neither product names a brand/);
+    expect(pair("Hellmann's Real Mayonnaise 30oz", 'Hellmann’s Real Mayonnaise, 30 oz').matchClass).toBe('identical');
+    expect(pair('Fiji Artesian Water 1L', 'Fiji Natural Artesian Water, 1 L').matchClass).toBe('identical');
+  });
+
+  it('names that differ in a flavour or variety are NOT the same product, even though everything else agrees (real pairs the first matching run got wrong)', () => {
+    for (const [a, b, word] of [
+      ['Blue Diamond Almonds Almond Breeze Almondmilk Vanilla 64oz', 'Blue Diamond Almonds Almond Breeze Almondmilk Original, 64 oz', 'vanilla'],
+      ['Silk Plant Power Almond Original Almondmilk 64oz', 'Silk Plant Power Almond Unsweetened Almondmilk, 64 fl oz', 'unsweetened'],
+      ["Land O'Lakes Spread Butter With Canola Oil 8oz", 'Land O’Lakes Spread Light Butter With Canola Oil, 8 oz', 'light'],
+      ['Pepperidge Farm Whole Grain Bread 100% Whole Wheat 24oz', 'Pepperidge Farm Whole Grain Bread 15 Grain, 24 oz', 'wheat'],
+      ["Florida's Natural 100% Orange Juice Some Pulp Calcium 59oz", 'Florida’s Natural 100% Orange Juice Some Pulp, 59 oz', 'calcium'],
+      ["I Can't Believe It's Not Butter! Vegetable Oil Spread 15oz", 'I Can’t Believe It’s Not Butter! It’s Vegan 45% Vegetable Oil Spread, 15 oz', 'vegan'],
+    ] as const) {
+      const m = pair(a, b, { context: 'Beverages Milk Juice' }); // the shop's own tags tell fluid ounces from weight ounces
+      expect(m.matchClass, `${a} | ${b}`).toBe('comparable');
+      expect(m.status).toBe('needs_review');
+      expect(m.reasons.join(' ')).toContain(word);
+    }
+  });
+
+  it('ordinary extra words do not stop a match ("Deli Fresh", "Natural", "Flavored")', () => {
+    expect(pair('Oscar Mayer Deli Fresh Oven Roasted Turkey Breast 9oz', 'Oscar Mayer Oven Roasted Turkey Breast, 9 oz').matchClass).toBe('identical');
+    expect(pair('Smartfood White Cheddar Cheese Popcorn 5.5oz', 'Smartfood Popcorn, White Cheddar Cheese Flavored, 5.5 oz').matchClass).toBe('identical');
+  });
+
+  it('a single can and a 12- or 24-pack are different packs, and a 3 L bottle is not "identical" to 6 × 500 ml', () => {
+    expect(pair('Corona Extra Can 12oz', 'Corona Extra Can, 12-12 oz').matchClass).toBe('different_pack');
+    expect(pair('Corona Extra Can 12oz, 12ct', 'Corona Extra Can, 24-12 oz').matchClass).toBe('different_pack');
+    expect(pair('Corona Extra Can 12oz, 12ct', 'Corona Extra Can, 12-12 oz').matchClass).toBe('identical');
+    const poland = pair('Poland Spring 100% Natural Spring Water 3LT', 'Poland Spring Water 6-500 ml');
+    expect(poland.matchClass).toBe('different_pack');
+    expect(poland.reasons.join(' ')).toMatch(/total is the same but the pack is different/);
+    expect(pair('Balashi Beer Can 12oz, 12ct', 'Balashi Beer Can 12 Pack, 12 x 355ml').matchClass).toBe('identical');
+  });
+
+  it('a pack stated two ways that disagree is never "verified": it waits for a person', () => {
+    const m = pair('Coors Light Beer Bottle 12oz, 12ct', 'Coors Light Beer Bottle 24 Pack, 12×12 oz');
+    expect(m.status).toBe('needs_review');
+    expect(m.reasons.join(' ')).not.toMatch(/Names and sizes agree/);
+  });
+
+  it('identity from a barcode is not second-guessed by the name rules', () => {
+    const m = pair('Almond Breeze Vanilla 64oz', 'Almond Breeze Original 64oz', { gtin: '5449000000996' });
+    expect(m).toMatchObject({ matchClass: 'identical', method: 'gtin' });
+  });
+
+  it('a vintage in only one name is not "the same product" (real pair: a 2013 wine against an undated listing of the same wine)', () => {
+    const m = pair('Kim Crawford Sauvignon Blanc 2013 75cl', 'Kim Crawford Sauvignon Blanc 750 ML');
+    expect(m.matchClass).toBe('comparable');
+    expect(m.status).toBe('needs_review');
+    expect(m.reasons.join(' ')).toMatch(/gives a year \(2013\)/);
+    expect(pair('Kim Crawford Sauvignon Blanc 75cl', 'Kim Crawford Sauvignon Blanc 750 ML').matchClass).toBe('identical');
+    expect(pair('Yellow Tail Pinot Grigio 2015 75cl', 'Yellow Tail Pinot Grigio 2015 750ml').matchClass).toBe('identical');
+    expect(pair('Yellow Tail Pinot Grigio 2015 75cl', 'Yellow Tail Pinot Grigio 2016 750ml').matchClass).toBe('comparable');
+  });
+
+  it('a number that is part of a size is not a year', () => {
+    expect(yearsIn('Nature Made Fish Oil 2000 mg 90ct')).toEqual([]);
+    expect(yearsIn('Gillette Razor Blades 2020 ct')).toEqual([]);
+    expect(yearsIn('Tablets 1000 IU, 2010 pieces, $2013.50, 2013.5')).toEqual([]);
+    expect(yearsIn('Kim Crawford Sauvignon Blanc 2013 75cl, Reserve 2014')).toEqual(['2013', '2014']);
+  });
+});
 
 describe('product matching', () => {
   it('matches identical products by valid GTIN with high confidence', () => {

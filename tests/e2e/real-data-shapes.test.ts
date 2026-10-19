@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { offers, priceObservations, productMatches, scanRuns, variants } from '@ci/database';
+import { offers, priceObservations, productMatches, products, scanRuns, variants } from '@ci/database';
 import { runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
 
@@ -72,5 +72,16 @@ describe('a vendor field that is not a brand does not stop products matching', (
     const autoAccepted = identical.filter((r) => r.status === 'auto');
     expect(autoAccepted.length).toBeGreaterThanOrEqual(14);
     expect(identical.filter((r) => r.status !== 'auto').every((r) => r.reasons.some((x) => /Name similarity 0.[0-8]/.test(x)))).toBe(true);
+  });
+});
+
+describe('a shop label is not stored as a brand', () => {
+  it('the vendor "Aruba" is cleared from the brand of every product of that shop (kept as vendorLabel), and the other shop keeps its real brands', async () => {
+    const mine = await db().select({ brand: products.brand, attrs: products.attrs }).from(products).where(eq(products.siteId, vendorId));
+    expect(mine.length).toBeGreaterThan(20);
+    expect(mine.every((p) => p.brand === null)).toBe(true);
+    expect(mine.every((p) => (p.attrs as Record<string, unknown>)['vendorLabel'] === 'Aruba')).toBe(true);
+    const other = await db().select({ brand: products.brand }).from(products).where(eq(products.siteId, sourceId));
+    expect(other.filter((p) => p.brand !== null).length).toBeGreaterThan(20);
   });
 });

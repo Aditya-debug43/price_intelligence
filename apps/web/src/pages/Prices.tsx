@@ -21,9 +21,11 @@ export function PricesPage() {
     setSp(n, { replace: true });
   };
   const page = Number(get('page', '1'));
-  const params = { q: get('q'), category: get('category'), siteId: get('siteId'), matchClass: get('matchClass'), review: get('review', 'any'), minConfidence: get('minConfidence'), freshness: get('freshness', 'any'), sort: get('sort', 'title'), dir: get('dir', 'asc'), page, pageSize: PAGE_SIZE };
+  const params = { q: get('q'), category: get('category'), siteId: get('siteId'), matchClass: get('matchClass'), review: get('review', 'confirmed'), minConfidence: get('minConfidence'), freshness: get('freshness', 'any'), sort: get('sort', 'title'), dir: get('dir', 'asc'), page, pageSize: PAGE_SIZE };
   const q = useOrgQuery<ComparisonResponse>(['comparison', params], `/comparison${qs(params)}`, { placeholderData: (prev) => prev });
   const d = q.data;
+  // pairs that only look alike wait for a person; by default this page shows confirmed matches only, and says how many are not shown
+  const waiting = useOrgQuery<{ total: number }>(['matches', 'waiting-count'], '/matches?status=needs_review&pageSize=1');
   const competitors = d?.facets.competitors ?? [];
   const shownSites = params.siteId ? competitors.filter((c) => c.id === params.siteId) : competitors;
   const reporting = d?.reportingCurrency ?? 'USD';
@@ -49,6 +51,12 @@ export function PricesPage() {
         <div className="field"><label htmlFor="f-k">Min. confidence</label><select id="f-k" value={params.minConfidence} onChange={(e) => set({ minConfidence: e.target.value })}><option value="">Any</option><option value="0.6">60%+</option><option value="0.8">80%+</option><option value="0.9">90%+</option></select></div>
       </div>
 
+      {params.review === 'confirmed' && (waiting.data?.total ?? 0) > 0 && (
+        <div className="callout info" role="status" style={{ marginBottom: 12 }}>
+          Showing <b>confirmed</b> matches only. <b>{waiting.data!.total}</b> proposed pair{waiting.data!.total === 1 ? '' : 's'} wait for your review and {waiting.data!.total === 1 ? 'is' : 'are'} not shown here — similar names do not prove the same product.{' '}
+          <Link to={`/o/${orgId}/matches`}>Review them</Link>{' · '}<button className="btn btn-sm" onClick={() => set({ review: 'any' })}>Show them here too, marked unconfirmed</button>
+        </div>
+      )}
       <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : 'No comparisons yet'}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : 'Comparisons appear when your products have been matched with competitor products. Collect data from your website and at least one competitor, then run matching.'}</EmptyState></Card>}>
         {(r) => (
           <Card pad={false}>

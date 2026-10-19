@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from './config.ts';
-import { SmtpConfigError, addressOf, describeSmtpError, isGmailHost, normalizeSmtpPassword, resolveSmtp } from './smtp.ts';
+import { SmtpConfigError, addressOf, describeSmtpError, isGmailHost, normalizeSmtpPassword, resolveSmtp, isUnroutableRecipient } from './smtp.ts';
 
 describe('resolving email settings', () => {
   it('is not configured when no host is set', () => {
@@ -91,5 +91,16 @@ describe('reading SMTP failures in plain language', () => {
     expect(describeSmtpError({ responseCode: 550, response: '550 5.1.1 no such mailbox' }, gmail)).toMatchObject({ code: 'recipient_rejected', retryable: false });
     const u = describeSmtpError({ message: 'weird failure password=hunter2 happened' }, null);
     expect(u.message).not.toContain('hunter2');
+  });
+});
+
+describe('addresses that can never receive mail', () => {
+  it('reserved names (RFC 2606 / 6761) are unroutable; ordinary and subdomain addresses are not', () => {
+    for (const a of ['owner@localhost.test', 'audit@example.test', 'x@example.com', 'x@mail.example.org', 'x@foo.invalid', 'x@something.localhost', 'Owner <o@shop.example.net>', 'no-at-sign', '']) {
+      expect(isUnroutableRecipient(a), a).toBe(true);
+    }
+    for (const a of ['someone@gmail.com', 'chai+tag@gmail.com', 'info@groceriestogoaruba.com', 'Sam <sam@my-example.com>', 'a@testing.io', 'a@exampleshop.com']) {
+      expect(isUnroutableRecipient(a), a).toBe(false);
+    }
   });
 });

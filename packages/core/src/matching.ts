@@ -42,6 +42,8 @@ export interface MatchableVariant {
   model: string | null;
   /** Free-form size hints from structured data (e.g. "355 ml", "12 pack"). */
   sizeHints: (string | null | undefined)[];
+  /** Other words the shop attaches to the product (its tags: "Beer", "Soft Drinks"): read only to tell fluid ounces from weight ounces. */
+  context?: string | null;
 }
 
 export interface PreparedVariant extends MatchableVariant {
@@ -104,7 +106,7 @@ export function prepareVariant(v: MatchableVariant, knownBrands: Set<string>): P
       inferred = true;
     }
   }
-  const qty = reinterpretOzForBeverage(parseQuantity(fullTitle, ...v.sizeHints), fullTitle);
+  const qty = reinterpretOzForBeverage(parseQuantity(fullTitle, ...v.sizeHints), `${fullTitle} ${v.category ?? ''} ${v.context ?? ''}`);
   return {
     ...v,
     fullTitle,
@@ -139,7 +141,60 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export const AUTO_ACCEPT_THRESHOLD = 0.85;
 
+/**
+ * Words that name a variety, flavour or formulation: two products whose names differ in one of them ("Vanilla" vs "Original", "Light" vs
+ * regular, "Unsweetened", "Vegan", "15 Grain" vs "Whole Wheat") are different products even when everything else in the name agrees. Stems, as
+ * produced by `coreNameTokens`. A name that differs only in ordinary words ("Deli Fresh", "Natural") is not affected.
+ */
+const VARIANT_WORDS = new Set([
+  'vanilla', 'chocolate', 'strawberry', 'banana', 'lemon', 'lime', 'orange', 'cherry', 'grape', 'apple', 'mango', 'peach', 'pineapple', 'coconut', 'caramel',
+  'mint', 'honey', 'cinnamon', 'berry', 'blueberry', 'raspberry', 'cranberry', 'watermelon', 'tropical', 'punch', 'diet', 'zero', 'light', 'lite', 'regular',
+  'sugar', 'sugarfree', 'decaf', 'caffeine', 'free', 'whole', 'skim', 'reduced', 'fat', 'lowfat', 'nonfat', 'unsweetened', 'sweetened', 'unsalted', 'salted',
+  'spicy', 'mild', 'hot', 'sweet', 'sour', 'dark', 'white', 'brown', 'wheat', 'grain', 'multigrain', 'organic', 'vegan', 'gluten', 'calcium', 'protein',
+  'plain', 'creamy', 'crunchy', 'chunky', 'smooth', 'extra', 'strong', 'double', 'mini', 'jumbo', 'xl', 'family', 'kid', 'pulp', 'seedless', 'sparkling', 'still',
+]);
+
+/** The variety/flavour words in which two names differ (words present in one name and not the other). */
+export function variantDifference(a: string[], b: string[]): string[] {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  return [...new Set([...a.filter((t) => !sb.has(t)), ...b.filter((t) => !sa.has(t))].filter((t) => VARIANT_WORDS.has(t)))];
+}
+
+/**
+ * A year written in a name ("Kim Crawford Sauvignon Blanc 2013") is a vintage or edition: a listing without it, or with another, may be a different
+ * product. A number that is part of a size ("Fish Oil 2000 mg", "2000 ct") is not a year.
+ */
+const YEAR_RE = /(?<![\d.,$#-])(19[5-9]\d|20[0-3]\d)(?!\d)(?![.,]\d)(?!\s*(?:mg|mcg|g|kg|ml|cl|l|oz|lbs?|ct|count|pk|pack|iu|w|watts?|cal|kcal|sheets?|ft|in|cm|mm|pcs|pieces?|%)\b)/gi;
+export const yearsIn = (title: string): string[] => [...new Set([...title.matchAll(YEAR_RE)].map((m) => m[1]!))].sort();
+
+const packOf = (q: { packCount: number | null }) => q.packCount ?? 1;
+
+/**
+ * Scores one pair. Two things the name-and-size evidence alone gets wrong are corrected here, whatever the route to "identical":
+ *  • names that differ in a flavour, variety or formulation are not the same product (they stay proposals, as "comparable");
+ *  • the same total split differently (one 3 L bottle vs 6 × 500 ml) is a different pack, compared per unit.
+ * Identity from a barcode, or from brand + model number, is not touched.
+ */
 export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidate | null {
+  const m = scorePairCore(a, b);
+  if (!m || m.matchClass !== 'identical' || m.method === 'gtin' || m.method === 'brand_model') return m;
+  const diff = variantDifference(a.core, b.core);
+  if (diff.length) {
+    return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `The names differ in a variety or flavour (${diff.join(', ')}), so these may be different products`] };
+  }
+  const [ya, yb] = [yearsIn(a.fullTitle), yearsIn(b.fullTitle)];
+  if (ya.join() !== yb.join()) {
+    const years = [...new Set([...ya, ...yb])].join(', ');
+    return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `One name gives a year (${years}) that the other does not, so these may be different vintages or editions`] };
+  }
+  if (packOf(a.qty) !== packOf(b.qty)) {
+    return { ...m, matchClass: 'different_pack', status: 'needs_review', confidence: Math.min(m.confidence, 0.7), reasons: [...m.reasons, `The total is the same but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`] };
+  }
+  return m;
+}
+
+function scorePairCore(a: PreparedVariant, b: PreparedVariant): MatchCandidate | null {
   const reasons: string[] = [];
   const qtyRel = compareQuantities(a.qty, b.qty);
   const cat = categoryCompat(a, b);
@@ -301,6 +356,15 @@ export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidat
         reasons,
         components: comps(),
       };
+    }
+    // the same product sold as a single item and as a multipack: one item is the same size, the pack is not
+    const oneItem = (q: PreparedVariant['qty']) => q.unitAmount;
+    if (
+      sim >= 0.9 && qtyRel === 'different_total' && a.qty.kind === b.qty.kind && oneItem(a.qty) !== null && oneItem(b.qty) !== null &&
+      Math.abs(oneItem(a.qty)! - oneItem(b.qty)!) / Math.max(oneItem(a.qty)!, oneItem(b.qty)!) <= 0.01
+    ) {
+      reasons.push(`Names agree and one item is the same size, but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`, `Name similarity ${r2(sim)}`);
+      return { ...base, matchClass: 'different_pack', confidence: r2(Math.min(0.7, 0.4 + 0.35 * sim)), status: 'needs_review', method: 'name_similarity', reasons, components: comps() };
     }
     if (sim >= 0.7 && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
       reasons.push(!a.brandKey && !b.brandKey ? `Similar product, no brand named on either (name similarity ${r2(sim)})` : `Similar product, brand unknown on one side (name similarity ${r2(sim)})`);

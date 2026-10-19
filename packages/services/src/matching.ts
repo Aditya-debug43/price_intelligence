@@ -70,6 +70,9 @@ async function loadMatchable(db: DbLike, orgId: string) {
   return rows;
 }
 
+/** The shop's own tags ("Beer", "Soft Drinks") as plain words: used only to tell fluid ounces from weight ounces. */
+export const tagContext = (attrs: Record<string, unknown> | null | undefined): string | null => (Array.isArray(attrs?.['tags']) ? (attrs!['tags'] as unknown[]).filter((t): t is string => typeof t === 'string').join(' ') : null);
+
 export async function runMatching(svc: Services, db: DbLike, orgId: string): Promise<MatchRunResult> {
   const rows = await loadMatchable(db, orgId);
   const [settings] = await db.select().from(orgSettings).where(eq(orgSettings.orgId, orgId));
@@ -77,7 +80,7 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
   const placeholders = placeholderBrandKeys(rows.map((r) => ({ siteId: r.siteId, brand: r.brand, title: r.title })));
   const matchables: (MatchableVariant & { role: 'source' | 'competitor' })[] = rows.map((r) => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, role: r.role, title: r.title, variantTitle: r.variantTitle, brand: isPlaceholderBrand(placeholders, r.siteId, r.brand) ? null : r.brand, category: r.category, gtin: r.gtin, sku: r.sku,
-    mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null],
+    mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null], context: tagContext(r.attrs),
   }));
   const brands = collectKnownBrands(matchables);
   const prepared = matchables.map((m) => ({ role: m.role, p: prepareVariant(m, brands) }));
@@ -258,7 +261,7 @@ export async function searchMatchCandidates(db: DbLike, orgId: string, p: { sour
   if (!src) throw new MatchError('Product not found');
   const toMatchable = (r: (typeof all)[number]): MatchableVariant => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, title: r.title, variantTitle: r.variantTitle, brand: r.brand, category: r.category, gtin: r.gtin, sku: r.sku, mpn: r.mpn, model: r.model,
-    sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null],
+    sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null], context: tagContext(r.attrs),
   });
   const brands = collectKnownBrands(all.map(toMatchable));
   const prepSrc = prepareVariant(toMatchable(src), brands);

@@ -17,6 +17,8 @@ export interface ParsedQuantity {
   /** Human-friendly label, e.g. "6 × 355 ml". */
   label: string | null;
   source: string;
+  /** The text states two different pack counts ("24 Pack, 12×12 oz"), so the size cannot be trusted for matching. */
+  conflict?: true;
 }
 
 const MASS: Record<string, number> = {
@@ -38,6 +40,8 @@ const UNIT_RE =
   'kilograms?|kilos?|kgs?|grammes?|grams?|gms?|gr|mg|g|ounces?|oz|pounds?|lbs?|' +
   'milliliters?|millilitres?|ml|cl|dl|liters?|litres?|ltrs?|ltr|lt|l|fl\\.?\\s?oz|gallons?|gal|pt|qt';
 const NUM = '(\\d+(?:[.,]\\d+)?)';
+/** Pack counts shops really sell in; used to tell "24-12 oz" (24 cans of 12 oz) from a size range. */
+const COMMON_PACKS = new Set([2, 3, 4, 6, 8, 10, 12, 15, 16, 18, 20, 24, 30, 32, 36, 40, 48]);
 const PACK_WORDS = 'pack|pk|ct|count|pcs|pc|pieces?|stuks|stuk|units?|ea|each|bottles?|cans?|bags?|rolls?|sachets?';
 
 function num(s: string): number {
@@ -103,6 +107,18 @@ function parseOne(text: string): ParsedQuantity {
       }
     }
   }
+  // "12-12 oz", "24-20 oz", "6-330 ml": a pack count, a hyphen, the size of one item (no spaces around the hyphen). Only common pack counts
+  // count, so a range like "50-60 g" or "1-2 oz" is not read as a pack.
+  if (!measure) {
+    const hy = s.match(new RegExp(`(?<![\\d.,-])(\\d{1,2})-${NUM}\\s*(${UNIT_RE})(?![a-z])`, 'i'));
+    if (hy && COMMON_PACKS.has(Number(hy[1]))) {
+      const f = unitFactor(hy[3]!);
+      if (f) {
+        packCount = Number(hy[1]);
+        measure = { kind: f.kind, amount: num(hy[2]!) * f.factor, match: hy[0] };
+      }
+    }
+  }
   // Plain measure; prefer the first occurrence that looks like a package size.
   if (!measure) {
     const re = new RegExp(`(?<![\\d.,a-z])${NUM}\\s*(${UNIT_RE})(?![a-z])`, 'gi');
@@ -114,6 +130,12 @@ function parseOne(text: string): ParsedQuantity {
     }
   }
   // Explicit pack words: "12 pack", "pack of 6", "6-pack", "dozen"
+  let conflict = false;
+  if (packCount !== null) {
+    // "24 Pack, 12×12 oz" says 24 and 12: the size cannot be trusted
+    const stated = s.match(/(?<![\d.,x])(\d{1,3})\s*-?\s*(?:pack|pk)(?![a-z])/i) ?? s.match(/(?:pack|case|box|set) of (\d{1,3})(?![\d])/i);
+    if (stated && Number(stated[1]) > 1 && Number(stated[1]) !== packCount) conflict = true;
+  }
   if (packCount === null) {
     const a = s.match(new RegExp(`(?<![\\d.,])(\\d{1,3})\\s*-?\\s*(?:${PACK_WORDS})(?![a-z])`, 'i'));
     const b = s.match(/(?:pack|case|box|set) of (\d{1,3})(?![\d])/i);
@@ -135,6 +157,7 @@ function parseOne(text: string): ParsedQuantity {
       baseUnit: measure.kind === 'mass' ? 'g' : 'ml',
       label: label(measure.kind, measure.amount, packCount),
       source: text,
+      ...(conflict ? { conflict: true as const } : {}),
     };
   }
   if (packCount !== null) {
@@ -153,7 +176,7 @@ function parseOne(text: string): ParsedQuantity {
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
 
-const BEVERAGE_RE = /\b(soda|cola|juice|water|beer|wine|milk|drink|beverage|lemonade|tea|coffee|smoothie|cider|liquor|rum|vodka|whisk(?:e)?y|gin|tonic|energy)\b/i;
+const BEVERAGE_RE = /\b(soda|sodas|colas?|juices?|water|beers?|lagers?|wines?|champagne|milk|drinks?|beverages?|lemonades?|tea|coffee|smoothies?|cider|liquors?|spirits?|rum|vodka|whisk(?:e)?y|gin|tonic|energy)\b/i;
 const OZ_RE = /(?<![a-z])\d+(?:[.,]\d+)?\s*(?:oz|ounces?)(?![a-z])/i;
 
 /**
@@ -179,6 +202,7 @@ export type QuantityRelation = 'same_total' | 'different_total' | 'incompatible'
 
 export function compareQuantities(a: ParsedQuantity, b: ParsedQuantity, tolerance = 0.01): QuantityRelation {
   if (a.kind === 'unknown' || b.kind === 'unknown' || a.total === null || b.total === null) return 'unknown';
+  if (a.conflict || b.conflict) return 'unknown'; // a size that states two different pack counts cannot be verified
   if (a.kind !== b.kind) {
     // A pure count ("6 pack") and a measured item are not comparable by total.
     return 'incompatible';

@@ -122,3 +122,15 @@ export function describeSmtpError(err: unknown, settings?: Pick<SmtpSettings, 'h
   }
   return { code: 'unknown', message: `Sending failed: ${safe(raw) || 'unknown error'}`, retryable: true };
 }
+
+/**
+ * Addresses on names that can never receive mail (RFC 2606 / RFC 6761: ".test", ".example", ".invalid", ".localhost", example.com/net/org). Sending to them
+ * through a real provider only produces bounces that arrive in the sender's own mailbox, so they are never handed to a remote mail server.
+ */
+export function isUnroutableRecipient(address: string): boolean {
+  const plain = addressOf(address);
+  if (!plain.includes('@')) return true;
+  const domain = plain.split('@').pop()?.trim().toLowerCase() ?? '';
+  if (!domain) return true;
+  return /(^|\.)(test|example|invalid|localhost)$/.test(domain) || /(^|\.)example\.(com|net|org)$/.test(domain);
+}

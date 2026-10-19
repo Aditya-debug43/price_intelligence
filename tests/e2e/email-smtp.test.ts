@@ -163,3 +163,42 @@ describe('email delivery over SMTP', () => {
     expect(smtp.messages).toHaveLength(before);
   });
 });
+
+describe('mail to addresses that can never receive it', () => {
+  let h: Harness;
+  let smtp: FakeSmtp;
+  beforeAll(async () => {
+    h = await createHarness();
+    smtp = await startSmtp();
+  }, 120_000);
+  afterAll(async () => {
+    await smtp.close();
+    await h.close();
+  });
+
+  it('with a real remote mail server, a recipient on a reserved domain is never handed over: the message is recorded as failed, with the reason; a routable recipient still gets it', async () => {
+    const sent: { to: string[] }[] = [];
+    const transport = { sendMail: async (m: { to: string[] }) => { sent.push(m); return { messageId: '<x@y>', response: '250 ok', accepted: m.to, rejected: [] as string[] }; } };
+    // a remote-looking SMTP host (the transport itself is injected, so nothing is contacted)
+    const remote = new OutboxMailer(h.db.worker, () => h.queue, { smtp: { host: 'smtp.gmail.com', port: 587, secure: false, user: 'sender@gmail.com', password: 'x', from: 'sender@gmail.com' } as never, from: 'sender@gmail.com', transport: transport as never }, h.svc.log);
+    const org = (await h.newTenant('Unroutable')).orgId;
+    const mk = async (to: string[]) => remote.queue(h.db.worker, { to, subject: 'Report', html: '<p>hi</p>', text: 'hi', kind: 'daily-summary', orgId: org });
+    const onlyReserved = await mk(['owner@localhost.test', 'audit@example.test']);
+    const mixed = await mk(['owner@localhost.test', 'real.person@gmail.com']);
+    expect(await remote.deliver(onlyReserved)).toBe('failed');
+    expect(await remote.deliver(mixed)).toBe('sent');
+    expect(sent).toHaveLength(1); // the reserved-only message never reached the transport
+    expect(sent[0]!.to).toEqual(['real.person@gmail.com']);
+    const [a] = await h.db.worker.select().from(emailOutbox).where(eq(emailOutbox.id, onlyReserved));
+    expect(a).toMatchObject({ status: 'failed' });
+    expect(a!.error).toMatch(/unroutable_recipient.*reserved domain.*nothing was sent/);
+    expect((await h.db.worker.select().from(emailOutbox).where(eq(emailOutbox.id, mixed)))[0]).toMatchObject({ status: 'sent' });
+  });
+
+  it('a local mail server (the in-process test server) is not filtered', async () => {
+    const local = new OutboxMailer(h.db.worker, () => h.queue, { smtp: { host: '127.0.0.1', port: smtp.port, secure: false, user: '', password: '', from: 'noreply@shelfwatch.test' } as never, from: 'noreply@shelfwatch.test' }, h.svc.log);
+    const org = (await h.newTenant('LocalSmtp')).orgId;
+    const id = await local.queue(h.db.worker, { to: ['someone@example.test'], subject: 'Hi', html: '<p>hi</p>', text: 'hi', kind: 'test', orgId: org });
+    expect(await local.deliver(id)).toBe('sent');
+  });
+});

@@ -4,6 +4,7 @@ import type { ConnectorBatch, EvidenceDoc, ExtractedProduct, ExtractedVariant } 
 import { offers, priceObservations, products, stockObservations, variants, type DbLike, type Db } from '@ci/database';
 import type { Services } from './context.ts';
 import { recordEvidence } from './evidence.ts';
+import { tagContext } from './matching.ts';
 import { trackSalePrice } from './promotions.ts';
 import { applyStockObservation, hasFreshAuthorisedStock } from './stock.ts';
 import { provenanceFor } from './workspace.ts';
@@ -139,7 +140,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
       const productId = productIds.get(p.url)!;
       const evidenceId = evidenceIds[p.evidenceIndex] ?? null;
       for (const v of p.variants) {
-        const qty = reinterpretOzForBeverage(parseQuantity(p.title, v.title, typeof p.attrs['size'] === 'string' ? (p.attrs['size'] as string) : null), `${p.title} ${p.category ?? ''}`);
+        const qty = reinterpretOzForBeverage(parseQuantity(p.title, v.title, typeof p.attrs['size'] === 'string' ? (p.attrs['size'] as string) : null), `${p.title} ${p.category ?? ''} ${tagContext(p.attrs) ?? ''}`);
         const ex = existingVariants.get(`${productId}|${v.variantKey}`);
         const currency = v.currency ?? site.currency ?? ex?.currency ?? null;
         const priceChanged = !ex || ex.price !== v.price || ex.currency !== currency;

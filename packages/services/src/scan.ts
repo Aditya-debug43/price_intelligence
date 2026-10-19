@@ -10,7 +10,7 @@ import {
   type PageConnector,
   type SafeFetcher,
 } from '@ci/connectors';
-import { canonicalizeUrl } from '@ci/core';
+import { canonicalizeUrl, isPlaceholderBrand, placeholderBrandKeys } from '@ci/core';
 import type { ScanKind, ScanStatus, SiteProfileData } from '@ci/shared';
 import { crawlQueue, dailyRuns, orgSettings, products, scanRuns, siteProfiles, sites, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
@@ -107,6 +107,20 @@ function classify(e: unknown): { state: State; code: string; message: string; te
 function standingDisplayNote(notes: string[], u: { share: number; medianMarkupPct: number } | undefined): void {
   if (!u || notes.some((n) => n.startsWith('Nearly every product'))) return;
   notes.push(`Nearly every product (${Math.round(u.share * 100)} %) shows a regular price about ${u.medianMarkupPct} % above its selling price. That looks like a standing display, not a promotion, so these were not counted as offers.`);
+}
+
+/**
+ * A shop's vendor field often holds its own name, the country, or a platform default instead of the maker (see core/brands.ts). That is not a brand:
+ * it is cleared from `brand` for this website's products so no screen, export or match shows it as one, and kept as `attrs.vendorLabel`.
+ */
+export async function clearBrandLabels(db: DbLike, siteId: string): Promise<number> {
+  const rows = await db.select({ id: products.id, brand: products.brand, title: products.title }).from(products).where(and(eq(products.siteId, siteId), isNull(products.delistedAt)));
+  const labels = placeholderBrandKeys(rows.map((r) => ({ siteId, brand: r.brand, title: r.title })));
+  const ids = rows.filter((r) => r.brand !== null && isPlaceholderBrand(labels, siteId, r.brand)).map((r) => r.id);
+  for (let i = 0; i < ids.length; i += 500) {
+    await db.update(products).set({ attrs: sql`${products.attrs} || jsonb_build_object('vendorLabel', ${products.brand}::text)`, brand: null }).where(inArray(products.id, ids.slice(i, i + 500)));
+  }
+  return ids.length;
 }
 
 async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> {
@@ -455,6 +469,7 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
       await markMissing(svc.db, site.id, run.id, svc.clock());
       await sweepMissingSaleOffers(svc.db, site.id, run.id, svc.clock());
     }
+    if (outcome.saved > 0) await clearBrandLabels(svc.db, site.id);
     await expireOffers(svc.db, site.orgId, svc.clock());
     if (run.kind !== 'sample' && outcome.state !== 'blocked' && profile.promotions.flyerLinks.length) {
       try {

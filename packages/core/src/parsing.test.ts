@@ -59,6 +59,46 @@ describe('GTIN', () => {
   });
 });
 
+describe('pack notations seen on real grocery shops', () => {
+  it('"N-M unit" is N items of M: a 24-pack of 12 oz cans is not one can (real titles from quickmartaruba.com and shop.lingandsons.com)', () => {
+    expect(parseQuantity('Corona Extra Can, 12-12 oz')).toMatchObject({ packCount: 12, kind: 'mass' });
+    const twentyFour = parseQuantity('Corona Extra Can, 24-12 oz');
+    expect(twentyFour.packCount).toBe(24);
+    expect(twentyFour.total).toBeCloseTo(24 * 340.1943, 1);
+    expect(parseQuantity('Red Stripe Beer, 6-330 ml')).toMatchObject({ kind: 'volume', packCount: 6, unitAmount: 330, total: 1980 });
+    expect(parseQuantity('Pepsi 24-20 oz')).toMatchObject({ packCount: 24 });
+    expect(parseQuantity('Corona Extra Can 12oz')).toMatchObject({ packCount: null, total: 340.1943 });
+  });
+
+  it('a size range is not a pack, and a number that is not a pack size is not read as one', () => {
+    expect(parseQuantity('Protein bar 50-60 g')).toMatchObject({ packCount: null });
+    expect(parseQuantity('Seeds 1-2 oz')).toMatchObject({ packCount: null });
+    expect(parseQuantity('Tide Pods 3-in-1 42 ct')).toMatchObject({ kind: 'count', total: 42 });
+  });
+
+  it('a text that states two different pack counts is marked as conflicting and its size is never "verified"', () => {
+    const q = parseQuantity('Coors Light Beer Bottle 24 Pack, 12×12 oz');
+    expect(q.conflict).toBe(true);
+    expect(compareQuantities(q, parseQuantity('Coors Light Beer Bottle 12oz, 12ct'))).toBe('unknown');
+    expect(parseQuantity('Miller Lite Beer Bottle 6 Pack, 6×12 oz').conflict).toBeUndefined(); // the two statements agree
+    expect(parseQuantity('Coca-Cola Classic 12 x 355ml').conflict).toBeUndefined();
+  });
+
+  it('a single can and a 12- or 24-pack of the same size are different totals, so they cannot be "identical"', () => {
+    const one = reinterpretOzForBeverage(parseQuantity('Corona Extra Can 12oz'), 'Corona Extra Can 12oz Beer Beverages');
+    const twelve = reinterpretOzForBeverage(parseQuantity('Corona Extra Can, 12-12 oz'), 'Corona Extra Can, 12-12 oz Beer');
+    expect(compareQuantities(one, twelve)).toBe('different_total');
+  });
+
+  it('plain "oz" on a drink is read as fluid ounces when the shop’s own tags say it is a drink, even if the name does not (Pepsi 20oz, tags "Beverages", "Soft Drinks")', () => {
+    expect(reinterpretOzForBeverage(parseQuantity('Pepsi 20oz'), 'Pepsi 20oz').kind).toBe('mass'); // the name alone does not say
+    const q = reinterpretOzForBeverage(parseQuantity('Pepsi 20oz'), 'Pepsi 20oz  Beverages Soft Drinks');
+    expect(q.kind).toBe('volume');
+    expect(q.total).toBeCloseTo(591.47, 1);
+    expect(compareQuantities(q, reinterpretOzForBeverage(parseQuantity('Pepsi 20 oz'), 'Pepsi 20 oz Soda'))).toBe('same_total');
+  });
+});
+
 describe('parseQuantity', () => {
   it('parses simple measures into base units', () => {
     expect(parseQuantity('Heinz Ketchup 397g')).toMatchObject({ kind: 'mass', total: 397 });

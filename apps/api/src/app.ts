@@ -176,7 +176,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const dist = opts.webDist ?? path.resolve(process.cwd(), 'apps/web/dist');
     if (existsSync(dist)) {
       const fastifyStatic = (await import('@fastify/static')).default;
-      await app.register(fastifyStatic, { root: dist, wildcard: false });
+      await app.register(fastifyStatic, {
+        root: dist,
+        wildcard: false,
+        cacheControl: false,
+        // Build files under /assets carry a content hash in their name, so they never change and can be cached for a year. The page that
+        // names them must be re-checked every time, or a visitor keeps an old page that points at files a new release has replaced.
+        setHeaders: (res, filePath) => {
+          res.setHeader('cache-control', /[\\/]assets[\\/]/.test(filePath) ? 'public, max-age=31536000, immutable' : 'no-cache');
+        },
+      });
       app.get('/*', (req, reply) => {
         if (req.url.startsWith('/api/')) return reply.callNotFound();
         return reply.sendFile('index.html');

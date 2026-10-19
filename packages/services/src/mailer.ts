@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { and, eq } from 'drizzle-orm';
-import { describeSmtpError, type SmtpProblem, type SmtpSettings } from '@ci/core';
+import { describeSmtpError, isUnroutableRecipient, type SmtpProblem, type SmtpSettings } from '@ci/core';
 import { emailOutbox, type Db, type DbLike } from '@ci/database';
 import type { JobQueue, Logger } from './context.ts';
 
@@ -135,8 +135,14 @@ export class OutboxMailer implements Mailer {
       await this.workerDb.update(emailOutbox).set({ status: 'not_configured', attempts, lastAttemptAt: now, error: NOT_CONFIGURED_TEXT }).where(eq(emailOutbox.id, id));
       return 'not_configured';
     }
+    const { send: recipients, skipped } = this.routable(row.toAddresses);
+    if (!recipients.length) {
+      await this.workerDb.update(emailOutbox).set({ status: 'failed', attempts, lastAttemptAt: now, error: `unroutable_recipient: ${skipped.join(', ')} can never receive mail (reserved domain), so nothing was sent` }).where(eq(emailOutbox.id, id));
+      this.log.warn('email not sent: every recipient is on a reserved domain', { kind: row.kind });
+      return 'failed';
+    }
     try {
-      const receipt = receiptOf(await this.transport.sendMail({ from: this.from, to: row.toAddresses, subject: row.subject, html: row.html, text: row.text }));
+      const receipt = receiptOf(await this.transport.sendMail({ from: this.from, to: recipients, subject: row.subject, html: row.html, text: row.text }));
       // A server that accepted none of the recipients did not deliver anything.
       if (!receipt.accepted.length && receipt.rejected.length) throw Object.assign(new Error(`rejected: ${receipt.rejected.join(', ')}`), { code: 'EENVELOPE', responseCode: 550 });
       await this.workerDb
@@ -158,8 +164,16 @@ export class OutboxMailer implements Mailer {
     }
   }
 
+  /** With a real remote mail server, recipients on reserved domains (".test", example.com…) are never handed over: they only bounce into the sender's own mailbox. */
+  private routable(to: string[]): { send: string[]; skipped: string[] } {
+    const remote = !!this.opts.smtp && !isLoopbackHost(this.opts.smtp.host);
+    if (!remote) return { send: to, skipped: [] };
+    return { send: to.filter((a) => !isUnroutableRecipient(a)), skipped: to.filter((a) => isUnroutableRecipient(a)) };
+  }
+
   async sendNow(email: Omit<OutgoingEmail, 'kind'> & { kind?: string }): Promise<SendNowResult> {
     const kind = email.kind ?? 'test-email';
+    if (!this.routable(email.to).send.length) return { ok: false, problem: { code: 'unknown', message: 'That address is on a reserved domain (such as .test or example.com) and can never receive mail, so nothing was sent.', retryable: false } };
     if (!this.transport) return { ok: false, problem: { code: 'unknown', message: NOT_CONFIGURED_TEXT, retryable: false } };
     const now = new Date();
     const [row] = await this.workerDb
