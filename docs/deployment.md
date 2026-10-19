@@ -14,7 +14,25 @@ available where they were written. Deploying to production, and any paid hosting
 
 Build everything with `npm ci && npm run build`. The API and worker bundles contain the workspace packages; third-party packages
 (pdfkit, pg-boss, …) are loaded from `node_modules`, so deploy `node_modules` with them. Both bundles and the single-origin
-build (API serving the web app, sign-in through cookies and the CSRF header) were started and exercised once locally.
+build (API serving the web app, sign-in through cookies and the CSRF header) were run locally with `NODE_ENV=production` on
+2026-10-19 and passed an 18-check smoke test (health, readiness incl. migrations and worker heartbeat, served app, CSRF/Origin
+rules, cookie flags, authenticated read, browser sign-in) — see [verification-report.md](verification-report.md).
+
+## Where the web app can live (read before choosing hosting)
+
+The web app calls the API with **relative** paths (`/api/v1/…`) and a **same-origin, `SameSite=Lax`, `HttpOnly`, `Secure`** session cookie plus an
+`x-requested-with` header and an Origin check. It has **no setting for a different API address**, and the API sends no CORS headers. So:
+
+- **Supported:** one origin. Either the API serves the built web app (`SERVE_WEB=true`, the Docker default), or a reverse proxy / CDN serves the
+  static `apps/web/dist` and forwards **`/api/*`** to the API on the same hostname (for example CloudFront with two origins, or an ALB with path rules).
+  `APP_BASE_URL` must be that public https address. Nothing else needs to change.
+- **Not supported as-is:** the static site on one hostname (GitHub Pages, a bucket website) and the API on another. The browser would not send the
+  `Lax` cookie on cross-site API calls and the calls would be blocked by the missing CORS headers. Making that work means a build-time API address,
+  CORS with credentials, `SameSite=None; Secure` cookies and a revised CSRF design — a security decision, deliberately not made.
+- `CORS_ORIGIN` only adds one more origin to the CSRF Origin allow-list; it does not enable cross-origin reads.
+
+Build-file caching is built in: files under `/assets` are content-hashed and served `immutable` for a year; the app shell is `no-cache`. Behind a CDN,
+keep those two rules.
 
 Run one API and one worker to begin with. Jobs go through PostgreSQL (pg-boss) with de-duplication keys, so more workers are
 safe, but each website is limited to one request at a time by the per-host limiter inside a process; do not scale workers

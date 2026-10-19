@@ -16,7 +16,28 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
-# Update 3 — directive of 2026-10-18: remove the demo, make Shelfwatch real (CURRENT STATE — this section wins over anything below)
+# Update 4 — directive of 2026-10-19: real-data verification first, then GitHub and AWS (CURRENT STATE — this section wins over Update 3 and everything below)
+
+Verbatim directive: `docs/original-prompt/04_DIRECTIVE_REAL_DATA_THEN_DEPLOY_2026-10-19.md`. Evidence: `docs/verification-report.md` ("Real-data audit"). Requirement status: `docs/REQUIREMENTS_MATRIX.md` Part 16 (and the updated rows D6, D13, D14). Verdict: `docs/PRODUCTION_READINESS.md`.
+
+**What is true now:**
+
+- **Real shops were collected and compared (2026-10-19).** The user named groceriestogoaruba.com (own shop) and four competitors. Collected completely: groceriestogoaruba.com (2,381 products, USD), shop.lingandsons.com (1,850, **AWG**), foodstore2go.com (863, USD; appears Bahamian), quickmartaruba.com (2,566, WooCommerce, USD). **Not collectable:** shop.superfoodaruba.com (Freshop/JavaScript, `ƒ` prices, robots asks 10 s crawl delay) and www.lingandsons.com (information site) → shown "unavailable", never "no match". "Cmart" was never given an address and is never guessed. Stored prices were checked against both live pages for 24 pairs; displayed differences equal an independent calculation (AWG ÷ 1.79); the report equals the comparison page.
+- **No barcodes and no usable brands exist on these shops.** Shopify vendor values were "Aruba", Shopify's placeholder "Your Brand", or the shop's own name. They are cleared into `attrs.vendorLabel` at the end of every complete scan (`clearBrandLabels`, `core/brands.ts`) and ignored by matching. Every match is name + size and needs review → `POST /matches/bulk` (admin; class, min confidence, dry run, audit event) and the **Prices page defaults to confirmed matches only** with a "N proposed pairs wait" notice.
+- **New matching/collection rules from real data:** zero price → empty; standing "regular price" display (`detectUniformCompareAt`) is not an offer; pack notation "12-12 oz"; pack-statement conflicts; beverage context from the shop's tags; flavour/variety words and **vintage years** (`yearsIn`) keep a pair out of "identical"; single vs multipack → `different_pack`; sitemap `product_cat-sitemap` is categories; `ƒ` price symbol; mail to reserved domains is refused (`unroutable_recipient`).
+- **Production bundles were run locally** (`NODE_ENV=production`, https `APP_BASE_URL`, `SERVE_WEB=true`): 18/18 smoke checks, real browser sign-in. Static files: `/assets/*` immutable for a year, app shell `no-cache`.
+- **Hosting rule:** the web app uses relative `/api/v1` calls and a same-origin `SameSite=Lax` cookie — it must be served from the same origin as the API (API with `SERVE_WEB=true`, or a proxy forwarding `/api/*`). A separately hosted frontend (e.g. GitHub Pages) will not work without a redesign. See `docs/deployment.md`.
+- **Gmail:** besides the test and verification emails, the running worker's real daily schedule sent daily summaries and collection-failure digests (`email_outbox` status `sent`). Inbox arrival is unconfirmed; the App Password pasted in chat must be rotated.
+- **GitHub:** repository `https://github.com/Aditya-debug43/price_intelligence` (public), branch `main`; it holds the whole monorepo including the web app source — there is **no hosting workflow** (no Pages, no deploy action). The local-only branch `full-history` (separate root; contains an older fake-token commit) must never be pushed.
+- **AWS:** no AWS CLI, credentials, profile or deployment files exist on the development machine; nothing was inspected or deployed. Needed from the user: AWS access configured locally (not pasted), a description of the existing environment (service type, region, database, frontend hosting, domain), approval for any new resource or cost.
+
+**Real-data workspace on the dev machine:** the dev database (`npm run dev:db`, port 54329) holds a throwaway verification account (a plus-address alias of the sender; password not recorded here) with an "Exploration Workspace" containing the four collected shops plus the two unavailable ones, 235 accepted identical matches (one bulk action, after a 24-pair spot check), 702 pairs awaiting review, 149 sale offers + 2 banners, and saved reports. Two other workspaces ("Audit Co", "aditya") have scheduled daily runs: **keep the stack stopped when idle** (they email through real Gmail).
+
+**Ask the user for (in this order):** (1) AWS access (configured locally by them) and a description of the existing environment, for the deployment phases; (2) confirmation that the Gmail messages arrived, then rotation of the App Password; (3) a decision on foodstore2go.com and the missing "Cmart" address; (4) review of the 702 pending pairs if they want them in the comparison; (5) later, optional-integration credentials.
+
+---
+
+# Update 3 — directive of 2026-10-18: remove the demo, make Shelfwatch real (superseded by Update 4 where they differ)
 
 Verbatim directive: `docs/original-prompt/03_DIRECTIVE_REMOVE_DEMO_2026-10-18.md`. Day-by-day record: `docs/WORK_LOG.md` (sections "Directive 3 …"). Status per
 requirement: `docs/REQUIREMENTS_MATRIX.md` Part 14. Audit of what was removed: `docs/DEMO_REMOVAL_AUDIT.md`.
@@ -36,9 +57,7 @@ requirement: `docs/REQUIREMENTS_MATRIX.md` Part 14. Audit of what was removed: `
 
 **Gmail (2026-10-19):** the owner supplied the sender address and an App Password (pasted in chat; stored only in the local `.env`; never written to repo/docs/logs; they should revoke and rotate it). `npm run email:check` signed in, Gmail accepted a test message, and a registration through the running app produced a verification email Gmail accepted (outbox `sent` + Message-ID). A throwaway unverified account for a plus-address alias exists in the dev database. **Open:** the owner confirming the messages arrived; reset email through Gmail not yet sent.
 
-**Still not done / blocked (do not claim otherwise):** inbox arrival of the Gmail messages; a website the user authorised (needs the first source + competitor URLs), hence **no real price comparison on overlapping products and no "verified end to end with real website data"**; Shopify/YouTube/Meta/Anthropic/S3 live; Docker never built; restore drill not run; no load test; the Cmart URL was never supplied and is never guessed.
-
-**Ask the user for (in this order):** (1) confirmation that the Gmail test and verification emails arrived, then rotation of the shared App Password; (2) an explicit go-ahead for the first real website pair (the original brief names `groceriestogoaruba.com` as the source and `shop.lingandsons.com` etc. as candidates and says permission is not confirmed; "do it yourself" is not a confirmation) — then run `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live` and the app flow; (3) only later, credentials for optional integrations.
+**(Superseded by Update 4 — the user named real websites on 2026-10-19 and they were collected.) Still not done / blocked at the time of Update 3:** inbox arrival of the Gmail messages; a website the user authorised; Shopify/YouTube/Meta/Anthropic/S3 live; Docker never built; restore drill not run; no load test; the Cmart URL was never supplied and is never guessed.
 
 **Status vocabulary** (used in `docs/integrations.md`, `docs/limitations.md`, the matrix): Implemented, not tested · Tested with automated mocks · Tested using isolated test fixtures · Tested against a real local service · Tested against a real external service · Verified end to end with real website data · Blocked pending credentials or permission.
 

@@ -123,7 +123,7 @@ docs             Documentation
 - [Data reliability](docs/data-reliability.md) — the rules and the tests that enforce each
 - [Consent and compliance](docs/consent-and-compliance.md) — what is collected, from whom, under what conditions
 - [Integrations](docs/integrations.md) — the truthful checklist (status, what was tested for real, blockers, verification steps) plus Gmail, Shopify, Facebook/Instagram, YouTube, S3, headless browser, AI, exchange rates
-- [Deployment](docs/deployment.md) — production configuration, backups and restore, shutdown, readiness, Docker (untested)
+- [Deployment](docs/deployment.md) — production configuration, **where the web app can be hosted (same origin as the API)**, backups and restore, shutdown, readiness, Docker (untested)
 - [Limitations](docs/limitations.md) — what is not done, not verified, or needs credentials
 - [Production readiness](docs/PRODUCTION_READINESS.md) — verdict, evidence strength, what only you can provide, prioritised remaining work
 - [Verification report](docs/verification-report.md) — what was actually run, with results

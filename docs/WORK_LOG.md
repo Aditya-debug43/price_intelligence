@@ -336,3 +336,34 @@ Commits: `2a1ad8e` (code, tests, scripts), followed by the documentation commit.
 * Not done: confirming arrival in the inbox (only the owner can), the verification link, a reset email through Gmail.
 * **Website pair — deliberately not collected.** The owner replied "skip taking details for now, do it yourself". The original brief names `groceriestogoaruba.com` (source) and `shop.lingandsons.com`, `shop.superfoodaruba.com`, `doit.aw` (candidates) and says permission to collect from them "has not been confirmed"; the collection-rules step is the customer's own attestation. A request to proceed without details is not that confirmation, so no real shop was collected. One line from the owner ("yes, collect a small sample from groceriestogoaruba.com and shop.lingandsons.com") unlocks `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live`.
 * The dev stack and embedded database were stopped afterwards (the scheduled "Audit Co" workspace would otherwise have tried to email its daily report to `.test` addresses through the real Gmail account and caused bounces).
+
+# Directive 4 (2026-10-19) — "Real-data verification first, then GitHub and AWS deployment"
+
+Verbatim: `docs/original-prompt/04_DIRECTIVE_REAL_DATA_THEN_DEPLOY_2026-10-19.md`. Order required: audit and fix first, deploy only the verified version.
+
+## 2026-10-19 — the owner names the real shops; first real collection and comparison
+
+* The owner replied with real addresses: own shop `https://groceriestogoaruba.com/`; competitors `https://www.lingandsons.com/`, `https://foodstore2go.com/`, `https://shop.superfoodaruba.com/`, `https://quickmartaruba.com/` ("check in detail, exhaustively"). This replaced the earlier "skip, do it yourself" and is the naming of the websites the earlier work had been waiting for. No fourth ("Cmart") address was given and none was guessed.
+* Through a throwaway verification account the stack was started (`npm run dev`), the sites were added, the collection-rules confirmation was recorded for each, and the real capability check + collection ran. `shop.lingandsons.com` (the shop behind the information site `www.lingandsons.com`) was added as well. Results: groceriestogoaruba.com 2,381 products, Ling & Sons 1,850 (AWG), foodstore2go.com 863, Quickmart 2,566; Super Food Plaza and www.lingandsons.com not collectable (shown unavailable). Every run: robots.txt obeyed, 1.5 s pacing, 5–29 requests.
+* The exhaustive live procedure (`tests/live/real-catalogues.live.test.ts`, `npm run test:live` with `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`) was written and run: per-site completeness, feed-exact counts, spot checks against live pages, a record under `.data/live-runs/`.
+* **First comparison on real overlapping goods** exposed what fixtures could not (commit `762624b`): junk vendor "brands" ("Aruba", "Your Brand", shop names), $0 prices, a standing "regular price" counted as sales, "12-12 oz" pack notation, flavour/variety conflicts, single vs multipack, every match needing review (→ bulk accept), the comparison page mixing unreviewed pairs into results (→ confirmed-only default), mail to `.test` addresses bouncing through Gmail (→ `unroutable_recipient`).
+
+## 2026-10-19 — Phase 1 audit continued (uncommitted at the time, committed with the verified build)
+
+* 24 identical pairs checked against both live product pages; differences recomputed independently (AWG ÷ 1.79) and compared with the comparison API: 22 agree exactly, 2 explained (script read the 375 ml variant of a page; a pair later removed by the improved rules). Report and exports compared with the comparison page. Offers (149 sale prices + 2 banners) checked. Cross-tenant, CSRF and unauthenticated probes against the real API. The daily scheduler observed running (real clock, Gmail daily summaries and failure digests recorded `sent`).
+* Code fixes: quantity parser (`N-M unit`, pack-statement conflicts, beverage words), matching (variety words, single-vs-multipack, **vintage years** `yearsIn` added late after the audit found a 2013 wine matched to an undated listing), placeholder-brand detection (`core/brands.ts`) with `clearBrandLabels` at scan end, uniform "regular price" detection, `Prices` default `confirmed`, mailer guard, bulk accept (`POST /matches/bulk` + UI), sitemap `product_cat` classification, `ƒ` price symbol, page counters.
+* UI checks in the in-app browser on real data (1280 px: dashboard, websites, a website, products, a product, match review incl. bulk dialog, price comparison, offers, stock, alerts, quality; 375 px: dashboard, comparison, review, reports, report, settings) — no overflow, no console errors beyond one transient 502 during my own API restart.
+* **Production bundles run locally** with `NODE_ENV=production` (API from `dist`, worker from `dist`, `SERVE_WEB=true`, https `APP_BASE_URL`, email off): 18/18 smoke checks and a real browser sign-in. Found and fixed: hashed assets were served `max-age=0` (now immutable; app shell `no-cache`; test `tests/e2e/web-serving.test.ts`).
+* **Finding for hosting:** the web app is strictly same-origin (relative `/api/v1`, `SameSite=Lax` cookie, no CORS headers). It cannot be served from a separate hostname such as GitHub Pages without a proxy for `/api/*`. Documented in `docs/deployment.md`.
+* Full suite after the first batch of fixes: 48 files, 796 tests passed. **Final run on the code that was pushed (after the vintage-year rule and the static-caching fix): typecheck clean, lint 0 errors / 2 intentional warnings, build succeeds, 48 files, 798 tests passed.**
+* Docs rewritten: `verification-report.md` (real-data audit section), `REQUIREMENTS_MATRIX.md` (rows D6, D13, D14 + Part 16), `PRODUCTION_READINESS.md`, `limitations.md`, `integrations.md`, `deployment.md`, `PROJECT_CONTEXT.md` (Update 4).
+
+## Phase 2 — GitHub (see the section appended below once the push is done)
+
+* Remote `origin` = `https://github.com/Aditya-debug43/price_intelligence.git`; `origin/main` was still `2574a4a` (no newer remote work); local `main` 8 commits ahead, 0 behind → a fast-forward push is possible. A local-only branch `full-history` (separate root, older history containing a credential-shaped fake token) is **not** pushed.
+* Secret/personal-data scan of tracked files and of every pending commit: no `.env`, keys, tokens, App Password or the owner's Gmail address; only `.env.example` is tracked.
+* The repository holds the whole monorepo including the web source; there is no hosting workflow (no Pages, no deploy action).
+
+## Phase 3/4 — AWS and the deployed journey — blocked
+
+* No AWS CLI, profile, credentials, SSO configuration or deployment files exist on the development machine, so nothing was inspected, created or deployed. See `docs/PRODUCTION_READINESS.md` for exactly what is needed from the owner.
