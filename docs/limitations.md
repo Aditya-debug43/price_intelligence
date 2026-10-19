@@ -13,7 +13,8 @@ website you authorised, and real email delivery has not been run.
 | --- | --- | --- |
 | PostgreSQL 18 (migrations, row-level security, queue, roles) | Embedded real database in every test and in development | Tested against a real local service |
 | Real Chrome (headless rendering) | `browser.test.ts` against local pages | Tested against a real local service |
-| SMTP delivery logic | A real SMTP server library running in the test process (authentication, STARTTLS rules, rejected recipients, dropped connections, retry and failure states) | Tested against a real local service — **not Gmail** |
+| SMTP delivery logic | A real SMTP server library running in the test process (authentication, STARTTLS rules, rejected recipients, dropped connections, retry and failure states) | Tested against a real local service |
+| Gmail | 2026-10-19: STARTTLS sign-in accepted; one test message and one registration verification email accepted (`250 2.0.0 OK`), outbox `sent` with Message-ID | Tested against a real external service (acceptance); inbox arrival unconfirmed |
 | Public websites | `npm run test:live` on 2026-10-18 against three public scraping sandboxes: a static shop with no feed or sitemap (collected by **listing pages**, GBP), a WooCommerce shop (collected through its Store API), and a site whose robots.txt forbids the page given (**blocked**, no page read) | Tested against a real external service — see the verification report. Every stored price and name was found in the raw page it was read from (40 of 40) |
 | Exchange-rate provider | One real request to open.er-api.com | Tested against a real external service |
 | Two real Shopify shops | A read-only capability probe on 2026-10-14 (no collection) | Profiled only |
@@ -36,8 +37,7 @@ product (there is no switch that allows them; see [DEMO_REMOVAL_AUDIT.md](DEMO_R
    failure mixes, real flyers) is unmeasured. The sandboxes sell different things, so **price comparison on real overlapping products has
    not been demonstrated**: against the sandboxes the correct result — no matches, every source product listed as having no counterpart —
    was verified, but that is not the same as comparing two shops that sell the same goods.
-2. **Real email delivery has not been run.** The code is complete and tested against a real SMTP server library; the first message to a real
-   Gmail inbox is waiting for the sender address and an App Password typed into `.env` by you.
+2. **Real email delivery is only half-proven.** Gmail accepted the sign-in and two messages on 2026-10-19 (a test message and the app's verification email, `250 OK`, Message-IDs stored), but nobody has yet confirmed they reached the inbox, opened the link, or run a password reset through Gmail.
 3. doit.aw (JavaScript-rendered) and Super Food Aruba (Freshop storefront, no public feed) have not been collected and cannot be without
    further work or access arranged with the store. A fourth competitor's URL ("Cmart") was never supplied and has not been guessed.
 
@@ -45,7 +45,7 @@ product (there is no switch that allows them; see [DEMO_REMOVAL_AUDIT.md](DEMO_R
 
 | Item | Why unverified |
 | --- | --- |
-| Gmail delivery | Needs your Gmail address and an App Password in `.env`. |
+| Gmail delivery to the inbox | Gmail accepted two messages on 2026-10-19; arrival, the verification link and the reset email need the owner to look. |
 | Headless-browser rendering on **real websites** | Verified with real Chrome against local test pages only. Residual risk: DNS rebinding between the browser's own resolution and our check cannot be closed in application code — run rendering workers behind an egress firewall. |
 | S3-compatible storage on a **real** service | Tested through the AWS SDK against an in-process S3-compatible fake. Never run against AWS S3, Cloudflare R2 or MinIO. |
 | Production bundles | Built; the API bundle was started and `/api/v1/ready` answered `ready`. Not run under load or for a full schedule cycle. |
@@ -60,7 +60,7 @@ product (there is no switch that allows them; see [DEMO_REMOVAL_AUDIT.md](DEMO_R
 | Item | What is missing |
 | --- | --- |
 | Live collection from your websites | Your first authorised source and competitor addresses. Your confirmation is recorded per website; the competitor's own permission is neither claimed nor needed beyond robots.txt, which is always obeyed. |
-| Email delivery | `SMTP_USER` (Gmail address) and `SMTP_PASSWORD` (App Password), typed by you into `.env`. |
+| Email delivery — remaining step | Confirmation that the messages arrived. The App Password was pasted into chat: rotate it. |
 | Shopify inventory | App credentials (`SHOPIFY_CLIENT_ID/SECRET/REDIRECT_URI`), `TOKEN_ENCRYPTION_KEY`, and the merchant's authorisation. The flow is tested end to end against a local imitation; it has never talked to Shopify. |
 | Instagram / Facebook | A Meta app; Instagram needs a token from your own professional account and (for production) App Review + Business Verification; Facebook public Pages need "Page Public Content Access". The token's expiry and permissions are checked, but a user token is renewed by a person (a system-user token does not expire). |
 | YouTube | `YOUTUBE_API_KEY` (quota 10,000 units/day). |

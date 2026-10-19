@@ -7,7 +7,7 @@ Shelfwatch in front of real customers. Companion documents: [verification-report
 
 ## Verdict
 
-**Not yet claimed production-ready. Ready for a supervised pilot as soon as you give three things: a Gmail address plus an App Password typed into `.env`, the first real website pair you are entitled to collect from, and a place to run it.**
+**Not yet claimed production-ready. Ready for a supervised pilot as soon as you give two things: your confirmation that collecting from the first real website pair is allowed, and a place to run it. (Gmail is configured and accepting mail; confirm the messages arrived.)**
 
 What has changed since the last assessment: the demonstration mode no longer exists (one product, fictional websites only inside tests); accounts are genuinely
 verified by emailed links; email goes through real SMTP with every message and its outcome recorded; any public website address is accepted, and shops with
@@ -15,8 +15,8 @@ no feed or sitemap are collected from their product listing pages; a website tha
 worded from how much of each catalogue was actually read; and for the first time **real websites were collected and the stored values were checked against the
 real pages** (public scraping sandboxes — 40 of 40 matched).
 
-What has still **never** happened: collecting a website *you* authorised; comparing prices on two real shops that sell the same goods; sending a real email
-through Gmail. Those three are the "verified end to end with real website data" bar, and until they are met this document does not say the product is real end to
+What has still **never** happened: collecting a website *you* authorised, and comparing prices on two real shops that sell the same goods. (Real email: Gmail accepted the
+sign-in, a test message and the app's verification email on 2026-10-19; only the owner's confirmation that they arrived is missing.) Those are the "verified end to end with real website data" bar, and until they are met this document does not say the product is real end to
 end — it says "verified on public sandbox shops and a real SMTP server library".
 
 ## What was verified, and how strongly
@@ -58,8 +58,8 @@ end — it says "verified on public sandbox shops and a real SMTP server library
 
 | Need | Why it blocks | Detail |
 | --- | --- | --- |
-| **Gmail address** and **App Password typed into `.env` by you** (`SMTP_USER`, `SMTP_PASSWORD`; empty `EMAIL_FROM`) | Real registration and password-reset emails | Never paste the password in chat. `npm run email:check -- you@example.com` proves it, then register with an address you can read |
-| **The first authorised real website pair** — your own shop and one competitor | The single end-to-end real collection and comparison run | Any public address, e.g. `https://shop.example.com` or `https://example.com/shop`. Run: `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live`, or use the app. Choose competitors that sell some of the same goods, or comparison cannot be demonstrated |
+| ~~Gmail address and App Password~~ — **done 2026-10-19** (in `.env`; the password was pasted in chat, so **rotate it** at https://myaccount.google.com/apppasswords after testing) | Real registration and password-reset emails | Remaining: confirm the test and verification emails arrived (inbox or spam), open the link, and try "Forgot password" |
+| **Your go-ahead for the first real website pair** | The single end-to-end real collection and comparison run | The original brief names `https://groceriestogoaruba.com/` as the source and `https://shop.lingandsons.com/` (also superfoodaruba, doit.aw) as candidates, and says permission "has not been confirmed". Reply "yes, collect a small sample from groceriestogoaruba.com and shop.lingandsons.com" (or name others) and I run `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live`: a 40-product sample at a polite pace, robots.txt obeyed |
 | **The fourth competitor's URL ("Cmart")** | Never supplied; never guessed | — |
 | A place to run it, and its cost | No production deployment is authorised or exists; nothing has been purchased | A server with PostgreSQL 18, a worker process, TLS, optionally Chrome behind an egress firewall; [deployment.md](deployment.md) |
 | Shopify app credentials + merchant authorisation | Exact own-shop stock counts | `SHOPIFY_CLIENT_ID/SECRET/REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY` |
@@ -91,6 +91,6 @@ No credential has been requested beyond the Gmail details, because no other inte
 
 ## The precise next step
 
-1. Open `.env` in a text editor and fill `SMTP_USER` (your Gmail address) and `SMTP_PASSWORD` (a Google App Password — instructions in [integrations.md](integrations.md#email)); delete or empty the placeholder `EMAIL_FROM`. **Type the password yourself; do not send it to me.** Tell me when it is saved (and your Gmail address if you like).
-2. Send me the **first real website pair** (your own shop and one competitor).
-3. I will then run `npm run email:check`, the registration → verification → reset checks against your inbox, and the live collection and comparison — and report exactly which of those ran.
+1. Look in your Gmail inbox (and spam) for the test message and the "Verify your email address" message sent on 2026-10-19; tell me whether they arrived. Then revoke the App Password you pasted into chat and, if you keep using Gmail, create a new one and type it into `.env` yourself.
+2. Give the go-ahead (or other addresses) for the **first real website pair**.
+3. I will then run the live collection and comparison — and report exactly which parts ran.

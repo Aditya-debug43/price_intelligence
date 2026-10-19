@@ -327,3 +327,12 @@ Also done:
 Results at the end of this phase: typecheck clean; lint 0 errors (2 intentional `any` warnings); `npx vitest run` all passing (see `docs/verification-report.md` for counts); production bundles rebuilt and grepped — no fixture traces; live procedure 9/9.
 
 Commits: `2a1ad8e` (code, tests, scripts), followed by the documentation commit.
+
+## 2026-10-19 — Gmail configured by the owner; first real SMTP messages
+
+* The owner pasted the sender address and a Google App Password into chat (the directive had preferred typing it into `.env`) and asked me to proceed alone because they were busy. I wrote `SMTP_HOST/PORT/USER/PASSWORD` and `EMAIL_FROM` into the local git-ignored `.env` with a script that printed no values, deleted the script, and have not written the password anywhere else (repo, docs, tests, logs, memory). I told the owner it is now in the conversation record and should be revoked and rotated.
+* `npm run email:check`: connected over STARTTLS and signed in. `npm run email:check -- <owner address>`: Gmail answered `250 2.0.0 OK`; Message-ID recorded. Starting the dev stack again showed `/meta.emailConfigured: true`.
+* Registered a throwaway account through the real UI (`/register`) with a plus-address alias of the owner's address and a test password: the page changed to "Check your email"; the outbox row went `queued → sent` (attempts 1, Message-ID and `250 2.0.0 OK` stored). The account is unverified; I did not read the owner's inbox and did not use the outbox body to verify it.
+* Not done: confirming arrival in the inbox (only the owner can), the verification link, a reset email through Gmail.
+* **Website pair — deliberately not collected.** The owner replied "skip taking details for now, do it yourself". The original brief names `groceriestogoaruba.com` (source) and `shop.lingandsons.com`, `shop.superfoodaruba.com`, `doit.aw` (candidates) and says permission to collect from them "has not been confirmed"; the collection-rules step is the customer's own attestation. A request to proceed without details is not that confirmation, so no real shop was collected. One line from the owner ("yes, collect a small sample from groceriestogoaruba.com and shop.lingandsons.com") unlocks `LIVE_SOURCE_URL=… LIVE_COMPETITOR_URLS=… npm run test:live`.
+* The dev stack and embedded database were stopped afterwards (the scheduled "Audit Co" workspace would otherwise have tried to email its daily report to `.test` addresses through the real Gmail account and caused bounces).
