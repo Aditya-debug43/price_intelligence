@@ -358,11 +358,12 @@ Verbatim: `docs/original-prompt/04_DIRECTIVE_REAL_DATA_THEN_DEPLOY_2026-10-19.md
 * Full suite after the first batch of fixes: 48 files, 796 tests passed. **Final run on the code that was pushed (after the vintage-year rule and the static-caching fix): typecheck clean, lint 0 errors / 2 intentional warnings, build succeeds, 48 files, 798 tests passed.**
 * Docs rewritten: `verification-report.md` (real-data audit section), `REQUIREMENTS_MATRIX.md` (rows D6, D13, D14 + Part 16), `PRODUCTION_READINESS.md`, `limitations.md`, `integrations.md`, `deployment.md`, `PROJECT_CONTEXT.md` (Update 4).
 
-## Phase 2 — GitHub (see the section appended below once the push is done)
+## Phase 2 — GitHub (done 2026-10-19)
 
 * Remote `origin` = `https://github.com/Aditya-debug43/price_intelligence.git`; `origin/main` was still `2574a4a` (no newer remote work); local `main` 8 commits ahead, 0 behind → a fast-forward push is possible. A local-only branch `full-history` (separate root, older history containing a credential-shaped fake token) is **not** pushed.
 * Secret/personal-data scan of tracked files and of every pending commit: no `.env`, keys, tokens, App Password or the owner's Gmail address; only `.env.example` is tracked.
-* The repository holds the whole monorepo including the web source; there is no hosting workflow (no Pages, no deploy action).
+* **Pushed:** fast-forward `2574a4a..56e5094` of `main` (no force; 0 commits behind) after typecheck, lint, build and the full suite (798 tests) passed on the same code. Confirmed through the public GitHub API: latest commits are the two audit commits, `apps/web/src/pages` is present, `.env` is absent, `.env.example` present.
+* The repository holds the whole monorepo including the web source; GitHub state before the push: public repo, one branch (`main`, one old commit from 2026-10-16 that still contained the demo), **no GitHub Pages site (404), no workflows**. The frontend is therefore *stored* on GitHub, not *hosted* from it.
 
 ## Phase 3/4 — AWS and the deployed journey — blocked
 
