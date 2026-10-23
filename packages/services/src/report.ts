@@ -125,8 +125,11 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
 
   // ── warnings & partial status
   const warnings: string[] = [];
-  const collecting = activeCoverage.filter((c) => siteRows.find((s) => s.id === c.siteId)?.consentStatus === 'confirmed');
-  const incomplete = collecting.filter((c) => !c.complete);
+  // Every active COMPETITOR must be complete for the report to be called complete: a competitor that was never collected (collection rules not
+  // confirmed, terms forbid it, blocked) is missing from the comparison, and a report without it must say so. The customer's own website counts
+  // once its collection is confirmed.
+  const expected = activeCoverage.filter((c) => c.role === 'competitor' || siteRows.find((s) => s.id === c.siteId)?.consentStatus === 'confirmed');
+  const incomplete = expected.filter((c) => !c.complete);
   for (const c of activeCoverage) {
     if (c.failureReason) warnings.push(`${c.name}: ${c.failureReason}`);
     for (const w of c.warnings) warnings.push(`${c.name}: ${w}`);

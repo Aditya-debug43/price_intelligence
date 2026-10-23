@@ -63,6 +63,26 @@ export interface SampledProduct {
   method: string | null;
 }
 
+/** What a website's terms of use say about automated access and copying (a screening aid, not legal advice). "not_found" = no readable terms page, which is never read as permission. */
+export type TermsLevel = 'prohibits_automation' | 'restricts_copying' | 'none_found' | 'not_found';
+export interface TermsClause {
+  kind: 'automation' | 'copying';
+  text: string;
+}
+export interface TermsPageReview {
+  url: string;
+  level: Exclude<TermsLevel, 'not_found'>;
+  clauses: TermsClause[];
+}
+export interface TermsReview {
+  level: TermsLevel;
+  /** When the pages were read (ISO time). */
+  checkedAt: string;
+  pages: TermsPageReview[];
+  /** True when the customer had recorded the owner's written permission when this review was made. */
+  permissionRecorded: boolean;
+}
+
 export interface SiteProfileData {
   status: CapabilityStatus;
   /** One or two plain-language sentences. */
@@ -125,6 +145,8 @@ export interface SiteProfileData {
     maxRequestsPerRun: number;
     notes: string;
   };
+  /** The terms-of-use review. Absent in profiles made before it existed (those are re-profiled before the next collection). */
+  terms?: TermsReview;
   sampledProducts: SampledProduct[];
   limitations: ProfileLimitation[];
   conflicts: string[];

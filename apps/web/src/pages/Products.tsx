@@ -5,8 +5,10 @@ import { formatDateTime, formatMoney } from '@ci/shared';
 import { api, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { Age, ArrowIcon, Card, DataState, EmptyState, PageHead, Pager, ProvenancePill, useToast } from '../ui';
+import { UncollectedList, useCollectedCompetitors, useUncollected } from '../uncollected';
 
 interface ProductRow { variantId: string; productId: string; siteId: string; siteName: string; role: string; title: string; variantTitle: string | null; brand: string | null; category: string | null; price: number | null; compareAt: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; sku: string | null; gtin: string | null; sizeLabel: string | null; method: string; firstSeenAt: string; stale: boolean; }
+
 
 export function ProductsPage() {
   const { orgId } = useOrg();
@@ -25,6 +27,8 @@ export function ProductsPage() {
   const params = { siteId: get('siteId'), q: get('q'), matched: get('matched'), stale: get('stale'), delisted: get('delisted'), page, pageSize: 40 };
   const sites = useOrgQuery<{ sites: { id: string; name: string; role: string }[] }>('site-names', '/site-names');
   const q = useOrgQuery<{ rows: ProductRow[]; total: number }>(['products', params], `/products${qs(params)}`, { placeholderData: (p) => p });
+  const unreadSite = useUncollected(params.siteId || undefined);
+  const onlyThisSite = !!params.siteId && !params.q && !params.matched && !params.stale && !params.delisted;
   return (
     <>
       <PageHead eyebrow="Market" title="Products" subtitle="Everything collected from your website and your competitors, with the last time each price was seen." />
@@ -35,7 +39,7 @@ export function ProductsPage() {
         <div className="field"><label htmlFor="p-f">Freshness</label><select id="p-f" value={params.stale} onChange={(e) => set({ stale: e.target.value })}><option value="">Any</option><option value="true">Stale only</option></select></div>
         <div className="field"><label htmlFor="p-d">Listing</label><select id="p-d" value={params.delisted} onChange={(e) => set({ delisted: e.target.value })}><option value="">Currently listed</option><option value="true">Apparently delisted</option></select></div>
       </div>
-      <DataState q={q} isEmpty={(d) => d.total === 0} empty={<Card><EmptyState title="No products found">Collect a website from the Websites page, or relax the filters.</EmptyState></Card>}>
+      <DataState q={q} isEmpty={(d) => d.total === 0} empty={<Card>{onlyThisSite && unreadSite.length ? <EmptyState title={`${unreadSite[0]!.name} has not been collected`}>{unreadSite[0]!.status!.detail}<UncollectedList sites={unreadSite} orgId={orgId} /></EmptyState> : <EmptyState title="No products found">Collect a website from the Websites page, or relax the filters.</EmptyState>}</Card>}>
         {(d) => (
           <Card pad={false}>
             <div className="table-wrap">
@@ -84,6 +88,18 @@ export function ProductDetailPage() {
     <DataState q={q}>
       {(d) => <Body d={d} orgId={orgId} isAdmin={isAdmin} thr={thr} setThr={setThr} onSave={(variantId, threshold) => setThreshold.mutate({ variantId, threshold })} />}
     </DataState>
+  );
+}
+
+function NoMatches({ orgId }: { orgId: string }) {
+  const unread = useUncollected();
+  const read = useCollectedCompetitors();
+  return (
+    <EmptyState title="No matches">
+      {read.length ? `No equivalent product was found in the competitor websites that were collected (${read.map((c) => c.name).join(', ')}).` : 'No competitor website has been collected yet, so no equivalent could be looked for.'}
+      {unread.length > 0 && <> These websites were <b>not</b> looked at, so this says nothing about them:</>}
+      <UncollectedList sites={unread} orgId={orgId} />
+    </EmptyState>
   );
 }
 
@@ -151,7 +167,7 @@ function Body({ d, orgId, isAdmin, thr, setThr, onSave }: { d: Detail; orgId: st
 
         <div className="grid2">
           <Card title="Matches" pad={false}>
-            {d.matches.length === 0 ? <div className="card-b"><EmptyState title="No matches">No equivalent product was found at the other websites yet.</EmptyState></div> : (
+            {d.matches.length === 0 ? <div className="card-b"><NoMatches orgId={orgId} /></div> : (
               <table className="table"><thead className="sr-only"><tr><th>Equivalent product</th><th>Match</th></tr></thead><tbody>{d.matches.map((m) => (
                 <tr key={m.id}>
                   <td>

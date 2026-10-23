@@ -38,6 +38,11 @@ export interface SiteItem {
   active: boolean;
   consentStatus: 'pending' | 'confirmed' | 'revoked';
   consentAt: string | null;
+  /** The owner's written permission is recorded (needed when the website's terms forbid automated access). */
+  writtenPermission: boolean;
+  /** What the website's terms of use say about automated access, from its latest check; null = not checked yet. */
+  termsLevel: 'prohibits_automation' | 'restricts_copying' | 'none_found' | 'not_found' | null;
+  termsClause: { text: string; url: string } | null;
   platform: string | null;
   currency: string | null;
   currencySource: 'detected' | 'user';

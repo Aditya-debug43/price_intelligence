@@ -299,3 +299,20 @@ describe('retention', () => {
     expect(await db().select().from(scanRuns).where(and(eq(scanRuns.orgId, t.orgId), eq(scanRuns.status, 'running')))).toHaveLength(0);
   });
 });
+
+describe('a competitor that was never collected', () => {
+  it('makes the report partial — a report without a configured competitor is not "complete" — and says why', async () => {
+    const t2 = await h.newTenant('NeverCollected');
+    const own = await t2.addFixtureSite('source', 'source');
+    await t2.addFixtureSite('woo', 'competitor', false); // its collection rules were never confirmed, so nothing was collected from it
+    await t2.tx((tx) => startScan(h.svc, tx, t2.orgId, own, { kind: 'discovery', trigger: 'manual' }));
+    await h.queue.drain();
+    const r = await generateReport(h.svc, db(), t2.orgId, { kind: 'manual', deadlineAt: null, createdBy: t2.userId });
+    const d = r.data as ReportData;
+    expect(d.meta.isPartial).toBe(true);
+    expect(r.status).toBe('partial');
+    expect(d.headline).toMatch(/^Partial report/);
+    expect(d.warnings.join(' ')).toMatch(/collection rules for this website are not confirmed/);
+    expect(d.kpis.competitorProducts).toBe(0);
+  });
+});

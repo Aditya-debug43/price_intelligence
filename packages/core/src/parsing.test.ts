@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { discountPct, fromMinorUnits, parseMachinePrice, parsePrice } from './price.ts';
 import { isValidGtin, normalizeGtin } from './gtin.ts';
-import { compareQuantities, parseQuantity, reinterpretOzForBeverage, unitPrice } from './quantity.ts';
+import { compareQuantities, parseQuantity, reinterpretOzForBeverage, sizeFromTags, sizeHintOf, unitPrice } from './quantity.ts';
 import { coreNameTokens, normalizeText, nameSimilarity } from './text.ts';
 import { FxTable, buildPriceView, isStale, pegRates } from './currency.ts';
 
@@ -96,6 +96,82 @@ describe('pack notations seen on real grocery shops', () => {
     expect(q.kind).toBe('volume');
     expect(q.total).toBeCloseTo(591.47, 1);
     expect(compareQuantities(q, reinterpretOzForBeverage(parseQuantity('Pepsi 20 oz'), 'Pepsi 20 oz Soda'))).toBe('same_total');
+  });
+
+  describe('a size kept in the shop’s own tags (real tags from the audited own shop, whose titles state no size)', () => {
+    it.each([
+      [['Deli', 'Size_9oz'], '9oz', 255.15],
+      [['Grocery', 'Meat', 'Size_1kg'], '1kg', 1000],
+      [['Chips', 'munchies', 'popular', 'Shop Now', 'Size_1.41oz', 'Snacks', 'weekly sale'], '1.41oz', 39.97],
+      [['Dairy', 'Milk', 'popular', 'Size_64oz'], '64oz', null],
+      [['Household', 'Size: 64 oz'], '64 oz', null],
+    ] as const)('%j → %s', (tags, hint, grams) => {
+      expect(sizeFromTags(tags)).toBe(hint);
+      if (grams !== null) expect(parseQuantity('Hillshire Farm Ultra Thin Chicken Breast', null, hint).total).toBeCloseTo(grams, 1);
+    });
+    it('a decimal written without a leading zero is a size (".87 oz", ".5 gal", "Size_.65oz")', () => {
+      expect(parseQuantity('McCormick Garlic Butter Shrimp Scampi Seasoning Mix, .87 oz').total).toBeCloseTo(24.66, 1);
+      expect(parseQuantity("Dean's Dairy Pure 1% Low-Fat Milk, .5 gal").total).toBeCloseTo(1892.7, 0);
+      expect(parseQuantity('McCormick Gourmet Herbes', null, sizeFromTags(['Grocery', 'Size_.65oz'])).total).toBeCloseTo(18.43, 1);
+      expect(parseQuantity('Silk Almond Light Almondmilk Vanilla', null, sizeFromTags(['Size_.5gal'])).total).toBeCloseTo(1892.7, 0);
+      // ordinary decimals and "1.5L" are unchanged; "Size_0" is no size
+      expect(parseQuantity('Cola 1.5L').total).toBe(1500);
+      expect(parseQuantity('Cola 2,5 L').total).toBe(2500);
+      expect(sizeFromTags(['Size_0'])).toBe('0');
+      expect(parseQuantity('Gem Vleugels/Wings', null, '0').total).toBeNull();
+    });
+
+    it('a data-entry slip in a tag ("Size_6425.36oz" on a carton of milk) is not used as a size', () => {
+      expect(sizeFromTags(['Dairy', 'Milk', 'Size_6425.36oz'])).toBeNull();
+      expect(sizeFromTags(['Size_64oz'])).toBe('64oz'); // an ordinary size is untouched
+      expect(sizeFromTags(['Size_2.72kg'])).toBe('2.72kg');
+    });
+
+    it('the weight a nappy fits ("(15 34 Lbs)", "(22 37 Lbs (10 17 Kg))") is the baby’s, not the pack’s: it is not read as a size', () => {
+      const a = parseQuantity('Pampers Baby Dry Ultra Cushiony Diapers, Size 4 (15 34 Lbs), 28 count');
+      expect(a).toMatchObject({ kind: 'count', packCount: 28, total: 28 });
+      const b = parseQuantity('Huggies Disney Pixar Finding Nemo Disposable Size 4 Swim Pants (22 37 Lbs (10 17 Kg)) 11 Ea, 11 pc');
+      expect(b).toMatchObject({ kind: 'count', packCount: 11 });
+      expect(parseQuantity('Rice (Basmati) 2 lb').total).toBeCloseTo(907.18, 1); // brackets that are not weight ranges are left alone
+    });
+
+    it('a two-part size is kept whole, and tags that are not sizes give nothing', () => {
+      expect(sizeFromTags(['Bowls Cups Plates', 'Size_20ct 16oz'])).toBe('20ct 16oz');
+      expect(parseQuantity('Dixie Plastic Cups', null, '20ct 16oz').packCount).toBe(20);
+      for (const tags of [[], ['weekly sale', 'popular'], ['Sizes', 'size guide', 'Size_Large'], 'Size_9oz', null]) expect(sizeFromTags(tags)).toBeNull();
+    });
+    it('the title still wins when it states a size; an explicit size attribute wins over a tag', () => {
+      expect(parseQuantity('Pringles Original 5.9oz', null, '1.41oz').total).toBeCloseTo(167.26, 1);
+      expect(sizeHintOf({ size: '12 oz', tags: ['Size_9oz'] })).toBe('12 oz');
+      expect(sizeHintOf({ tags: ['Size_9oz'] })).toBe('9oz');
+      expect(sizeHintOf({})).toBeNull();
+    });
+  });
+
+  describe('plain "oz" stays weight for dry or solid products that merely mention a drink word (real titles from the audited shops)', () => {
+    const kind = (title: string, context = '') => reinterpretOzForBeverage(parseQuantity(title), `${title} ${context}`).kind;
+    it.each([
+      ["Hershey's Milk Chocolate Extra Large Bar 4.4oz", ''],
+      ["M&M'S Chocolate Candies Milk Chocolate 11oz", 'Candy'],
+      ["Dunkin' Donuts Dunkin' Dark Dark Roast Ground Coffee 11oz", 'Beverages Coffee'],
+      ['Starbucks Ground Coffee Breakfast Blend Medium 12oz', 'Beverages'],
+      ['Lavazza Espresso Decaf 8.8oz', 'Beverages Coffee'], // the shop files coffee under "Beverages"; the pack is beans or grounds
+      ['Nestea Iced Tea Mix Lemon 45oz', 'Beverages'],
+      ['Bumble Bee Chunk Light Tuna In Water 5oz', ''],
+      ['Dole Pineapple Chunks In 100% Fruit Juice 20oz', 'Beverages Juice'],
+    ] as const)('%s → weight', (title, ctx) => expect(kind(title, ctx)).toBe('mass'));
+
+    it.each([
+      ["Dean's Dairy Pure 2% Reduced Fat Milk 32oz", ''],
+      ['Arizona Green Tea With Ginseng And Honey 23oz', ''],
+      ['Starbucks Frappuccino Coffee Drink 9.5oz', ''],
+      ['Dunkin Iced Coffee Mocha 13.7oz', ''],
+      ['International Delight Gourmet Coffee Creamer French Vanilla 32oz', ''],
+      ['Mr & Mrs T Pina Colada Mix 33oz', 'Beverages Mixers'], // a bottled cocktail mixer is a liquid; a powder "drink mix" is not
+      ["Daily's Margarita Mix 32oz", 'Beverages'],
+      ['Hershey Chocolate Milk 14oz', ''],
+      ['Pepsi 20oz', 'Beverages Soft Drinks'],
+    ] as const)('%s → fluid ounces', (title, ctx) => expect(kind(title, ctx)).toBe('volume'));
   });
 });
 

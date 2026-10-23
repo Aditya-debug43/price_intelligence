@@ -226,6 +226,9 @@ details.ev ul { margin: 6px 0 0; padding-left: 18px; }
 blockquote.snippet { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--line); background: var(--wash, rgba(0,0,0,.03)); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .empty { text-align: center; padding: 34px 20px; color: var(--mute); }
 .empty h3 { color: var(--ink); margin-bottom: 6px; }
+/* a block (not a paragraph) so a list can sit inside it */
+.empty .empty-body { margin: 0 0 10px; }
+.empty .empty-body ul { text-align: left; display: inline-block; }
 .empty .btn { margin-top: 10px; }
 .skel { background: linear-gradient(90deg, #e9efed 25%, #f4f7f6 37%, #e9efed 63%); background-size: 400% 100%; animation: sh 1.3s ease infinite; border-radius: 4px; }
 @keyframes sh { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }

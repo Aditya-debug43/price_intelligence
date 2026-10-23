@@ -391,7 +391,9 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     // ── capability profile (reuse a fresh one)
     let [prof] = await svc.db.select().from(siteProfiles).where(eq(siteProfiles.siteId, site.id)).orderBy(desc(siteProfiles.createdAt)).limit(1);
     const age = prof ? now.getTime() - prof.createdAt.getTime() : Infinity;
-    if (!prof || age > PROFILE_MAX_AGE_MS || ((prof.status === 'failed' || prof.status === 'blocked') && age > FAILED_PROFILE_RETRY_MS)) {
+    // A profile made before the terms-of-use review existed, or before the customer recorded (or withdrew) written permission, is out of date.
+    const termsStale = !!prof && (!prof.data.terms || prof.data.terms.permissionRecorded !== site.writtenPermission);
+    if (!prof || termsStale || age > PROFILE_MAX_AGE_MS || ((prof.status === 'failed' || prof.status === 'blocked') && age > FAILED_PROFILE_RETRY_MS)) {
       await runProfile(svc, site.orgId, site.id);
       [prof] = await svc.db.select().from(siteProfiles).where(eq(siteProfiles.siteId, site.id)).orderBy(desc(siteProfiles.createdAt)).limit(1);
       const [fresh] = await svc.db.select().from(sites).where(eq(sites.id, site.id));

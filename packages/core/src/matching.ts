@@ -4,6 +4,7 @@ import {
   compareQuantities,
   parseQuantity,
   reinterpretOzForBeverage,
+  stripQuantityText,
   type ParsedQuantity,
   type QuantityRelation,
 } from './quantity.ts';
@@ -168,6 +169,25 @@ export function variantDifference(a: string[], b: string[]): string[] {
 const YEAR_RE = /(?<![\d.,$#-])(19[5-9]\d|20[0-3]\d)(?!\d)(?![.,]\d)(?!\s*(?:mg|mcg|g|kg|ml|cl|l|oz|lbs?|ct|count|pk|pack|iu|w|watts?|cal|kcal|sheets?|ft|in|cm|mm|pcs|pieces?|%)\b)/gi;
 export const yearsIn = (title: string): string[] => [...new Set([...title.matchAll(YEAR_RE)].map((m) => m[1]!))].sort();
 
+/**
+ * Numbers of three or four digits that belong to a product's name ("Jose Cuervo 1800 Silver", "100% Juice") — not a size, a pack count or a year.
+ * A number in one name that appears nowhere in the other ("1800 Silver" vs "Silver") usually marks a different product line.
+ */
+export function modelNumbersIn(title: string): string[] {
+  const stripped = stripQuantityText(title);
+  return [...new Set([...stripped.matchAll(/(?<![\d.,$#-])(\d{3,4})(?!\d)(?![.,]\d)/g)].map((m) => m[1]!))].filter((n) => Number(n) < 1950 || Number(n) > 2039).sort();
+}
+const digitRuns = (t: string) => new Set(t.match(/\d+/g) ?? []);
+
+/**
+ * Small numbers that carry a label and so identify the product: "Size 4" nappies, "Stage 2" baby food, "Step 3", "No. 5", "#2". Bare digits are
+ * ignored when names are compared, which would make "Size 4" and "Size 5" look identical.
+ */
+const LABELLED_NUMBER = /\b(size|stage|step|level|grade|no|nr|number)\.?\s*#?\s*(\d{1,2})\b|#\s?(\d{1,2})\b/gi;
+export function labelledNumbersIn(title: string): string[] {
+  return [...new Set([...title.matchAll(LABELLED_NUMBER)].map((m) => `${(m[1] ?? '#').toLowerCase()} ${m[2] ?? m[3]}`))].sort();
+}
+
 const packOf = (q: { packCount: number | null }) => q.packCount ?? 1;
 
 /**
@@ -178,7 +198,8 @@ const packOf = (q: { packCount: number | null }) => q.packCount ?? 1;
  */
 export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidate | null {
   const m = scorePairCore(a, b);
-  if (!m || m.matchClass !== 'identical' || m.method === 'gtin' || m.method === 'brand_model') return m;
+  // a name-based "identical" or "same product, other size" is only as good as the names: the checks below can send it back to a proposal
+  if (!m || (m.matchClass !== 'identical' && m.matchClass !== 'different_pack') || m.method === 'gtin' || m.method === 'brand_model') return m;
   const diff = variantDifference(a.core, b.core);
   if (diff.length) {
     return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `The names differ in a variety or flavour (${diff.join(', ')}), so these may be different products`] };
@@ -188,8 +209,17 @@ export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidat
     const years = [...new Set([...ya, ...yb])].join(', ');
     return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `One name gives a year (${years}) that the other does not, so these may be different vintages or editions`] };
   }
-  if (packOf(a.qty) !== packOf(b.qty)) {
+  if (m.matchClass === 'identical' && packOf(a.qty) !== packOf(b.qty)) {
     return { ...m, matchClass: 'different_pack', status: 'needs_review', confidence: Math.min(m.confidence, 0.7), reasons: [...m.reasons, `The total is the same but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`] };
+  }
+  const lone = [...modelNumbersIn(a.fullTitle).filter((n) => !digitRuns(b.fullTitle).has(n)), ...modelNumbersIn(b.fullTitle).filter((n) => !digitRuns(a.fullTitle).has(n))];
+  if (lone.length) {
+    return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `One name has the number ${[...new Set(lone)].join(', ')} that the other does not (a model or product-line number?), so these may be different products`] };
+  }
+  const [la, lb] = [labelledNumbersIn(a.fullTitle), labelledNumbersIn(b.fullTitle)];
+  if (la.join() !== lb.join()) {
+    const differing = [...new Set([...la, ...lb])].filter((x) => !(la.includes(x) && lb.includes(x)));
+    return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `The names differ in a numbered size or stage (${differing.join(' / ')}), so these may be different products`] };
   }
   return m;
 }
@@ -365,6 +395,11 @@ function scorePairCore(a: PreparedVariant, b: PreparedVariant): MatchCandidate |
     ) {
       reasons.push(`Names agree and one item is the same size, but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`, `Name similarity ${r2(sim)}`);
       return { ...base, matchClass: 'different_pack', confidence: r2(Math.min(0.7, 0.4 + 0.35 * sim)), status: 'needs_review', method: 'name_similarity', reasons, components: comps() };
+    }
+    // the same product in another size ("Almond Breeze Vanilla 32 oz" and "… 64 fl oz"): the original brief's "same product, different pack size", compared per unit
+    if (sim >= 0.9 && qtyRel === 'different_total' && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
+      reasons.push(`Names agree but the size differs (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`, `Name similarity ${r2(sim)}`);
+      return { ...base, matchClass: 'different_pack', confidence: r2(Math.min(0.65, 0.35 + 0.3 * sim)), status: 'needs_review', method: 'name_similarity', reasons, components: comps() };
     }
     if (sim >= 0.7 && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
       reasons.push(!a.brandKey && !b.brandKey ? `Similar product, no brand named on either (name similarity ${r2(sim)})` : `Similar product, brand unknown on one side (name similarity ${r2(sim)})`);

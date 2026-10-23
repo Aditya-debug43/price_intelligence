@@ -14,6 +14,8 @@ export interface SiteStatusInput {
   lastRun: { status: ScanStatus; isComplete: boolean; kind: string; errorCode?: string | null; error?: string | null } | null;
   /** A collection run is queued or running right now. */
   collecting: boolean;
+  /** The website's terms of use forbid automated access and no written permission is recorded. */
+  termsForbid?: boolean;
   collectingProgress?: { saved: number; estimated: number | null } | null;
   newestObservationAt: Date | null;
   now: Date;
@@ -36,6 +38,9 @@ export function deriveSiteStatus(i: SiteStatusInput): SiteStatus {
     return make('collecting', 'info', `Collection is running right now.${progress}`);
   }
   if (i.capability === null) return make('not_profiled', 'info', 'We have not yet checked what can be collected from this website.', 'Check this website');
+  if (i.capability === 'blocked' && i.termsForbid) {
+    return { ...make('access_denied', 'bad', 'The website’s terms of use forbid automated access, so nothing was collected and no product pages were read. We do not collect from it unless you record the owner’s written permission.', 'Record the owner’s written permission, or remove this competitor'), label: 'Terms forbid collection' };
+  }
   if (i.capability === 'blocked') {
     return make('access_denied', 'bad', 'The website does not allow automated collection (robots.txt, a login, or bot protection). Nothing was collected, and we will not work around it.', 'Ask the owner for a product feed, or remove this competitor');
   }

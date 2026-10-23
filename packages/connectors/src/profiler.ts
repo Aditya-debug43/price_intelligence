@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { canonicalizeUrl, normalizeSiteUrl, parseQuantity, PROMO_KEYWORDS, UrlValidationError } from '@ci/core';
+import { canonicalizeUrl, combineTermsReviews, leadingClause, normalizeSiteUrl, isPromotionalText, parseQuantity, reviewTermsText, UrlValidationError } from '@ci/core';
 import type {
   CapabilityStatus,
   FieldCapability,
@@ -9,6 +9,9 @@ import type {
   PublicApiProbe,
   SampledProduct,
   SiteProfileData,
+  SiteRole,
+  TermsPageReview,
+  TermsReview,
 } from '@ci/shared';
 import { AccessDeniedError, FetchError, type SafeFetcher } from './safe-fetch.ts';
 import { detectChallenge, detectLoginWall } from './challenge.ts';
@@ -26,6 +29,57 @@ export interface ProfilerOptions {
   defaultMaxRequests: number;
   maxSampleProducts?: number;
   now?: () => Date;
+  /** The customer's own website is never blocked by its own terms; a competitor whose terms forbid automation is blocked unless permission is recorded. */
+  siteRole?: SiteRole;
+  /** The customer recorded that the website's owner gave written permission for automated collection. */
+  writtenPermission?: boolean;
+}
+
+const TERMS_LABEL = /terms|conditions of use|user agreement|\btos\b/i;
+const TERMS_PATHS = ['/policies/terms-of-service', '/terms-of-service', '/terms-and-conditions', '/terms-of-use', '/terms'];
+
+function textOfHtml(html: string): string {
+  const $ = cheerio.load(html);
+  $('script, style, noscript, template').remove();
+  return $.root().text().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Reads the website's terms-of-use page(s) — the footer link first, then the usual paths — and screens them for clauses about automated access
+ * and copying. At most two pages and four requests; every request goes through the same robots-aware, rate-limited fetcher.
+ */
+async function reviewSiteTerms($: cheerio.CheerioAPI, pageUrl: string, origin: string, fetcher: SafeFetcher, permissionRecorded: boolean, now: Date): Promise<TermsReview> {
+  const host = new URL(origin).hostname;
+  const linked: string[] = [];
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href') ?? '';
+    const label = $(el).text().replace(/\s+/g, ' ').trim();
+    if (!TERMS_LABEL.test(label) && !/terms/i.test(href)) return;
+    try {
+      const u = new URL(href, pageUrl);
+      u.hash = '';
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname === host) linked.push(u.href);
+    } catch {
+      /* not a usable link */
+    }
+  });
+  const tried = new Set<string>();
+  const queue = [...new Set(linked)].slice(0, 2).concat(linked.length ? [] : TERMS_PATHS.map((p) => origin + p));
+  const pages: TermsPageReview[] = [];
+  for (const url of queue) {
+    if (pages.length >= 2 || tried.size >= 4) break;
+    tried.add(url);
+    try {
+      const r = await fetcher.fetch(url, { kind: 'html', allowCrossHostRedirect: false });
+      if (r.status !== 200) continue;
+      const text = textOfHtml(r.text());
+      if (text.length < 400) continue;
+      pages.push(reviewTermsText(r.url, text));
+    } catch {
+      /* a page that cannot be read (robots, error, size) is simply not part of the review */
+    }
+  }
+  return combineTermsReviews(pages, now.toISOString(), permissionRecorded);
 }
 
 // ─────────────────────────────────────────────────────────── platform fingerprint
@@ -93,7 +147,7 @@ export function findPromotions($: cheerio.CheerioAPI, origin: string): SiteProfi
   const sel = '[class*="announcement"], [id*="announcement"], [class*="promo"], [class*="topbar"], [class*="top-bar"], [class*="marquee"], [class*="ticker"], [class*="notice"], [class*="banner"], [role="alert"]';
   $(sel).each((_, el) => {
     const t = $(el).clone().find('script,style,noscript').remove().end().text().replace(/\s+/g, ' ').trim();
-    if (t.length >= 8 && t.length <= 220 && PROMO_KEYWORDS.test(t)) banners.add(t);
+    if (t.length >= 8 && t.length <= 220 && isPromotionalText(t)) banners.add(t);
   });
   const sale = new Set<string>();
   const flyers = new Set<string>();
@@ -316,6 +370,28 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   profile.rendering = { requiresJavaScript: js.rendered, evidence: js.evidence };
 
   const origin = profile.site.origin!;
+
+  // ── 2b. the website's terms of use (before any catalogue is probed)
+  const permission = !!opts.writtenPermission;
+  profile.terms = await reviewSiteTerms($, profile.site.finalUrl ?? `${origin}/`, origin, fetcher, permission, (opts.now ?? (() => new Date()))());
+  const quoted = leadingClause(profile.terms);
+  const quote = quoted ? ` (“${quoted.text.length > 240 ? `${quoted.text.slice(0, 239)}…` : quoted.text}” — ${quoted.url})` : '';
+  if (profile.terms.level === 'prohibits_automation') {
+    if (opts.siteRole === 'source') {
+      limit('terms_own_site', 'info', `This website’s own terms mention automated access${quote}. It is your website, so this does not stop the analysis.`);
+    } else if (permission) {
+      limit('terms_permission_recorded', 'info', `The website’s terms of use forbid automated access${quote}. You recorded that its owner gave written permission, so collection is allowed.`);
+    } else {
+      profile.access.barriers.push('The website’s terms of use forbid automated access');
+      limit('terms_prohibit_automation', 'blocking', `The website’s terms of use forbid automated access${quote}. Shelfwatch does not collect from a website whose terms forbid it unless you record that its owner has given you written permission.`);
+      return finishWith(profile, 'blocked', 'The website’s terms of use forbid automated collection. Nothing was collected, and no product pages were read. Record the owner’s written permission to continue, or replace this competitor.', started, fetcher, reqStart);
+    }
+  } else if (profile.terms.level === 'restricts_copying') {
+    limit('terms_restrict_copying', 'warning', `The website’s terms restrict copying or commercial use of its content without permission${quote}. Read them before you confirm the collection rules.`);
+  } else if (profile.terms.level === 'not_found') {
+    limit('terms_not_found', 'info', 'No terms-of-use page could be read, so the website’s terms were not checked. That is not permission.');
+  }
+
   // the page the customer pointed at is where the shop starts: read it too (it is allowed — checked above)
   let entryPage: { html: string; url: string } | null = null;
   if (entryUrl) {
@@ -419,7 +495,9 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
     const counted = d.sitemaps.filter((s) => s.kind !== 'index' && !s.failed && s.urlCount !== null && s.kind !== 'collections' && s.kind !== 'pages');
     const totalFromSitemaps = counted.reduce((a, s) => a + (s.urlCount ?? 0), 0);
     if (!apiTotal && totalFromSitemaps > 0) {
-      profile.catalogue.estimatedProducts = d.truncated ? Math.max(totalFromSitemaps, sitemapUrlsFound) : totalFromSitemaps;
+      // A sitemap can list the home page or other non-product pages (Shopify's first product sitemap does): when the product-looking URLs are nearly all of the entries, they are the better count.
+      const productLike = sitemapUrlsFound > 0 && sitemapUrlsFound >= totalFromSitemaps * 0.9 ? sitemapUrlsFound : totalFromSitemaps;
+      profile.catalogue.estimatedProducts = d.truncated ? Math.max(totalFromSitemaps, sitemapUrlsFound) : productLike;
       profile.catalogue.estimateBasis = `Sum of ${counted.length} product sitemap(s)${d.truncated ? ' (lower bound; sitemap reading was capped)' : ''}`;
     }
     if (d.warnings.length && !d.sitemaps.some((s) => !s.failed)) limit('no_sitemap', 'info', 'No usable sitemap was found, so products must be discovered by following links (less complete).');

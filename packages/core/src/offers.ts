@@ -148,6 +148,17 @@ const OFFER_PATTERNS: { kind: string; re: RegExp }[] = [
   { kind: 'time_limited', re: /\b(?:ends?\s+(?:today|tonight|soon|sunday|monday|tuesday|wednesday|thursday|friday|saturday)|limited\s+time|this\s+week\s+only|today\s+only|flash\s+sale|while\s+supplies\s+last)\b/i },
 ];
 
+/** Wording that advertises a price benefit. */
+const PROMO_STRONG = /\b(?:sale|deals?|specials|promos?|promotions?|discounts?|clearance|coupons?|flyers?|weekly\s+ad|folleto|ofertas?|aanbieding(?:en)?|korting|bogo|free\s+(?:shipping|delivery)|buy\s+\d+\s+get|save\s+(?:up\s+to\s+)?[$€£]?\d+|save\s+big|\d+\s?%\s?off|\d+\s+for\s+[$€£]?\d+)\b/i;
+/** "offer(s)" as a noun that means a promotion. The bare word is not enough: "We offer a pre-stocking service" is a service, not a promotion. */
+const PROMO_OFFER_NOUN = /\b(?:special|exclusive|weekly|daily|today'?s|great|best|limited(?:[- ]time)?|latest|current|new|hot|member|bank|payment)\s+offers?\b|\boffers?\s+(?:ends?|valid|expires?|of\s+the\s+(?:day|week|month))\b|\bspecial\s+price\b/i;
+
+/** Whether a banner / announcement text advertises a discount, sale, deal, coupon, free delivery or similar. */
+export function isPromotionalText(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ');
+  return PROMO_STRONG.test(t) || PROMO_OFFER_NOUN.test(t);
+}
+
 export const PROMO_KEYWORDS = /\b(?:sale|offer|offers|deal|deals|special|specials|promo|promotion|discount|clearance|save|% ?off|\d+\s?% ?off|weekly\s+ad|flyer|folleto|ofertas?|aanbieding(?:en)?|korting)\b/i;
 
 export interface BannerClassification {

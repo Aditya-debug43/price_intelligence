@@ -207,6 +207,7 @@ function ConsentBlock({ site, text, onOpen }: { site: SiteItem; text: SitesRespo
         {site.consentStatus === 'confirmed' ? <span className="pill good">Confirmed {formatDateTime(site.consentAt)}</span> : site.consentStatus === 'revoked' ? <span className="pill bad">Stopped</span> : <span className="pill warn">Not confirmed yet</span>}
       </div>
       <p className="small" style={{ margin: 0 }}>{site.role === 'source' ? text.source : text.competitor}</p>
+      <TermsNotice site={site} />
       <p className="small muted" style={{ margin: 0 }}>
         {site.role === 'source'
           ? 'This records that you are entitled to have this website analysed. Exact stock counts need a separate connection that the store itself authorises (Settings → Integrations).'
@@ -218,21 +219,48 @@ function ConsentBlock({ site, text, onOpen }: { site: SiteItem; text: SitesRespo
   );
 }
 
+/** What the website's own terms of use say about automated access, quoted from the page Shelfwatch read — or a plain statement that they were not read. */
+function TermsNotice({ site }: { site: SiteItem }) {
+  // the customer's own website: its own terms are the customer's business, so only an explicit mention of automation is worth a note
+  if (site.role === 'source' && site.termsLevel !== 'prohibits_automation') return null;
+  const quote = site.termsClause ? <blockquote className="small" style={{ margin: '4px 0 0', paddingLeft: 10, borderLeft: '3px solid var(--line, #ccc)' }}>“{site.termsClause.text}” <a href={site.termsClause.url} target="_blank" rel="noreferrer">read the page</a></blockquote> : null;
+  if (site.termsLevel === 'prohibits_automation') {
+    return (
+      <div className={`callout ${site.writtenPermission || site.role === 'source' ? 'info' : 'bad'}`} role="status">
+        <b>{site.role === 'source' ? 'This website’s own terms mention automated access.' : site.writtenPermission ? 'The terms forbid automated access — the owner’s written permission is recorded.' : 'The terms of use forbid automated access.'}</b>
+        {site.role !== 'source' && !site.writtenPermission && <> Shelfwatch collects from this website only with its owner’s written permission.</>}
+        {quote}
+      </div>
+    );
+  }
+  if (site.termsLevel === 'restricts_copying') {
+    return <div className="callout warn" role="status"><b>The terms restrict copying or commercial use of the site’s content without permission.</b> Read them before you confirm.{quote}</div>;
+  }
+  if (site.termsLevel === 'not_found') return <p className="small muted" style={{ margin: 0 }}>No terms-of-use page could be read, so the website’s terms were not checked. That is not permission.</p>;
+  if (site.termsLevel === 'none_found') return <p className="small muted" style={{ margin: 0 }}>The website’s terms of use were read and contain no clause about automated access or copying that Shelfwatch recognises. Read them yourself as well.</p>;
+  return <p className="small muted" style={{ margin: 0 }}>The website’s terms of use have not been checked yet — run “Check this website”.</p>;
+}
+
 function ConsentModal({ site, text, onClose }: { site: SiteItem; text: SitesResponse['consentText']; onClose: () => void }) {
   const [attest, setAttest] = useState(false);
+  const [permission, setPermission] = useState(false);
   const [note, setNote] = useState('');
   const withdraw = site.consentStatus === 'confirmed';
+  const needsPermission = !withdraw && site.role === 'competitor' && site.termsLevel === 'prohibits_automation';
   const toast = useToast();
-  const m = useOrgMutation((id, _: void) => api.post(orgPath(id, `/sites/${site.id}/consent`), { status: withdraw ? 'revoked' : 'confirmed', attest, note: note || undefined }), ['sites', 'dashboard'], () => {
+  const m = useOrgMutation((id, _: void) => api.post(orgPath(id, `/sites/${site.id}/consent`), { status: withdraw ? 'revoked' : 'confirmed', attest, writtenPermission: needsPermission ? permission : undefined, note: note || undefined }), ['sites', 'dashboard'], () => {
     toast.push(withdraw ? 'Collection stopped. Queued collections were cancelled.' : 'Confirmation recorded. You can start collecting.');
     onClose();
   });
+  const blocked = !withdraw && (!attest || (needsPermission && (!permission || note.trim().length < 10)));
   return (
-    <Modal title={withdraw ? 'Stop collecting from this website' : 'Confirm how this website is collected'} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className={`btn ${withdraw ? 'btn-danger' : 'btn-primary'}`} disabled={(!withdraw && !attest) || m.isPending} onClick={() => m.mutate(undefined)}>{withdraw ? 'Stop collecting' : 'Confirm and allow collection'}</button></>}>
+    <Modal title={withdraw ? 'Stop collecting from this website' : 'Confirm how this website is collected'} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className={`btn ${withdraw ? 'btn-danger' : 'btn-primary'}`} disabled={blocked || m.isPending} onClick={() => m.mutate(undefined)}>{withdraw ? 'Stop collecting' : 'Confirm and allow collection'}</button></>}>
       <div className="stack">
         <p>{withdraw ? `Collection from ${site.name} will stop and queued runs will be cancelled. Data already collected stays until you remove the website.` : (site.role === 'source' ? text.source : text.competitor)}</p>
+        {!withdraw && <TermsNotice site={site} />}
         {!withdraw && <label className="check"><input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} /><span>I confirm the statement above on behalf of my business.</span></label>}
-        <div className="field"><label htmlFor="cn">Note for your records (optional)</label><input id="cn" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. read the website’s terms of use on 18 Oct" /></div>
+        {needsPermission && <label className="check"><input type="checkbox" checked={permission} onChange={(e) => setPermission(e.target.checked)} /><span>The website’s owner has given me <b>written permission</b> to collect its pages automatically. I say below where that permission is kept.</span></label>}
+        <div className="field"><label htmlFor="cn">{needsPermission ? 'Where the written permission is kept (required)' : 'Note for your records (optional)'}</label><input id="cn" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={needsPermission ? 'e.g. email from the owner, 20 Oct 2026' : 'e.g. read the website’s terms of use on 18 Oct'} /></div>
         {m.error && <div className="callout bad" role="alert">{errorMessage(m.error)}</div>}
       </div>
     </Modal>
@@ -292,7 +320,7 @@ function ProfileBody({ siteId, p, site }: { siteId: string; p: NonNullable<Profi
         <Card title="Access" >
           <dl className="kv">
             <dt>robots.txt</dt><dd>{p.access.robots.fetched ? 'Read' : 'Not available'} (HTTP {p.access.robots.httpStatus ?? '—'}){p.access.robots.note && <div className="small muted">{p.access.robots.note}</div>}</dd>
-            <dt>Automated access</dt><dd>{p.access.robots.disallowsAll ? <b style={{ color: 'var(--coral)' }}>Not permitted</b> : 'Permitted for public pages'}{p.access.robots.crawlDelaySeconds ? ` · asks for ${p.access.robots.crawlDelaySeconds}s between requests` : ''}</dd>
+            <dt>Automated access</dt><dd>{p.access.robots.disallowsAll ? <b style={{ color: 'var(--coral)' }}>Not permitted</b> : p.terms?.level === 'prohibits_automation' && site.role === 'competitor' && !site.writtenPermission ? <><b style={{ color: 'var(--coral)' }}>Forbidden by the terms of use</b> <span className="small muted">(robots.txt itself does not disallow it)</span></> : 'robots.txt permits public pages'}{p.access.robots.crawlDelaySeconds ? ` · asks for ${p.access.robots.crawlDelaySeconds}s between requests` : ''}</dd>
             <dt>Login required</dt><dd>{p.access.loginRequired ? <b>Yes</b> : 'No'}</dd>
             <dt>Bot protection</dt><dd>{p.access.challengeDetected ? <b style={{ color: 'var(--coral)' }}>{p.access.challengeKind}</b> : 'None seen'}</dd>
             {p.access.barriers.length > 0 && (<><dt>Barriers</dt><dd>{p.access.barriers.join('; ')}</dd></>)}

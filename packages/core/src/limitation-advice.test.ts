@@ -22,7 +22,7 @@ describe('limitation advice', () => {
   });
 
   it('never suggests working around a refusal: every blocking limitation offers an authorised alternative or a wait', () => {
-    for (const code of ['robots_disallow', 'bot_protection', 'access_denied', 'login_required']) {
+    for (const code of ['robots_disallow', 'bot_protection', 'access_denied', 'login_required', 'terms_prohibit_automation']) {
       const a = adviceForLimitation(code)!;
       expect(a, code).toMatch(/owner|permission|authorised|feed|replace/i);
       expect(a, code).not.toMatch(/\b(bypass|circumvent|proxy|rotate|spoof|solve|captcha)\b/i);

@@ -1,0 +1,1 @@
+ALTER TABLE "sites" ADD COLUMN "written_permission" boolean DEFAULT false NOT NULL;

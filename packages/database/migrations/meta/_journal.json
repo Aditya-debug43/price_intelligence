@@ -78,6 +78,13 @@
       "when": 1792347204441,
       "tag": "0010_site_entry_path",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792724867644,
+      "tag": "0011_written_permission",
+      "breakpoints": true
     }
   ]
 }

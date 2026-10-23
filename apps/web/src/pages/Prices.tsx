@@ -4,6 +4,7 @@ import { qs } from '../api';
 import { useOrg, useOrgQuery } from '../app-shell';
 import { Card, DataState, EmptyState, PageHead, Pager, PriceTag, SiteStatusPill } from '../ui';
 import type { ComparisonResponse } from '../types';
+import { UncollectedList, useCollectedCompetitors, useUncollected } from '../uncollected';
 
 const PAGE_SIZE = 25;
 
@@ -26,6 +27,8 @@ export function PricesPage() {
   const d = q.data;
   // pairs that only look alike wait for a person; by default this page shows confirmed matches only, and says how many are not shown
   const waiting = useOrgQuery<{ total: number }>(['matches', 'waiting-count'], '/matches?status=needs_review&pageSize=1');
+  const unread = useUncollected();
+  const readCompetitors = useCollectedCompetitors();
   const competitors = d?.facets.competitors ?? [];
   const shownSites = params.siteId ? competitors.filter((c) => c.id === params.siteId) : competitors;
   const reporting = d?.reportingCurrency ?? 'USD';
@@ -57,7 +60,7 @@ export function PricesPage() {
           <Link to={`/o/${orgId}/matches`}>Review them</Link>{' · '}<button className="btn btn-sm" onClick={() => set({ review: 'any' })}>Show them here too, marked unconfirmed</button>
         </div>
       )}
-      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : 'No comparisons yet'}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : 'Comparisons appear when your products have been matched with competitor products. Collect data from your website and at least one competitor, then run matching.'}</EmptyState></Card>}>
+      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : 'No comparisons yet'}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : (readCompetitors.length ? 'No confirmed comparison yet. Comparisons appear when your products have been matched with products at the collected competitors and a person has confirmed the match.' : 'No competitor website has been collected, so there is nothing to compare yet. This is not a result about your prices.')}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
         {(r) => (
           <Card pad={false}>
             <div className="table-wrap">

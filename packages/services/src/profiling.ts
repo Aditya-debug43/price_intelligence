@@ -41,6 +41,8 @@ export async function runProfile(svc: Services, orgId: string, siteId: string, o
       defaultCrawlDelayMs: site.crawlDelayMs,
       defaultMaxRequests: site.maxRequestsPerRun,
       now: svc.clock,
+      siteRole: site.role,
+      writtenPermission: site.writtenPermission,
       ...over,
     });
   } finally {

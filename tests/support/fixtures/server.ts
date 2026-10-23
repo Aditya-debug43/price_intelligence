@@ -23,6 +23,9 @@ export const FIXTURE_HOSTNAMES: Record<string, string> = {
   html: 'rival-html.test',
   listing: 'rival-listing.test',
   vendorshop: 'rival-vendor.test',
+  tagsize: 'rival-tagsize.test',
+  termsban: 'rival-termsban.test',
+  termscopy: 'rival-termscopy.test',
   homegrid: 'rival-storefront.test',
   catblocked: 'rival-closed.test',
   blocked: 'rival-robots.test',
@@ -203,6 +206,13 @@ export async function startFixtureServer(opts: { now?: () => Date } = {}): Promi
 
 // ───────────────────────────────────────────────────────────── routing
 
+const FILLER = '<p>These terms govern your use of the shop. Orders are accepted subject to availability. Prices are shown in the shop currency and may change without notice. Deliveries are made within the stated window where possible, and we will tell you if an item is unavailable. Refunds are issued to the original payment method within fourteen days of a valid return. Gift cards cannot be exchanged for cash. By placing an order you confirm that the details you gave are correct and that you are allowed to use the payment method.</p>';
+const TERMS_TEXT: Record<NonNullable<SiteSpec['terms']>, string> = {
+  forbid_automation: `${FILLER}<p>You agree not to use or attempt to use any software, tool or other device (including spiders, robots or scrapers) to navigate, copy or collect content from this site.</p>`,
+  restrict_copying: `${FILLER}<p>You may not copy, download or reuse the content of this site for commercial purposes without our written consent.</p>`,
+  neutral: `${FILLER}<p>Nothing in these terms limits how you may read the pages of this shop.</p>`,
+};
+
 type Res = http.ServerResponse;
 
 function send(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, status: number, body: string | Buffer, type = 'text/html; charset=utf-8', headers: Record<string, string> = {}) {
@@ -219,7 +229,8 @@ function shell(h: FixtureSiteHandle, title: string, body: string, head = '', ext
     s.kind === 'jsonld' || s.kind === 'shopify' || s.kind === 'woocommerce'
       ? `<footer><a href="https://www.facebook.com/fixture${s.key}">Facebook</a> <a href="https://www.instagram.com/fixture${s.key}/">Instagram</a> <a href="https://www.youtube.com/@fixture${s.key}">YouTube</a> <a href="https://www.facebook.com/sharer/sharer.php?u=x">Share</a></footer>`
       : '';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title>${head}${extraHeadScripts}</head><body>${body}${social}</body></html>`;
+  const terms = s.terms ? `<footer><a href="/terms-of-use">Terms of use</a></footer>` : '';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title>${head}${extraHeadScripts}</head><body>${body}${social}${terms}</body></html>`;
 }
 
 async function route(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, now: () => Date) {
@@ -238,6 +249,8 @@ async function route(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, 
     if (s.kind === 'jsonld' || s.kind === 'html' || s.kind === 'shopify') lines.push(`Sitemap: ${h.origin}/sitemap.xml`);
     return send(h, req, res, 200, lines.join('\n'), 'text/plain');
   }
+
+  if (s.terms && path === '/terms-of-use') return send(h, req, res, 200, shell(h, 'Terms of use', `<main><h1>Terms of use</h1>${TERMS_TEXT[s.terms]}</main>`));
 
   if (s.kind === 'challenge') {
     return send(h, req, res, 403, '<html><head><title>Just a moment...</title></head><body><div id="cf-chl-widget"></div><script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"></script>Checking your browser before accessing the site.</body></html>', 'text/html', { server: 'cloudflare', 'cf-ray': 'fixture-ray', 'cf-mitigated': 'challenge' });
@@ -272,7 +285,7 @@ function shopifyJson(h: FixtureSiteHandle, p: FixtureProduct) {
     body_html: `<p>${esc(p.title)} - fixture product</p>`,
     vendor: h.spec.vendorLabel ?? p.brand ?? 'Fixture',
     product_type: p.category.split(' > ').pop() ?? '',
-    tags: ['fixture'],
+    tags: h.spec.titleStyle === 'size_in_tag' ? ['fixture', `Size_${p.size}`] : ['fixture'],
     options: [{ name: 'Title', position: 1, values: ['Default Title'] }],
     images: [{ src: `${h.origin}/img/${p.handle}.jpg` }],
     variants: [
@@ -298,7 +311,8 @@ async function shopifyRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, re
     return send(h, req, res, 200, shell(h, s.label, body, head), 'text/html; charset=utf-8', { 'x-shopid': '1234' });
   }
   if (path === '/sitemap.xml') {
-    const urls = live(h).map((p) => `<url><loc>${h.origin}/products/${p.handle}</loc><lastmod>2026-10-01</lastmod></url>`).join('');
+    // like Shopify's own product sitemap, the first entry is the home page — a URL that is not a product
+    const urls = `<url><loc>${h.origin}/</loc></url>` + live(h).map((p) => `<url><loc>${h.origin}/products/${p.handle}</loc><lastmod>2026-10-01</lastmod></url>`).join('');
     return send(h, req, res, 200, `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`, 'application/xml');
   }
   if (path === '/products.json') {

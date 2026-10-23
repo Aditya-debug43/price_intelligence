@@ -39,7 +39,8 @@ const VOLUME: Record<string, number> = {
 const UNIT_RE =
   'kilograms?|kilos?|kgs?|grammes?|grams?|gms?|gr|mg|g|ounces?|oz|pounds?|lbs?|' +
   'milliliters?|millilitres?|ml|cl|dl|liters?|litres?|ltrs?|ltr|lt|l|fl\\.?\\s?oz|gallons?|gal|pt|qt';
-const NUM = '(\\d+(?:[.,]\\d+)?)';
+/** A number, including a decimal written without a leading zero (".87 oz", ".5 gal"), which shops use for small sizes. */
+const NUM = '((?:\\d+(?:[.,]\\d+)?|[.,]\\d+))';
 /** Pack counts shops really sell in; used to tell "24-12 oz" (24 cans of 12 oz) from a size range. */
 const COMMON_PACKS = new Set([2, 3, 4, 6, 8, 10, 12, 15, 16, 18, 20, 24, 30, 32, 36, 40, 48]);
 const PACK_WORDS = 'pack|pk|ct|count|pcs|pc|pieces?|stuks|stuk|units?|ea|each|bottles?|cans?|bags?|rolls?|sachets?';
@@ -81,8 +82,45 @@ export function parseQuantity(...texts: (string | null | undefined)[]): ParsedQu
   return { kind: 'unknown', unitAmount: null, packCount: null, total: null, baseUnit: null, label: null, source: '' };
 }
 
+/**
+ * A shop's own size label kept in its tags ("Size_9oz", "Size: 64 oz", "size-1kg", "Size_20ct 16oz"): the value after the prefix, or null.
+ * A live grocery shop states the size of 1,266 of its 1,293 products ONLY this way (the title has none), so without it they could never be compared.
+ */
+export function sizeFromTags(tags: unknown): string | null {
+  if (!Array.isArray(tags)) return null;
+  for (const t of tags) {
+    const m = typeof t === 'string' ? t.match(/^\s*size[\s_:-]+(.+?)\s*$/i) : null;
+    if (!m?.[1] || !/\d/.test(m[1])) continue;
+    // a data-entry slip in the shop's tag ("Size_6425.36oz" on a carton of milk = 190 L) is not a size we can rely on
+    const q = parseOne(m[1]);
+    if (q.unitAmount !== null && q.unitAmount > 25_000) continue;
+    return m[1];
+  }
+  return null;
+}
+
+/** The size text a product carries outside its title: an explicit `size` attribute, else a "Size_…" tag. */
+export function sizeHintOf(attrs: Record<string, unknown> | null | undefined): string | null {
+  return typeof attrs?.['size'] === 'string' ? (attrs['size'] as string) : sizeFromTags(attrs?.['tags']);
+}
+
+/**
+ * "(15 34 Lbs)" or "(22-37 lb (10-17 kg))" on a nappy is the weight of the BABY it fits, not what the pack weighs. A bracketed weight range
+ * is removed before the size is read (innermost first, so nested brackets go too).
+ */
+const BABY_RANGE = /\([^()]*\d+(?:[.,]\d+)?\s*(?:[-–]|to)?\s*\d+(?:[.,]\d+)?\s*(?:lbs?|pounds?|kgs?|kilos?)\b[^()]*\)/gi;
+function withoutBabyWeightRanges(text: string): string {
+  let t = text;
+  for (let i = 0; i < 3; i++) {
+    const next = t.replace(BABY_RANGE, ' ');
+    if (next === t) break;
+    t = next;
+  }
+  return t;
+}
+
 function parseOne(text: string): ParsedQuantity {
-  const s = ` ${text.toLowerCase().replace(/[()]/g, ' ').replace(/×/g, 'x').replace(/\s+/g, ' ')} `;
+  const s = ` ${withoutBabyWeightRanges(text).toLowerCase().replace(/[()]/g, ' ').replace(/×/g, 'x').replace(/\s+/g, ' ')} `;
 
   let packCount: number | null = null;
   let measure: { kind: 'mass' | 'volume'; amount: number; match: string } | null = null;
@@ -176,15 +214,30 @@ function parseOne(text: string): ParsedQuantity {
 
 const round4 = (n: number) => Math.round(n * 10_000) / 10_000;
 
-const BEVERAGE_RE = /\b(soda|sodas|colas?|juices?|water|beers?|lagers?|wines?|champagne|milk|drinks?|beverages?|lemonades?|tea|coffee|smoothies?|cider|liquors?|spirits?|rum|vodka|whisk(?:e)?y|gin|tonic|energy)\b/i;
+const BEVERAGE_RE = /\b(soda|sodas|colas?|juices?|water|beers?|lagers?|wines?|champagne|milk|drinks?|beverages?|lemonades?|tea|smoothies?|cider|liquors?|spirits?|rum|vodka|whisk(?:e)?y|gin|tonic|energy|creamers?)\b/i;
+/** Coffee and espresso sold in ounces are bags of beans or grounds unless the text says it is a drink. */
+const COFFEE_RE = /\b(?:coffee|espresso)\b/i;
+const COFFEE_DRINK_RE = /\b(?:iced|cold\s+brew|latte|frappuccino|macchiato|ready[- ]to[- ]drink|rtd|bottled)\b|\bcoffee\s+(?:drink|beverage|soda)\b|\bcreamers?\b/i;
+/** Wording of a dry or solid product whose "oz" is weight even though a beverage word appears (ground coffee, tea mix, milk chocolate, tuna in water). */
+const DRY_RE = /\b(?:ground|beans?|instant|powder(?:ed)?|pods?|capsules?|k-?cups?|tea\s*bags?|candies|candy)\b|\b(?:milk|dark|white)\s+chocolate\b|\bchocolate\s+bars?\b|\bin\s+(?:\d+\s?%\s+)?(?:fruit\s+)?(?:water|oil|brine|juice|syrup|sauce)\b/i;
+/** A "mix" is a powder (iced-tea mix, drink mix) — except a bottled cocktail mixer (pina colada mix), which is a liquid. The shop's tags say "Drink Mixes" for both. */
+const MIX_RE = /\bmix(?:es)?\b/i;
+const COCKTAIL_RE = /\b(?:margarita|daiquiri|colada|bloody|mary|sour|mojito|cocktail|mixers?)\b/i;
 const OZ_RE = /(?<![a-z])\d+(?:[.,]\d+)?\s*(?:oz|ounces?)(?![a-z])/i;
+
+function looksLikeDrink(text: string): boolean {
+  if (DRY_RE.test(text)) return false;
+  if (MIX_RE.test(text) && !COCKTAIL_RE.test(text)) return false;
+  if (COFFEE_RE.test(text) && !COFFEE_DRINK_RE.test(text)) return false;
+  return BEVERAGE_RE.test(text) || COFFEE_DRINK_RE.test(text);
+}
 
 /**
  * "12 oz" is ambiguous (weight vs fluid ounces). When the product is clearly a beverage and the text says
  * plain "oz" (not "fl oz"), reinterpret the quantity as a volume so it can be compared with ml/L sizes.
  */
 export function reinterpretOzForBeverage(q: ParsedQuantity, title: string): ParsedQuantity {
-  if (q.kind !== 'mass' || !BEVERAGE_RE.test(title) || !OZ_RE.test(q.source) || /fl\.?\s?oz/i.test(q.source)) return q;
+  if (q.kind !== 'mass' || !looksLikeDrink(title) || !OZ_RE.test(q.source) || /fl\.?\s?oz/i.test(q.source)) return q;
   const k = VOLUME.floz! / MASS.oz!;
   const unitAmount = q.unitAmount === null ? null : round4(q.unitAmount * k);
   const total = q.total === null ? null : round4(q.total * k);

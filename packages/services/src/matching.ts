@@ -9,6 +9,7 @@ import {
   placeholderBrandKeys,
   prepareVariant,
   scorePair,
+  sizeHintOf,
   wrapUntrusted,
   type Adjudication,
   type LlmProvider,
@@ -80,7 +81,7 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
   const placeholders = placeholderBrandKeys(rows.map((r) => ({ siteId: r.siteId, brand: r.brand, title: r.title })));
   const matchables: (MatchableVariant & { role: 'source' | 'competitor' })[] = rows.map((r) => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, role: r.role, title: r.title, variantTitle: r.variantTitle, brand: isPlaceholderBrand(placeholders, r.siteId, r.brand) ? null : r.brand, category: r.category, gtin: r.gtin, sku: r.sku,
-    mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null], context: tagContext(r.attrs),
+    mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs),
   }));
   const brands = collectKnownBrands(matchables);
   const prepared = matchables.map((m) => ({ role: m.role, p: prepareVariant(m, brands) }));
@@ -261,7 +262,7 @@ export async function searchMatchCandidates(db: DbLike, orgId: string, p: { sour
   if (!src) throw new MatchError('Product not found');
   const toMatchable = (r: (typeof all)[number]): MatchableVariant => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, title: r.title, variantTitle: r.variantTitle, brand: r.brand, category: r.category, gtin: r.gtin, sku: r.sku, mpn: r.mpn, model: r.model,
-    sizeHints: [r.qtyLabel, typeof r.attrs?.['size'] === 'string' ? (r.attrs['size'] as string) : null], context: tagContext(r.attrs),
+    sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs),
   });
   const brands = collectKnownBrands(all.map(toMatchable));
   const prepSrc = prepareVariant(toMatchable(src), brands);

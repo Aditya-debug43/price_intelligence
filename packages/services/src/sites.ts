@@ -1,14 +1,14 @@
 import { isIP } from 'node:net';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { forbiddenAddressReason, forbiddenHostnameReason, normalizeSiteUrl, UrlValidationError } from '@ci/core';
-import { DEFAULTS, type AddSiteInput, type SiteRole } from '@ci/shared';
+import { forbiddenAddressReason, forbiddenHostnameReason, leadingClause, normalizeSiteUrl, UrlValidationError } from '@ci/core';
+import { DEFAULTS, type AddSiteInput, type SiteRole, type TermsLevel } from '@ci/shared';
 import { auditEvents, consentLog, scanRuns, siteProfiles, sites, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 
 export class SiteError extends Error {
   constructor(
     message: string,
-    readonly code: 'invalid_url' | 'unsafe' | 'limit' | 'duplicate' | 'not_found' | 'consent_required' | 'conflict' | 'bad_request',
+    readonly code: 'invalid_url' | 'unsafe' | 'limit' | 'duplicate' | 'not_found' | 'consent_required' | 'conflict' | 'bad_request' | 'terms_prohibit',
     readonly status = 400,
   ) {
     super(message);
@@ -156,17 +156,28 @@ export async function setConsent(
   orgId: string,
   actorUserId: string,
   siteId: string,
-  input: { status: 'confirmed' | 'revoked'; note?: string; attest?: boolean },
+  input: { status: 'confirmed' | 'revoked'; note?: string; attest?: boolean; writtenPermission?: boolean },
 ) {
   const [site] = await db.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.orgId, orgId)));
   if (!site) throw new SiteError('Website not found.', 'not_found', 404);
   if (input.status === 'confirmed' && !input.attest) throw new SiteError('Please tick the confirmation to continue.', 'bad_request');
+  if (input.status === 'confirmed' && site.role === 'competitor') {
+    // A competitor whose terms of use forbid automated access is collected only with its owner's written permission, recorded here.
+    const [profile] = await db.select({ data: siteProfiles.data }).from(siteProfiles).where(eq(siteProfiles.siteId, siteId)).orderBy(desc(siteProfiles.createdAt)).limit(1);
+    if (profile?.data.terms?.level === 'prohibits_automation' && !input.writtenPermission) {
+      throw new SiteError('This website’s terms of use forbid automated access, so it is collected only with its owner’s written permission. Tick the permission box and say where the permission is kept — or replace this competitor.', 'terms_prohibit', 409);
+    }
+  }
+  if (input.status === 'confirmed' && input.writtenPermission && (input.note ?? '').trim().length < 10) {
+    throw new SiteError('Say where the written permission is kept, for example “email from the owner, 20 Oct 2026”.', 'bad_request');
+  }
+  const permission = input.status === 'confirmed' && !!input.writtenPermission;
   const text = site.role === 'source' ? CONSENT_TEXT.source : CONSENT_TEXT.competitor;
-  const note = input.status === 'confirmed' ? `${text} [${CONSENT_TEXT_VERSION}]${input.note ? ` — ${input.note}` : ''}` : (input.note ?? 'Collection stopped by the customer');
+  const note = input.status === 'confirmed' ? `${text} [${CONSENT_TEXT_VERSION}]${permission ? ' [written permission recorded]' : ''}${input.note ? ` — ${input.note}` : ''}` : (input.note ?? 'Collection stopped by the customer');
   const now = svc.clock();
   const [row] = await db
     .update(sites)
-    .set({ consentStatus: input.status, consentNote: note, consentAt: now, consentBy: actorUserId, updatedAt: now })
+    .set({ consentStatus: input.status, consentNote: note, consentAt: now, consentBy: actorUserId, writtenPermission: permission, updatedAt: now })
     .where(eq(sites.id, siteId))
     .returning();
   await db.insert(consentLog).values({ orgId, siteId, kind: 'collect_site', status: input.status, note, actorUserId });
@@ -188,6 +199,12 @@ export interface SiteListItem {
   active: boolean;
   consentStatus: string;
   consentAt: Date | null;
+  /** The customer recorded the owner's written permission (needed when the website's terms forbid automated access). */
+  writtenPermission: boolean;
+  /** What the website's terms of use say about automated access, from its latest capability check (null = not checked yet). */
+  termsLevel: TermsLevel | null;
+  /** The clause to show the customer, with the page it was read on. */
+  termsClause: { text: string; url: string } | null;
   platform: string | null;
   currency: string | null;
   currencySource: string;
@@ -204,6 +221,8 @@ export async function listSites(db: DbLike, orgId: string): Promise<SiteListItem
   if (!rows.length) return [];
   const counts = await db.execute<{ site_id: string; n: string }>(sql`select site_id, count(*)::text as n from products where org_id = ${orgId} and delisted_at is null group by site_id`);
   const countBy = new Map(counts.rows.map((r) => [r.site_id, Number(r.n)]));
+  const termsRows = await db.execute<{ site_id: string; terms: { level: TermsLevel; pages: { url: string; clauses: { kind: 'automation' | 'copying'; text: string }[] }[] } | null }>(sql`select distinct on (site_id) site_id, data->'terms' as terms from site_profiles where org_id = ${orgId} order by site_id, created_at desc`);
+  const termsBy = new Map(termsRows.rows.map((r) => [r.site_id, r.terms]));
   const runs = await db
     .select()
     .from(scanRuns)
@@ -214,9 +233,11 @@ export async function listSites(db: DbLike, orgId: string): Promise<SiteListItem
   for (const r of runs) if (!lastBy.has(r.siteId)) lastBy.set(r.siteId, r);
   return rows.map((s) => {
     const r = lastBy.get(s.id);
+    const terms = termsBy.get(s.id) ?? null;
+    const quoted = terms ? leadingClause({ pages: terms.pages as never }) : null;
     return {
       id: s.id, name: s.name, url: s.url, entryPath: s.entryPath, hostname: s.hostname, role: s.role, active: s.active,
-      consentStatus: s.consentStatus, consentAt: s.consentAt, platform: s.platform, currency: s.currency, currencySource: s.currencySource,
+      consentStatus: s.consentStatus, consentAt: s.consentAt, writtenPermission: s.writtenPermission, termsLevel: terms?.level ?? null, termsClause: quoted ? { text: quoted.text, url: quoted.url } : null, platform: s.platform, currency: s.currency, currencySource: s.currencySource,
       capabilityStatus: s.capabilityStatus, lastProfiledAt: s.lastProfiledAt, crawlDelayMs: s.crawlDelayMs, maxRequestsPerRun: s.maxRequestsPerRun,
       productCount: countBy.get(s.id) ?? 0,
       lastScan: r ? { id: r.id, status: r.status, kind: r.kind, finishedAt: r.finishedAt, productsSaved: r.productsSaved, isComplete: r.isComplete } : null,

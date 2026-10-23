@@ -99,7 +99,7 @@ export interface SiteSpec {
   factor: number;
   items: number[];
   /** How the site writes titles. */
-  titleStyle: 'full' | 'brand_last' | 'no_brand' | 'upper';
+  titleStyle: 'full' | 'brand_last' | 'no_brand' | 'upper' | 'size_in_tag';
   exposeGtin: number[];
   outOfStock: number[];
   claimedLeft?: Record<number, number>;
@@ -112,6 +112,8 @@ export interface SiteSpec {
   uniformCompareAt?: number;
   /** Items listed at 0.00 (a gift card whose amount the buyer chooses). */
   zeroPriceItems?: number[];
+  /** The site's terms-of-use page: forbids automated collection, restricts copying, or says nothing about either. Omitted = the site has no terms page. */
+  terms?: 'forbid_automation' | 'restrict_copying' | 'neutral';
 }
 
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
@@ -148,6 +150,18 @@ export const SITE_SPECS: SiteSpec[] = [
     key: 'vendorshop', kind: 'shopify', label: 'Fixture Vendor-Label Shop (vendor field holds the country, every item shows a regular price 8% higher)', currency: 'USD', factor: 1,
     items: [...range(0, 24), 30], titleStyle: 'full', exposeGtin: [], outOfStock: [], vendorLabel: 'Aruba', uniformCompareAt: 1.08, zeroPriceItems: [30],
   },
+  {
+    key: 'termsban', kind: 'shopify', label: 'Fixture Terms-Forbidden Shop (its terms of use forbid robots and scraping)', currency: 'USD', factor: 1,
+    items: range(0, 11), titleStyle: 'full', exposeGtin: [], outOfStock: [], terms: 'forbid_automation',
+  },
+  {
+    key: 'termscopy', kind: 'shopify', label: 'Fixture Terms-Restricted Shop (its terms restrict copying content without consent)', currency: 'USD', factor: 1,
+    items: range(0, 11), titleStyle: 'full', exposeGtin: [], outOfStock: [], terms: 'restrict_copying',
+  },
+  {
+    key: 'tagsize', kind: 'shopify', label: 'Fixture Tag-Size Shop (the title has no size; a Size_ tag does)', currency: 'USD', factor: 1,
+    items: range(0, 15), titleStyle: 'size_in_tag', exposeGtin: [], outOfStock: [],
+  },
   { key: 'catblocked', kind: 'catblocked', label: 'Fixture Closed Catalogue (robots.txt forbids the shop pages)', currency: 'USD', factor: 1, items: range(0, 8), titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'blocked', kind: 'blocked', label: 'Fixture Blocked (robots.txt disallows)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'challenge', kind: 'challenge', label: 'Fixture Protected (bot challenge)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
@@ -173,6 +187,9 @@ function titleFor(item: MasterItem, style: SiteSpec['titleStyle']): { title: str
       return { title: `${item.brand} ${item.name}, ${item.size}`, brand: null };
     case 'upper':
       return { title: `${item.brand} ${item.name} ${item.size}`.toUpperCase(), brand: item.brand };
+    case 'size_in_tag':
+      // like the audited own shop: the title states no size at all; the size lives in a "Size_9oz" tag
+      return { title: `${item.brand} ${item.name}`, brand: item.brand };
   }
 }
 

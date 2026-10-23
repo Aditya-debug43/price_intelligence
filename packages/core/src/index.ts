@@ -23,3 +23,4 @@ export * from './marketing-summary.ts';
 export * from './smtp.ts';
 export * from './assortment.ts';
 export * from './brands.ts';
+export * from './terms.ts';

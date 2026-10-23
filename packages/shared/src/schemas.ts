@@ -72,6 +72,8 @@ export const consentSchema = z.object({
   note: z.string().trim().max(1000).optional(),
   /** The owner explicitly attests that they are entitled to run (or have been authorised to run) this collection. */
   attest: z.boolean().optional(),
+  /** The website's terms forbid automated access, and its owner gave written permission (the note says where that is kept). */
+  writtenPermission: z.boolean().optional(),
 });
 
 export const startScanSchema = z.object({

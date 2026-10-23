@@ -176,6 +176,8 @@ export const sites = pgTable(
     consentNote: text('consent_note'),
     consentAt: ts('consent_at'),
     consentBy: uuid('consent_by').references(() => users.id, { onDelete: 'set null' }),
+    /** The customer recorded that the website's owner gave written permission for automated collection (needed when its terms forbid it). Reset when collection is stopped. */
+    writtenPermission: boolean('written_permission').notNull().default(false),
     active: boolean('active').notNull().default(true),
     platform: text('platform'),
     currency: text('currency'),

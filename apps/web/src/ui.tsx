@@ -148,7 +148,7 @@ export function EmptyState({ title, children, action }: { title: string; childre
   return (
     <div className="empty">
       <h3>{title}</h3>
-      {children && <p>{children}</p>}
+      {children && <div className="empty-body">{children}</div>}
       {action}
     </div>
   );

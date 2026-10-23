@@ -37,7 +37,9 @@ export async function loadCoverage(db: DbLike, orgId: string, now: Date, staleAf
     const estimated = siteRuns.find((r) => r.estimatedTotal !== null)?.estimatedTotal ?? prof?.data.catalogue.estimatedProducts ?? null;
     const failing = last && (last.status === 'failed' || last.status === 'blocked') && (!lastGood || (lastGood.finishedAt ?? lastGood.createdAt) < (last.finishedAt ?? last.createdAt));
     const warnings: string[] = [];
-    if (s.consentStatus !== 'confirmed') warnings.push('Collection has not started: the collection rules for this website are not confirmed yet.');
+    const termsForbid = s.role === 'competitor' && !s.writtenPermission && prof?.data.terms?.level === 'prohibits_automation';
+    if (termsForbid) warnings.push('Nothing was collected: the website’s terms of use forbid automated collection and no written permission from its owner is recorded.');
+    else if (s.consentStatus !== 'confirmed') warnings.push('Collection has not started: the collection rules for this website are not confirmed yet.');
     if (!last && s.consentStatus === 'confirmed') warnings.push('No collection has run yet.');
     if (last?.status === 'partial') warnings.push(`The last collection was partial${last.errorCode === 'request_budget' ? ' (request budget)' : last.errorCode === 'deadline' ? ' (time limit)' : ''}; some products have older observations.`);
     if (last?.kind === 'sample') warnings.push('The last run was a small live sample, not a full refresh.');
@@ -61,6 +63,7 @@ export async function loadCoverage(db: DbLike, orgId: string, now: Date, staleAf
       productCount: known,
       lastRun: finished ? { status: finished.status, isComplete: finished.isComplete, kind: finished.kind, errorCode: finished.errorCode, error: finished.error } : null,
       collecting: !!running,
+      termsForbid,
       collectingProgress: running ? { saved: running.productsSaved, estimated: running.estimatedTotal } : null,
       newestObservationAt: st?.newest ? new Date(st.newest) : null,
       now,

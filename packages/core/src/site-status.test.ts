@@ -32,6 +32,14 @@ describe('site collection status — one honest answer per website', () => {
     expect(state({ lastRun: { status: 'blocked', isComplete: false, kind: 'discovery' }, productCount: 0 }).state).toBe('access_denied');
   });
 
+  it('a website whose terms of use forbid automated access says so, and the next step is the owner’s written permission', () => {
+    const s = state({ capability: 'blocked', consentStatus: 'pending', termsForbid: true });
+    expect(s).toMatchObject({ state: 'access_denied', label: 'Terms forbid collection', severity: 'bad' });
+    expect(s.detail).toMatch(/terms of use forbid automated access/);
+    expect(s.nextAction).toMatch(/written permission/);
+    expect(state({ capability: 'blocked', termsForbid: false }).label).toBe('Access denied'); // other blocks keep their wording
+  });
+
   it('a failed or unreadable collection is "failed", never "collected with no products"', () => {
     const failed = state({ lastRun: { status: 'failed', isComplete: false, kind: 'discovery', error: 'HTTP 500' } });
     expect(failed.state).toBe('failed');

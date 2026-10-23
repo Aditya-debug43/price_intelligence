@@ -410,6 +410,16 @@ describe('matching on titles from real grocery shops (no barcodes, no brands)', 
     expect(m).toMatchObject({ matchClass: 'identical', method: 'gtin' });
   });
 
+  it('the same product in another size is "same product, different pack" (compared per unit), not just "comparable" — and a different flavour in another size is neither', () => {
+    const a = pair('Blue Diamond Almonds Almond Breeze Almondmilk Vanilla 32oz', 'Blue Diamond Almonds Almond Breeze Almondmilk Vanilla, 64 fl oz', { context: 'Beverages Milk' });
+    expect(a).toMatchObject({ matchClass: 'different_pack', status: 'needs_review' });
+    expect(a.reasons.join(' ')).toMatch(/size differs/);
+    expect(pair('Evian Natural Spring Water 1.5L', 'Evian Spring Water, 11.2 oz', { context: 'Beverages Water' }).matchClass).toBe('different_pack');
+    expect(pair('Almond Breeze Vanilla 64oz', 'Almond Breeze Original 32oz', { context: 'Beverages Milk' }).matchClass).toBe('comparable'); // different flavour
+    expect(pair('Absolut Mango Vodka 75cl', 'Absolut Vodka 1 L').matchClass).toBe('comparable'); // different product (mango)
+    expect(pair('Kim Crawford Sauvignon Blanc 2013 75cl', 'Kim Crawford Sauvignon Blanc 1.5 L').matchClass).toBe('comparable'); // vintage on one side
+  });
+
   it('a vintage in only one name is not "the same product" (real pair: a 2013 wine against an undated listing of the same wine)', () => {
     const m = pair('Kim Crawford Sauvignon Blanc 2013 75cl', 'Kim Crawford Sauvignon Blanc 750 ML');
     expect(m.matchClass).toBe('comparable');
@@ -418,6 +428,29 @@ describe('matching on titles from real grocery shops (no barcodes, no brands)', 
     expect(pair('Kim Crawford Sauvignon Blanc 75cl', 'Kim Crawford Sauvignon Blanc 750 ML').matchClass).toBe('identical');
     expect(pair('Yellow Tail Pinot Grigio 2015 75cl', 'Yellow Tail Pinot Grigio 2015 750ml').matchClass).toBe('identical');
     expect(pair('Yellow Tail Pinot Grigio 2015 75cl', 'Yellow Tail Pinot Grigio 2016 750ml').matchClass).toBe('comparable');
+  });
+
+  it('a product-line number in only one name is not "the same product" (real pairs: Jose Cuervo 1800 Silver vs Silver; Dole 100% Pineapple Juice vs Pineapple Juice)', () => {
+    const cuervo = pair('Jose Cuervo Tequila 1800 Silver 1L', 'Jose Cuervo Tequila Silver 1 L');
+    expect(cuervo.matchClass).toBe('comparable');
+    expect(cuervo.status).toBe('needs_review');
+    expect(cuervo.reasons.join(' ')).toMatch(/number 1800/);
+    expect(pair('Dole 100% Pineapple Juice 59oz', 'Dole Pineapple Juice 59oz', { context: 'Beverages Juice' }).matchClass).toBe('comparable');
+    // the same number on both sides, or a number that is only part of a size, is fine
+    expect(pair('Jose Cuervo Tequila 1800 Silver 1L', 'Jose Cuervo 1800 Silver Tequila, 1 L').matchClass).toBe('identical');
+    expect(pair('Mott’s Original 100% Apple Juice 64oz', 'Motts Apple Juice 100% 64 oz', { context: 'Beverages Juice' }).matchClass).toBe('identical');
+    expect(pair('Absolut Vodka 750ml', 'Absolut Vodka 75cl').matchClass).toBe('identical');
+    expect(pair('Gold Blend 100gr', 'Gold Blend, 100 g').matchClass).toBe('identical');
+  });
+
+  it('"Size 4" and "Size 5" nappies, or "Stage 1" and "Stage 2" baby food, are different products even when the name and pack count agree', () => {
+    const size = pair('Pampers Baby Dry Diapers Size 4, 28 ct', 'Pampers Baby Dry Diapers Size 5, 28 ct');
+    expect(size.matchClass).toBe('comparable');
+    expect(size.reasons.join(' ')).toMatch(/numbered size or stage/);
+    expect(pair('Gerber Stage 1 Pears 3.5oz', 'Gerber Stage 2 Pears 3.5oz').matchClass).toBe('comparable');
+    expect(pair('Pampers Baby Dry Diapers Size 4, 28 ct', 'Pampers Baby Dry Diapers, Size 4 28 count').matchClass).toBe('identical');
+    // "No Pulp" and "Non-fat" are not numbers
+    expect(pair('Florida’s Natural Orange Juice No Pulp 59oz', 'Florida’s Natural Orange Juice No Pulp, 59 oz', { context: 'Beverages Juice' }).matchClass).toBe('identical');
   });
 
   it('a number that is part of a size is not a year', () => {
