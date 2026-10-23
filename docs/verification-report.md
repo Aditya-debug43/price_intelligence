@@ -1,29 +1,125 @@
 # Verification report
 
-Last full run: **2026-10-19, after the real-data audit (directive 4)**. Everything below was actually executed unless marked otherwise.
+Last full run: **2026-10-23, after the exhaustive audit (directive 5)**; the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
 Status words are the project vocabulary defined at the top of [integrations.md](integrations.md). Four kinds of evidence are kept apart on purpose:
 
 | Kind | Meaning | Examples here |
 | --- | --- | --- |
-| **Real external** | Real websites, real mail server, real provider, real clock | the four shops you named, the Gmail account, open.er-api.com, public scraping sandboxes |
-| **Automated test** | Code run by `vitest` against a real PostgreSQL | 798 tests |
+| **Real external** | Real websites, real mail server, real provider, real clock | your shop and (on 2026-10-19) three competitors, the Gmail account, open.er-api.com, public scraping sandboxes |
+| **Automated test** | Code run by `vitest` against a real PostgreSQL | 885 tests |
 | **Fixture** | Fictional `.test` shops served inside tests; never reachable from the product | `tests/support/fixtures` |
 | **Mock / library-in-process** | A real library talking to a fake peer (SMTP, S3, OAuth) | `email-smtp`, `shopify-oauth`, `s3-storage` |
 
 **Nothing has been deployed.** No AWS access exists on the development machine, so no claim below is about a hosted environment (see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)).
 
+## Exhaustive audit (2026-10-23) — permission first, then a fresh account on the real sites
+
+Source: `docs/original-prompt/05_DIRECTIVE_EXHAUSTIVE_AUDIT_2026-10-23.md`. The five addresses were used exactly as supplied (`www.lingandsons.com`, not `shop.lingandsons.com`, which your original brief named and which I did **not** add this time).
+Evidence kinds are kept apart: **[real]** real websites / mail server / clock, **[test]** automated tests, **[fixture]** fictional shops, **[mock]** a real library against a fake peer.
+
+### 1. Is the intended collection permitted? (checked before any new collection)
+
+I read each website's `robots.txt` and its public terms page(s). `robots.txt` does not disallow the product pages of any of the five (Super Food asks for a 10 s delay), but **the terms pages are stricter**:
+
+| Website | What its terms say (quoted, read 2026-10-23) | Verdict |
+| --- | --- | --- |
+| groceriestogoaruba.com (your shop) | reproduction or commercial use of its materials without the owner's written permission is prohibited — it is your own shop | permitted: the owner's own site |
+| quickmartaruba.com | prohibited uses include "to spam, phish, pharm, pretext, **spider, crawl, or scrape**"; and no reproducing or copying "any portion of the Service… without express written permission" | **forbids automated collection** |
+| shop.superfoodaruba.com | "not to use… any engine, software, tool, agent or other device or mechanism (including… **spiders, robots**…) to navigate or search this Site" other than browsers | **forbids automated collection** |
+| foodstore2go.com | the user "may not access, display, use, download, and/or otherwise copy or distribute Content obtained on the website… without the consent of the Provider" | restricts copying; permission **unclear** |
+| www.lingandsons.com | no "commercial uses of our web site or service without our prior written consent"; it is an information site with no catalogue | restricts commercial use; nothing to collect |
+
+**Consequence.** Following your instruction (permission unclear ⇒ report the blocker, do not collect), **I collected nothing from any competitor in this audit.** Only your own shop was collected. Everything about competitors below uses data **already stored** from 2026-10-19 (analysis only — no new request to any competitor), and I say so each time.
+**A gap in the product the audit found:** Shelfwatch only ever read `robots.txt` and left the terms to the customer. It now reads the terms itself (footer link, then the usual paths) and — see §6 — quotes the clause, refuses collection when the terms forbid automated access unless the customer records the owner's written permission and where it is kept, and warns when they restrict copying. **My own earlier collection (2026-10-19) of Quickmart, foodstore2go and Ling & Sons ran before this check and is therefore on weaker footing than I reported; that data is still stored, and removing it is your decision (Websites → Remove).**
+
+### 2. The customer journey with a fresh account **[real]** (browser + real Gmail)
+
+| Step | Result |
+| --- | --- |
+| Registration validation | empty form blocked; 6-character password and a common password each refused with a specific message |
+| Email verification | real Gmail accepted the message (`250 2.0.0 OK`, Message-ID stored); signing in before verifying is refused with "verify first" and a resend button; the first resend inside a minute is silently throttled (by design); the second creates a new link and the **old link is rejected**; the new link verifies; a wrong password gives the generic "Email or password is incorrect" |
+| Workspace → setup | created; the five URLs entered as supplied (a private `127.0.0.1` address was refused with a clear per-field message while the valid entries were kept; a bare `foodstore2go.com` was normalised) |
+| Website validation / profiling | own shop **Full** (Shopify feed, 2,382 estimated); foodstore2go **Full** (restricts-copying warning); Ling & Sons `www` **Limited** (no catalogue); **Quickmart and Super Food: Blocked — "Terms forbid collection"**, stopped after 3 requests (robots.txt, home page, terms page) |
+| Collection rules | the dialog for a terms-forbidden competitor quotes the clause and keeps "Confirm" disabled until the written-permission box **and** a note are filled in; cancelled (I have no such permission). Confirmed for your own shop |
+| Collection | a 25-product live sample ("partial: not a full catalogue"), then the full run with live progress ("500 / ~2382") |
+| Products, search, filters, product page | work; search runs on Enter; an uncollected website's filter now says why instead of "No products found" |
+| Price comparison | with no competitor collected it says "No competitor website has been collected… This is not a result about your prices" and lists each website with its reason — never "no match" |
+| Report | generated, saved, PDF / Excel / four CSV datasets downloaded (correct type, filename, `%PDF-`, `PK`), two reports compared; the report is now **Partial** when a configured competitor was never collected |
+| Settings | retention values validated (30-day minimum), saved, and **still there after reload**; Notifications, People and Integrations tabs read honestly (Shopify "not set up" with the exact variables; YouTube/Instagram/Facebook "not set up" with what is needed); the test email was accepted by Gmail |
+| Sign-out / sign-in | signing out ends the session; a protected URL then redirects to sign-in with no data shown; signing in again shows the workspace as left |
+| Keyboard | the consent dialog opens from the keyboard, keeps focus inside, closes on Escape and returns focus to the button that opened it |
+| Every page, 1280 px and 375 px | 15 routes × 2 widths: no sideways scroll, every control labelled, one `h1` and a `main` landmark; console in a quiet window: **no errors or warnings** |
+
+### 3. Your shop, collected completely and reconciled in full **[real]**
+
+| Measure | Result |
+| --- | --- |
+| Products reported by the source | feed 2,381 products / 2,385 variants (10 pages of 250); sitemap 2,381 product URLs in 3 files — the first file also lists the home page, so a raw count says 2,382 (the profiler's estimate was off by one for that reason; fixed) |
+| Stored | 2,381 products, 2,385 variants, 0 skipped, 0 failed, 0 duplicates, all with their own page URL and observation time |
+| Comparison with the feed | **every** variant checked (not a sample) on price, compare-at price, availability, SKU, barcode, variant title, product title, URL and category: **0 differences**. No variant without a price |
+| Product pages | 60 randomly chosen product pages read independently (JSON-LD offer for that variant): **60 of 60** agree on price, availability and title |
+| Re-collection (4 full runs + 1 sample) | no duplicate products, first-seen times kept, last-seen advanced, price history appended (9,565 observations for 2,385 variants), **no spurious "price changed"** on unchanged prices |
+| Work done | 11 requests per full run, 1.5 s apart, resumable |
+| Brand / barcode | none (the Shopify `vendor` is "Aruba" on 2,296 products): shown as missing, never guessed; no GTIN in the feed |
+| Sizes | **54 % of variants had no size the collector could read.** 1,266 of them state it only in a `Size_9oz` / `Size_1kg` tag, which the collector ignored → now read: **98.1 %** of variants have a size (the remaining 45 are "Size_0"/none: gift cards, produce) |
+
+### 4. Matching and price comparison **[real data held since 2026-10-19; no new competitor request]**
+
+**Calculation.** An independent calculator (not the app's code) recomputed **every confirmed comparison cell — 217 cells in 207 rows** — from the raw stored prices, the AWG peg (1.79), and package sizes: displayed prices, USD conversion, absolute and percentage difference, sign ("positive = the competitor is dearer"), unit prices (107 per L, 99 per 100 g, 11 per item) and that no struck-through "regular" price is ever compared: **0 mismatches**, run before and after the fixes below.
+**Identity.** I read **all 235 accepted "identical" pairs one by one** (not a sample). Findings: 1 clearly wrong pair (Jose Cuervo *1800* Silver vs Jose Cuervo Silver), 5 vintage/ edition doubts (a 2013–2015 wine matched to an undated listing; "Dole 100%" vs "Dole"), and **7 pairs whose unit class was wrong** (ground coffee, milk chocolate, tea mix read as fluid ounces, so "per L" instead of "per 100 g"). Every one is now handled (see §6). Replaying the new rules over all 937 stored pairs: 763 keep their class and 174 change — 166 proposals become "same product, different pack", 6 accepted-identical pairs would go back to review (their acceptance stays, because the app never overwrites a person's decision), 2 proposals are dropped.
+**Recall.** 1,956 of your 2,385 variants had no proposal; about half of the sample I looked at had no stated size. After reading sizes from tags, a re-run **on the competitor data already held** gives:
+
+| | before | after |
+| --- | --- | --- |
+| own variants without a size | 1,293 | **45** |
+| own variants with any proposed counterpart | 429 | **1,005** |
+| own variants with an *identical* proposal | 207 | **605** |
+| proposals (identical / same-product-other-size / comparable) | 235 accepted / 41 / 661 | 235 accepted + **432 new identical** / **294** / **1,092**, all awaiting review |
+
+A random sample of 90 of the 432 new identical proposals: **88–89 are clearly the same product at the same size** (the doubtful ones: a Colgate "Minions" edition missing that word on one side; 292 g vs 10.2 oz). Nothing is confirmed without a person: no barcode or brand exists on these shops, so identity rests on name and size and the 0.72 confidence cap stands.
+**Not forced.** Products with no stated size are never called identical to a sized one; a competitor that could not be collected is "not available — <reason>", never "no match".
+
+### 5. Other features — what each rests on
+
+| Feature | Verified how | Status |
+| --- | --- | --- |
+| Authentication, tokens, lockout, sessions, CSRF, origin check, cross-tenant 404s | 30+ end-to-end tests (`auth`, `api`, `invitations`, `live-journey`, `database`) **[test]** + the live journey above **[real]** | ✅ |
+| Own-store stock: thresholds, zero, restock, unchanged, untracked, conflicts, duplicates, acknowledge, resolve | `stock-alerts` (15) + `alert-lifecycle` (16) + core tests **[fixture]**. The real feed lists everything as available (2,385 in stock), so **no real low-stock event exists**; exact quantities need the shop's Shopify authorisation | ✅ logic / 🔒 real quantities |
+| Offers, regular vs sale, expiry, conditions, flyers, review | `pipeline`, `offer-review` (11), core **[fixture]**; real: your shop's standing 8 % "regular price" is correctly **not** counted as 2,000 sales; a homepage banner "We **offer** a pre-stocking service" was wrongly an offer → fixed | ✅ / flyers 🟡 (no real flyer) |
+| Marketing | provider statuses read honestly; observed site banners shown "not proof of paid"; Facebook/Instagram/YouTube need credentials | 🔒 credentials |
+| Reports, exports, history, comparison, partial rule | real downloads above; `reports` (21) **[fixture]**; **new** `export-safety` (17): hostile names such as `=HYPERLINK(…)`, `+cmd|…`, `-2+3`, `@SUM`, a leading tab are neutralised in all 8 CSV datasets and stored as text in Excel — **the guard existed but had no test** | ✅ |
+| Schedule 09:00 `America/Aruba`, delays, interrupted workers, retries, duplicates, retention boundaries | `scheduler` (11), `scan-recovery` (16), `retention` (13) **[fixture]**; a real day of worker runs on 2026-10-19 **[real]**. Settings shows "next report 09:00, collection planned from 08:30" | ✅ / multi-day on a server 🔒 |
+| Social integrations, Shopify OAuth | imitations of the provider APIs **[mock]** | 🔒 credentials |
+
+### 6. Defects found by this audit, and their fixes (each has a regression test)
+
+1. **The terms of use were never read** (see §1). New: `core/terms.ts`, a profiler step, `sites.written_permission` (migration 0011), consent gate, scan re-check, UI quote + permission dialog. Tests: `terms.test` (7), `terms-of-use` e2e (7), `site-status`.
+2. Terms-blocked sites were labelled "Access denied" / "collection rules not confirmed", and "Automated access: permitted" contradicted the terms → "Terms forbid collection".
+3. Empty states hid the reason: products list, price comparison and product "No matches — no equivalent was found at the other websites" now say which websites were **not looked at** and why.
+4. A report with a never-collected competitor was labelled **complete**; it is now partial and says why.
+5. The catalogue estimate counted a non-product URL (the home page in a Shopify sitemap).
+6. A banner "We offer… service" counted as an offer (`promo-text.test`, 21 cases).
+7. **Sizes kept in tags were ignored** (the biggest coverage loss) + data-entry slips in a tag, leading-dot decimals (".87 oz"), a nappy's baby-weight range read as pack weight (`parsing.test`, `size-in-tags` e2e).
+8. Ground coffee, milk chocolate, tea mix, tuna in water read as fluid ounces (cocktail mixers and creamers correctly stay liquid).
+9. Product-line numbers, vintage years and numbered sizes ("Size 4" vs "Size 5") did not keep a pair out of "identical"; the same product in another size is now "same product, different pack".
+10. My own regression: a `<ul>` inside a `<p>` in the new empty states (caught by the console audit, fixed).
+
+### 7. Not verified in this audit
+
+Any competitor catalogue (no permission); Super Food's technical feasibility (a Freshop storefront; not probed because its terms forbid it); real flyers; real low-stock events and exact stock (needs Shopify authorisation); Facebook / Instagram / YouTube; inbox arrival of any email (I can see Gmail's `250 OK`, not your mailbox); a multi-day schedule; any deployment (no AWS access); screen readers, tablet width, Safari/Firefox.
+
 ## Automated checks
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **798 passed, 0 failed, 48 files** (final run on 2026-10-19 on the exact code that was pushed; it was 760 in 44 files before this audit) |
+| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **885 passed, 0 failed, 53 files** (final run on 2026-10-23 on the exact code of commit `225a48c` plus documentation; it was 798 in 48 files on 2026-10-19, the last pushed state) |
 | Live procedure (real websites and the real FX provider; opt-in, sends real requests) | `npm run test:live` | Ran 2026-10-19 against the four named shops (exhaustive procedure, `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`); record in `.data/live-runs/` (git-ignored) |
-| Typecheck, all workspaces, plus `tests/` and `scripts/` | `npm run typecheck` | Clean |
-| Lint | `npm run lint` | 0 errors, 2 intentional `any` warnings (`connectors/src/extract.ts`, `services/src/jobs.ts`) |
-| Production builds (web, API, worker) | `npm run build` | Succeeds |
+| Typecheck, all workspaces, plus `tests/` and `scripts/` | `npm run typecheck` | Clean (exit 0, 2026-10-23) |
+| Lint | `npm run lint` | Exit 0 on 2026-10-23 (2 intentional `any` warnings on 2026-10-19: `connectors/src/extract.ts`, `services/src/jobs.ts`) |
+| Production builds (web, API, worker) | `npm run build` | Succeeds (exit 0, 2026-10-23) |
 | **Production bundles run** | `node apps/api/dist/main.js` and `node apps/worker/dist/main.js` with `NODE_ENV=production`, https `APP_BASE_URL`, `SERVE_WEB=true`, against the real-data database | **18 of 18 checks passed** (see "Production-bundle smoke test"). Docker was not involved |
 
-Added by this audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
+Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
 Known harmless noise: Vitest sometimes prints "close timed out after 10000ms" after all tests pass (exit code 0) — slow shutdown of the embedded PostgreSQL.
 Integration test files run sequentially against **one shared database**, and the scheduler and retention are global by design, so tests scope their runs and `harness.close()` switches off the schedules of the workspaces it created.
 

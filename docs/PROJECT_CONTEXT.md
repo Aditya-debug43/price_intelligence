@@ -8,7 +8,7 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-10-23, after directive 5 (see "Update 5" — it supersedes anything older). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
@@ -16,7 +16,27 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
-# Update 4 — directive of 2026-10-19: real-data verification first, then GitHub and AWS (CURRENT STATE — this section wins over Update 3 and everything below)
+# Update 5 — directive of 2026-10-23: exhaustive functional, real-data and requirements audit (CURRENT STATE — this section wins over Update 4 and everything below)
+
+Verbatim directive: `docs/original-prompt/05_DIRECTIVE_EXHAUSTIVE_AUDIT_2026-10-23.md`. Evidence: `docs/verification-report.md` ("Exhaustive audit"). Requirement-by-requirement status against the ORIGINAL brief: `docs/REQUIREMENTS_MATRIX.md` Part 17. Compliance design: `docs/consent-and-compliance.md`.
+
+**What is true now:**
+
+- **Terms of use are read and enforced (new).** `packages/core/src/terms.ts` screens a website's terms page(s) for clauses that forbid automated access (`prohibits_automation`) or restrict copying/commercial use (`restricts_copying`); the profiler runs it right after the home page (`SiteProfileData.terms`), **stops before any catalogue probe** for a competitor whose terms forbid automation, and the consent step then needs `writtenPermission: true` + a note saying where the permission is kept (`sites.written_permission`, migration 0011; HTTP 409 `terms_prohibit`). A scan whose stored profile lacks the terms review (or whose permission flag changed) re-profiles first, so scheduled collections of already-consented websites are gated too. The customer's own website is never blocked by its own terms.
+- **The five supplied websites** were used exactly as given (`www.lingandsons.com`, not `shop.lingandsons.com`). Verdicts from their public terms: Quickmart and Super Food Plaza **forbid** automated access; foodstore2go and Ling & Sons **restrict** copying / commercial use; the own shop is the owner's. **No competitor was collected in this audit.** Competitor data in the earlier workspace ("Exploration Workspace") was collected on 2026-10-19 before this check, is still stored, and was used for analysis only.
+- **Fresh-account journey** (workspace "Audit Journey 2026-10-23", throwaway account that is a plus-address alias of the sender) verified in the browser end to end; own shop collected completely and reconciled in full (0 differences; 60/60 product pages).
+- **Biggest data fix:** a shop's own `Size_9oz` / `Size_1kg` tags are a size source (`sizeFromTags`, `sizeHintOf`): the own shop's share of variants with a size went from 46 % to 98 %; on the held competitor data the products with an identical proposal went 207 → 605.
+- **Other fixes:** unit class for dry products with drink words; model numbers, vintages, numbered sizes keep a pair out of "identical"; same product in another size is `different_pack`; baby weight ranges, leading-dot decimals, implausible tag sizes; catalogue estimate excludes non-product sitemap URLs; "We offer…" is not an offer (`isPromotionalText`); reports are **partial** when any active competitor was never collected; empty states name the uncollected websites (`apps/web/src/uncollected.tsx`); "Terms forbid collection" status.
+- **CSV / Excel injection** guard was untested; `tests/e2e/export-safety.test.ts` now proves it for all 8 datasets and Excel.
+- Test status: see the verification report (counts of the final run). **Nothing was pushed to GitHub in this directive** (commit `225a48c` plus the documentation commit are local); the 2026-10-19 push stands.
+
+**Dev machine state:** the stack is stopped. The "Audit Co", "aditya" and "Exploration" workspaces have daily schedules that email through the real Gmail account and collect from their configured websites; with the terms gate, Quickmart and Super Food are blocked on their next scan, while foodstore2go and Ling & Sons (restrict-only) would still be collected for workspaces that confirmed them earlier — **keep the stack stopped unless you intend that.**
+
+**Ask the user for:** (1) written permission from the competitors, or an informed decision for the restricted two, and whether to keep or remove the data collected on 2026-10-19; (2) whether to add `shop.lingandsons.com` (named in the original brief) and the "Cmart" address; (3) whether to push the audit commits to GitHub; (4) AWS access for deployment (see Update 4); (5) review of the proposed matches if they should reach the comparison.
+
+---
+
+# Update 4 — directive of 2026-10-19: real-data verification first, then GitHub and AWS (superseded by Update 5 where they differ)
 
 Verbatim directive: `docs/original-prompt/04_DIRECTIVE_REAL_DATA_THEN_DEPLOY_2026-10-19.md`. Evidence: `docs/verification-report.md` ("Real-data audit"). Requirement status: `docs/REQUIREMENTS_MATRIX.md` Part 16 (and the updated rows D6, D13, D14). Verdict: `docs/PRODUCTION_READINESS.md`.
 

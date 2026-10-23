@@ -2,7 +2,7 @@
 
 Read this with [verification-report.md](verification-report.md) (what was actually run), [integrations.md](integrations.md) (the truthful
 integration checklist) and [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (the verdict). Status words are those defined at the top
-of `integrations.md`. As of 2026-10-19 (after the real-data audit).
+of `integrations.md`. As of 2026-10-23 (after the exhaustive audit; the 2026-10-19 real-data results below still stand).
 
 **The product is not claimed to be production-ready, and it is not deployed.** The whole chain has been verified on four real Aruba grocery shops
 (own shop + three competitors) on the development machine, and real Gmail accepts the app's mail; nothing has been hosted, and the review of
@@ -31,11 +31,12 @@ audit of the web interface. The fictional websites live only in `tests/support` 
 
 ## The largest remaining gaps
 
+0. **Collecting the competitors needs their permission, and the terms say so.** Their public terms of use *forbid* automated access (Quickmart: "spider, crawl, or scrape"; Super Food Plaza: "spiders, robots") or *restrict* copying and commercial use (foodstore2go, Ling & Sons). robots.txt allows the pages, but robots.txt is not the whole of "permission". Shelfwatch now reads the terms and refuses to collect from a website whose terms forbid automated access unless the owner's written permission is recorded. In the 2026-10-23 audit **no competitor was collected**; the competitor data held was collected on 2026-10-19, before this check existed.
 1. **Nothing is deployed.** No AWS access exists on the development machine, so the hosted API, worker, database, TLS, logs and frontend ↔ backend path are unverified.
 2. **Matches need a person.** None of the four shops publishes a barcode, and their "vendor" fields are not brands (see below), so every match rests on name + size.
    The app proposes (235 identical, 661 comparable, 41 different-pack) and never confirms by itself; bulk review exists. Of the 235 identical matches accepted in the test workspace
    in one bulk action, 24 were checked against both live pages; 4 carried a vintage year on one side only (now flagged by a rule added after the audit; their acceptance stands because a person's decision is never overwritten).
-3. **Two named competitors cannot be collected.** shop.superfoodaruba.com is a JavaScript (Freshop) storefront whose prices use the `ƒ` symbol and whose robots.txt asks for a 10 s crawl delay;
+3. **Two named competitors cannot be collected.** shop.superfoodaruba.com is a JavaScript (Freshop) storefront whose prices use the `ƒ` symbol, whose robots.txt asks for a 10 s crawl delay **and whose terms of use forbid robots and spiders**;
    www.lingandsons.com is an information site with no catalogue (the shop is `shop.lingandsons.com`). Both appear as "not available", never as "no match". A fourth competitor's URL ("Cmart") was never supplied and has not been guessed.
 4. **Real-data blind spots:** the own shop's feed reports every product available (2,385 in stock, 0 low or out), so own-stock alerts have only run on fixtures; no real flyers; retention on real data.
 5. **Email arrival is unconfirmed.** Gmail accepted every message, but nobody has yet confirmed they reached the inbox, opened the link, or run a password reset through Gmail.
@@ -64,6 +65,7 @@ WooCommerce gave no brand or GTIN. A brand can still be inferred from titles *wi
 
 | Item | What is missing |
 | --- | --- |
+| Collection from Quickmart, Super Food Plaza, foodstore2go, Ling & Sons | The owners' written permission (or a product feed), recorded under Websites → site → Confirm collection rules; or your informed decision for the two whose terms only restrict copying. |
 | Deployment to AWS | AWS CLI/credentials configured locally by you (never pasted in chat), the existing environment's description, and your approval for any new resource, DNS or cost. |
 | Email delivery — remaining step | Confirmation that the messages arrived. The App Password was pasted into chat: rotate it. |
 | Shopify inventory | App credentials (`SHOPIFY_CLIENT_ID/SECRET/REDIRECT_URI`), `TOKEN_ENCRYPTION_KEY`, and the merchant's authorisation. The flow is tested end to end against a local imitation; it has never talked to Shopify. |
@@ -86,6 +88,10 @@ WooCommerce gave no brand or GTIN. A brand can still be inferred from titles *wi
 ## Known behaviours to be aware of
 
 - Name-only product matches are capped below certainty (0.72 when no brand is named) and wait for review. A flavour, variety, vintage-year or pack difference keeps a pair out of "identical".
+- A size is read from the title, then the variant, an explicit `size` attribute, then a shop's own `Size_9oz`-style tag. A product with none of these stays size-less and is never called identical to a sized one (45 of 2,385 of your variants). A size that is obviously a data-entry slip (over 25 kg / 25 L for one unit) is ignored.
+- A model or product-line number (1800), a vintage year, or a numbered size (Size 4, Stage 2) present in only one name sends a pair back to review. The same product in another size is "same product, different pack" and is compared per unit.
+- Sizes and units already stored for a competitor were computed by the parser of the day; they refresh on that competitor's next collection (matching itself re-reads titles, so new rules apply immediately).
+- A report is **partial** whenever any active competitor was never collected (rules unconfirmed, terms forbid it, blocked, failed) — not only when a confirmed one failed.
 - The price comparison page shows **confirmed matches only** by default, with a notice of how many proposed pairs wait for review.
 - A standing "regular price" shown on nearly every product is treated as a display, not as sales; the run says so.
 - Authorised inventory outranks the public "in stock / sold out" flag; disagreements are flagged on the Stock page, not silently resolved.

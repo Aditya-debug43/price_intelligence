@@ -368,3 +368,33 @@ Verbatim: `docs/original-prompt/04_DIRECTIVE_REAL_DATA_THEN_DEPLOY_2026-10-19.md
 ## Phase 3/4 — AWS and the deployed journey — blocked
 
 * No AWS CLI, profile, credentials, SSO configuration or deployment files exist on the development machine, so nothing was inspected, created or deployed. See `docs/PRODUCTION_READINESS.md` for exactly what is needed from the owner.
+
+# Directive 5 (2026-10-23) — "Exhaustive functional, real-data, and requirements audit"
+
+Verbatim: `docs/original-prompt/05_DIRECTIVE_EXHAUSTIVE_AUDIT_2026-10-23.md`. Method: re-read the original brief (all 24 sections) and the project records; check permission first; run a fresh-account journey in the real browser on the real websites; reconcile the own shop in full; audit the matching on the real data already held; fix, add regression tests, re-verify.
+
+## Permission first (a gap in the product, not only in the audit)
+
+* Read robots.txt and the public terms pages of the five supplied websites (≈ 2 s apart). robots.txt allows the pages; the **terms** forbid automated access at Quickmart ("spider, crawl, or scrape") and Super Food Plaza ("spiders, robots") and restrict copying / commercial use at foodstore2go and Ling & Sons. The product had only ever read robots.txt.
+* Built the terms review (`core/terms.ts`, profiler step 2b, `sites.written_permission` migration 0011, consent gate, scan re-check for old profiles, UI quote + written-permission dialog, "Terms forbid collection" status, honest "Automated access" row). Followed the instruction "permission unclear ⇒ report the blocker": **no competitor was collected**. Only the owner's own shop was.
+* Honest correction: the 2026-10-19 collection of Quickmart / foodstore2go / Ling & Sons ran before this check; that data is still stored (analysis only).
+
+## Fresh-account journey (browser, real Gmail)
+
+* Registered with validation checks; Gmail accepted the verification email; verified the resend throttle, replaced-link rejection, unverified-sign-in refusal; signed in/out; created the workspace "Audit Journey 2026-10-23"; entered the five exact URLs (a private address was refused); ran the capability check; recorded consent for the own shop; ran a 25-product sample and the full collection; used Products, Price comparison, Websites, Reports (PDF / Excel / CSV, two-report comparison), Settings (validation, persistence, test email), keyboard dialog; audited 15 routes at 1280 px and 375 px; checked the console in a quiet window.
+* The own shop: 2,381 / 2,381 products, feed = sitemap = stored; every variant reconciled on 11 fields (0 differences); 60 / 60 product pages agree; 4 full re-collections without duplicates or spurious changes.
+
+## Matching and calculation audit on the real data held
+
+* Independent calculator over every confirmed cell (217): 0 differences (before and after the fixes). Read all 235 accepted identical pairs one by one → fixes for model numbers, vintages, numbered sizes, unit class of dry products, "same product in another size". Replayed the new rules over the 937 stored pairs. Found that 54 % of the own shop's variants had no readable size because it lives in `Size_…` tags → fixed; on the competitor data already held the products with an identical proposal went 207 → 605 (90-pair sample of the new proposals ≈ 98 % right; all await review).
+* Scanned the parser over 7,959 real variants: no size-looking text fails to parse; baby weight ranges, implausible tag sizes and leading-dot decimals fixed.
+
+## Other fixes and tests added
+
+* Report is partial when any active competitor was never collected; empty states name the uncollected websites; catalogue estimate no longer counts the home page; banner "We offer… service" is not an offer; invalid `<ul>` in `<p>` removed (self-introduced).
+* New tests: `terms.test` (7), `terms-of-use` e2e (7), `promo-text` (21), `export-safety` e2e (17: CSV/Excel formula injection — the guard existed without a test), `size-in-tags` e2e (3), `web-serving` earlier, parsing / domain additions, partial-report test, site-status label.
+* Commits (local, **not pushed**): `225a48c` (code + tests) and the documentation commit that follows it.
+
+## Not done / blocked
+
+Any competitor collection (permission); Super Food's feasibility; real flyers; real low-stock; Shopify / Meta / YouTube; inbox arrival; deployment (no AWS access); multi-day schedule.

@@ -1,6 +1,6 @@
 # Production-readiness assessment
 
-**As of 2026-10-19 (after directive 4, "real-data verification first, then GitHub and AWS deployment").** Written for the person who decides whether to put
+**As of 2026-10-23 (after directive 5, "exhaustive functional, real-data and requirements audit"; the 2026-10-19 verification below still stands except where this says otherwise).** Written for the person who decides whether to put
 Shelfwatch in front of real customers. Companion documents: [verification-report.md](verification-report.md) (exactly what was run),
 [limitations.md](limitations.md), [integrations.md](integrations.md) (the truthful checklist), [deployment.md](deployment.md),
 [REQUIREMENTS_MATRIX.md](REQUIREMENTS_MATRIX.md) (Parts 14 and 16 are the last two directives). Status words are defined at the top of `integrations.md`.
@@ -17,6 +17,13 @@ deployed system, its worker, its database, TLS and the hosted frontend ↔ backe
 - Real catalogues exposed defects that fixtures could not (junk vendor "brands", $0 prices, a standing "regular price" counted as sales, pack notation, flavour/vintage conflicts, a comparison page that mixed unreviewed pairs into results). All are fixed with tests.
 - The production bundles (API, worker, web) run with `NODE_ENV=production` and pass an 18-check smoke test; a real browser signs in and reads the real data.
 - Real Gmail delivery works from the app (verification, daily summary, collection-failure emails recorded `sent`).
+
+**What the 2026-10-23 audit changed:**
+
+- **Permission is now checked, and it blocks.** The product only ever read `robots.txt`; the competitors' public **terms** forbid (Quickmart, Super Food Plaza) or restrict (foodstore2go, Ling & Sons) automated copying. Shelfwatch now reads the terms, quotes the clause, and refuses to collect from a website whose terms forbid automated access unless the owner's written permission is recorded. **No competitor was collected in the audit; the cross-store comparison on freshly collected competitor data therefore needs the owners' permission (or your informed decision) first.** Data collected from them on 2026-10-19 is still stored.
+- **Your shop is verified completely:** 2,381 / 2,381 products and all 2,385 variants reconciled against its public feed and sitemap (0 differences on 11 fields), 60 of 60 random product pages agree, four re-collections produced no duplicates or spurious changes.
+- **A single missing input was the biggest limit on comparisons:** 54 % of your shop's variants had no readable size (the size lives in `Size_…` tags). Reading it raised the share with a size to 98 %, and on the competitor data already held the products with an *identical* proposal went from 207 to 605 — all still awaiting a person's review.
+- The price calculation was re-derived independently for every confirmed cell (217): 0 differences. Matching rules were tightened from a one-by-one read of all 235 accepted pairs.
 
 **What is still not verified:** any deployment; arrival of the Gmail messages in your inbox; own-store stock alerts on real data (the shop's feed shows everything in stock); real flyers; retention on real data; Shopify authorised inventory, Meta, YouTube, Anthropic, S3 (no credentials); Docker; backup restore; behaviour under load.
 
@@ -62,6 +69,7 @@ deployed system, its worker, its database, TLS and the hosted frontend ↔ backe
 | Need | Why it blocks | Detail |
 | --- | --- | --- |
 | **AWS access on the development machine, and a description of the existing environment** | Phases "inspect and update the existing AWS deployment" and "verify the deployed journey" cannot start | AWS CLI installed and signed in through a profile or SSO (configure it yourself; never paste keys in chat), the account/region, which service type runs the backend (App Runner, ECS/Fargate, Elastic Beanstalk, EC2, Lambda…), where PostgreSQL lives (RDS?), the frontend's hosting, the domain. I will not create resources, DNS or anything with a cost without your approval |
+| **Permission from the competitors (or your explicit decision)** | The terms of Quickmart and Super Food Plaza forbid automated access; foodstore2go's and Ling & Sons' restrict copying / commercial use. Nothing further is collected from them until you have written permission (recorded in the app with where it is kept) or tell me you accept responsibility for the restricted ones | Ask each owner in writing for permission or a product feed; record it under Websites → site → Confirm collection rules. Say whether the data already collected on 2026-10-19 should be kept or removed. `www.lingandsons.com` has no catalogue — the shop is `shop.lingandsons.com` (your original brief named it): say if you want it added |
 | Gmail App Password rotation | The old password was pasted in chat | Revoke it at https://myaccount.google.com/apppasswords; type any new one into `.env` (or AWS secret storage) yourself |
 | Confirmation that the Gmail messages arrived | Inbox arrival cannot be seen from here | Check inbox and spam for the verification, daily-summary and failure emails sent on 2026-10-19 |
 | **The fourth competitor's URL ("Cmart")** | Never supplied; never guessed | — |

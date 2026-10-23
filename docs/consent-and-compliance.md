@@ -11,11 +11,19 @@ website's terms depends on the website and on local law, and has to be decided b
 | **Public information on a competitor's website** (prices, product pages, banners, flyers shown to every visitor) | The customer, for their own business analysis, within the website's terms and the law that applies to them | The customer **confirms the collection rules** for each website (see below). This is the customer's confirmation, recorded with their name, the time and the wording they saw. **It is never described as the competitor's approval, and the product never asks a competitor for any.** |
 | **The customer's own website** | The customer (they own it or are authorised by its owner) | The customer confirms they are entitled to have it analysed. |
 | **Private inventory quantities of the customer's own shop** | The store owner, through the platform's own authorisation | A separate, real authorisation: a merchant-authorised, read-only connection (Shopify OAuth). Never inferred, never assumed, never requested for a competitor. |
-| **Websites that prohibit or block collection** | The website | Respected, not worked around: a robots.txt that disallows collection, a login wall, a CAPTCHA / bot challenge, repeated 401/403/429 answers all end collection for that website. The website is reported as *Blocked* with the reason and the authorised alternatives (a product feed, API access, written permission, replacing the competitor). |
+| **Websites that prohibit or block collection** | The website | Respected, not worked around: a robots.txt that disallows collection, **terms of use that forbid automated access (unless the owner's written permission is recorded)**, a login wall, a CAPTCHA / bot challenge, repeated 401/403/429 answers all end collection for that website. The website is reported as *Blocked* with the reason and the authorised alternatives (a product feed, API access, written permission, replacing the competitor). |
 
 ## Why the customer's confirmation is required
 
-Shelfwatch cannot read a website's terms of use for you. Before collecting from a website, the customer confirms — in the
+**Terms of use are read, but never decided for you.** When a website is checked, Shelfwatch reads its terms page(s) (the footer link, then the usual paths: at most two pages) and screens them for two kinds of clause, quoting the one it found with a link to the page:
+
+| What the terms say | What Shelfwatch does |
+| --- | --- |
+| **Forbid automated access** — spiders, robots, crawling, scraping, "automated means" | The check **stops** after robots.txt, the home page and the terms page (3 requests): no feed, sitemap or product page is requested. The website is "Terms forbid collection". Collection is refused (`409 terms_prohibit`) unless the customer ticks that the owner gave **written permission** and says where it is kept; only then is the website checked and collected. The customer's own website is never blocked by its own terms. |
+| **Restrict copying or commercial use** without permission | A visible warning with the clause quoted; the customer decides. |
+| Nothing found / no terms page readable | Said plainly ("not checked" is never "allowed"). |
+
+This is a screening aid, not legal advice: a clause can be missed or misread, terms can change, and some say nothing either way. A website added before this check existed is checked again before its next collection. Before collecting from a website, the customer confirms — in the
 website's page in the app (*Websites → site → Confirm collection rules…*) — that they understand what the software does
 (only what every visitor can see, a polite pace, robots.txt followed, no sign-in, no challenge-solving, stops when refused),
 that this is **their** confirmation rather than the website owner's approval, and that they have checked that the website's terms and the
@@ -70,6 +78,8 @@ queued work is cancelled.
 
 ## What has actually been collected from real websites
 
-Only the capability probes recorded under `docs/` (read-only: robots.txt, the home page, sitemap index files and at most three
-sample pages per site). The first real catalogue collection happens only on websites the customer names and confirms; see
-[verification-report.md](verification-report.md) for exactly which live tests were run and against what.
+* 2026-10-14 — read-only capability probes (robots.txt, the home page, sitemap index files, at most three sample pages per site).
+* 2026-10-18/19 — public scraping-practice sandboxes, and then, **on the owner's instruction**, complete catalogues of groceriestogoaruba.com (the owner's own shop), shop.lingandsons.com, foodstore2go.com and quickmartaruba.com. **That collection ran before terms of use were read.** Quickmart's terms forbid crawling and scraping and foodstore2go's and Ling & Sons' restrict copying and commercial use; the data is still stored for analysis, no further request has been made to those competitors, and removing it is the owner's decision.
+* 2026-10-23 — the terms review above was added; the five supplied websites were then checked (3–16 requests each) and only the owner's own shop was collected.
+
+See [verification-report.md](verification-report.md) for exactly which live tests were run and against what.

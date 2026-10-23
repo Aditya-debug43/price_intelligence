@@ -1,6 +1,6 @@
 # Requirements → implementation matrix
 
-**Updated 2026-10-19 for the fourth directive (Part 16 at the end; rows D6, D13, D14 of Part 14 were brought current), and earlier that day for the third (Part 14 below, `docs/original-prompt/03_…`).** Parts 2–13 were built in Phase 1 (2026-10-15) from the original prompt and the 2026-10-15 directive (`docs/original-prompt/`), checked against the
+**Updated 2026-10-23 for the fifth directive (Part 17: the original brief checked requirement by requirement); 2026-10-19 for the fourth directive (Part 16 at the end; rows D6, D13, D14 of Part 14 were brought current), and earlier that day for the third (Part 14 below, `docs/original-prompt/03_…`).** Parts 2–13 were built in Phase 1 (2026-10-15) from the original prompt and the 2026-10-15 directive (`docs/original-prompt/`), checked against the
 repository; rows that the third directive changed are marked *(updated)* — the demonstration mode they mention no longer exists. **Status legend:** ✅ implemented and verified (fixtures/local services) · 🟡 partial · ❌ missing · 🔒 blocked by
 credentials/permission · ⚠️ defect found. "Verified" never means "verified on a real customer site" unless stated.
 Phase = where in the directive's plan the gap is closed (P2 live/demo + onboarding, P3 collection, P4 price intelligence,
@@ -199,6 +199,35 @@ Source: `docs/original-prompt/04_DIRECTIVE_REAL_DATA_THEN_DEPLOY_2026-10-19.md`.
 | R18 | GitHub repository holds the verified frontend and backend code, up to date, no secrets, no force-push | ✅ pushed 2026-10-19 (`2574a4a..56e5094`, fast-forward) | Fast-forward of `main` on `Aditya-debug43/price_intelligence`; secret scan of tracked files and pending commits clean | There is no hosting workflow: the frontend is *stored*, not *hosted*, on GitHub |
 | R19 | Existing AWS backend inspected and updated; env/secrets/migrations/worker/health verified | 🔒 blocked | No AWS CLI, profile, credentials, SSO, environment variables or deployment files on the development machine | Needs AWS access configured locally by the user and a description of the existing environment |
 | R20 | Deployed frontend ↔ backend communication and a disposable-account customer journey on the deployed system | 🔒 blocked (depends on R19) | The single-origin rule is documented; the same journey was run locally on the production bundles | — |
+
+## Part 17 — Directive 5 (2026-10-23): exhaustive audit, checked against the ORIGINAL brief
+
+Source: `docs/original-prompt/05_DIRECTIVE_EXHAUSTIVE_AUDIT_2026-10-23.md`; evidence in [verification-report.md](verification-report.md) ("Exhaustive audit"). Each row is an original requirement (section of `01_ORIGINAL_PROMPT.md`), classified by what this audit **actually ran**:
+✅ real = verified on real websites / real Gmail / the real browser · ✅ test = automated tests (fixtures) · 🟡 partial · 🔒 blocked (permission / credentials / hosting) · ⚠️→✅ defect found and fixed in this audit.
+
+| ID | Original requirement | Status | What was run | Gap / blocker |
+| --- | --- | --- | --- | --- |
+| E1 | Account + workspace; email verification; sessions (§3.6, §13) | ✅ real | Fresh account in the browser: validation, real Gmail (`250 2.0.0 OK`), unverified sign-in refused, resend throttle, old link rejected, new link works, sign-out/in, protected URL redirects | Inbox arrival is not observable from here |
+| E2 | One source URL + 3–5 competitor URLs, editable (§3.1, §3.8, §14B) | ✅ real | The five URLs exactly as supplied; private address refused; partial save keeps valid rows | — |
+| E3 | Universal profiler / capability report in plain language (§5) | ✅ real | Own shop Full, foodstore2go Full, Ling `www` Limited, Quickmart + Super Food Blocked | Super Food's technical feasibility not probed (terms forbid it) |
+| E4 | Respect site terms, robots, rate limits; record consent (§3.9, §18) | ⚠️→✅ | **The product had never read a website's terms.** Added terms review, quote of the clause, refusal unless written permission is recorded (migration 0011); 7 e2e + 7 unit tests; verified on the five real sites | **Four competitors not collected in this audit: Quickmart and Super Food forbid automated access; foodstore2go and Ling restrict copying/commercial use (unclear).** Needs the owners' written permission or your explicit decision |
+| E5 | Collect the entire discoverable catalogue, resumable, polite, counts (§6, §2) | ✅ real (own shop) | 2,381 / 2,381 products, 2,385 variants; feed = sitemap = stored; 0 duplicates / 0 skipped; 11 requests at 1.5 s | Competitors: blocked by permission |
+| E6 | Stored values equal the pages; provenance, URL, time (§6, §19.11) | ✅ real | Every variant vs the feed (11 fields, 0 differences); 60 of 60 random product pages agree on price, availability and title | — |
+| E7 | History kept; no overwrite; no duplicates on re-run (§6) | ✅ real | 4 full runs + 1 sample: same products, first-seen kept, observations appended, no spurious price change | — |
+| E8 | Currency detection; original + converted price; configurable FX with attribution (§3.2, §7) | ✅ real data held | 217 confirmed cells recomputed independently (AWG ÷ 1.79 → USD): 0 differences, sign and denominator as labelled | Only the AWG peg and USD seen on real shops |
+| E9 | Four match classes; identity ≠ similarity; confidence + reason; human review (§7) | ✅ real data held, ⚠️ fixed | All 235 accepted identical pairs read one by one: 1 wrong + 5 doubtful + 7 wrong unit classes → all fixed (model numbers, vintages, numbered sizes, dry-product units, other-size class) | Names only (no barcode/brand on any shop) ⇒ **everything needs a person**; 432 new identical proposals await review (≈ 98 % right in a 90-pair sample) |
+| E10 | Coverage honesty: partial / not collected / stale never shown as success or "no match" (§2, §19.3–5, §19.10) | ⚠️→✅ | Products, comparison and "No matches" empty states now name the uncollected websites and why; a never-collected competitor makes the report **partial** | — |
+| E11 | Discounts, offers, flyers, historical verification (§8) | ✅ test, 🟡 real | Real: standing 8 % "regular price" not counted as sales; "We offer a service" banner no longer an offer (fixed). Fixtures: expiry, conditions, review, correction | No real flyer / PDF available |
+| E12 | Own-site low stock: public + authorised modes, threshold 5, no invented counts, dedupe (§3.3, §9) | ✅ test | 15 + 16 + core tests incl. untracked, conflicts, restock, duplicates, acknowledge/resolve | The real feed shows everything in stock; Shopify authorisation needed for real quantities 🔒 |
+| E13 | Marketing / social with honest status (§3.7, §10) | ✅ real status, 🔒 data | Integrations tab lists exactly what each provider needs; site banners shown "not proof of paid" | Credentials / App Review |
+| E14 | Insights traceable to observations (§11) | ✅ test + real report | Insight evidence resolves to stored observations | — |
+| E15 | Reports: snapshot, PDF/CSV/Excel, history, compare, daily email (§3.5, §12) | ✅ real | Downloaded every format, compared two reports; **CSV/Excel formula injection now tested (17 tests)** — the guard existed untested | — |
+| E16 | Ready by 09:00 `America/Aruba`, partial on delay, retries, retention (§3.4, §3.5) | ✅ test, 🟡 real | Scheduler / recovery / retention suites; Settings shows planned start; a real day of runs on 2026-10-19 | Multi-day server run |
+| E17 | Multi-tenant isolation (§3.6, §13, §19.14) | ✅ test + real | Cross-tenant 404 matrix, row-level security tests; live probes earlier | — |
+| E18 | Security: SSRF, size/time limits, injection, secrets (§18) | ✅ test + real | 11 unsafe-URL cases, private address refused in the UI, hostile text neutralised in exports | — |
+| E19 | Pages A–L, loading / empty / error / partial states, responsive, accessible (§14) | ✅ real | 15 routes × 2 widths, no overflow, all controls labelled, keyboard dialog, quiet console | Tablet, screen reader, Safari/Firefox |
+| E20 | 14 data-reliability invariants (§19) | ✅ test | Pre-existing suites; this audit re-checked 3, 4, 5, 10, 11 and 13 on real data | — |
+| E21 | Acceptance criteria (§21): real collection, comparison, offers, stock, reports, scheduling, marketing, security, quality | 🟡 | Met for the own shop and the pipeline; **the cross-store comparison on freshly collected competitor data is blocked by permission** | See E4 |
 
 ## Acceptance criteria (Part 15) — current state
 
