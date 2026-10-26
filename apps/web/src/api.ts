@@ -9,11 +9,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The headers of a request. `content-type: application/json` is declared only when there IS a JSON body: the API (Fastify) answers 400
+ * "Body cannot be empty when content-type is set to 'application/json'" to a request that declares a body it does not send — which is what
+ * every bodyless DELETE (remove a website, revoke an invitation, remove a member, disconnect an integration) used to do.
+ */
+export function requestHeaders(hasBody: boolean): Record<string, string> {
+  return { ...(hasBody ? { 'content-type': 'application/json' } : {}), 'x-requested-with': 'ci-web', accept: 'application/json' };
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', 'x-requested-with': 'ci-web', accept: 'application/json' },
+    headers: requestHeaders(body !== undefined),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   let data: unknown = null;

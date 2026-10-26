@@ -398,3 +398,62 @@ Verbatim: `docs/original-prompt/05_DIRECTIVE_EXHAUSTIVE_AUDIT_2026-10-23.md`. Me
 ## Not done / blocked
 
 Any competitor collection (permission); Super Food's feasibility; real flyers; real low-stock; Shopify / Meta / YouTube; inbox arrival; deployment (no AWS access); multi-day schedule.
+
+---
+
+## 2026-10-26 — Directive 6: "www.lingandsons.com" never collects
+
+Verbatim: `docs/original-prompt/06_DIRECTIVE_FIX_LING_AND_SONS_COLLECTION_2026-10-26.md`. The user reported (with screenshots) that collection works for their own shop and two competitors but Ling & Sons always fails with "No reliable collection method is available", 0 requests, 0 pages.
+
+### Root cause (confirmed; not assumed from the screenshots)
+
+* Read the stored profiles and scan runs in the database; read the real site with a few polite requests (robots.txt, sitemap, home page, specials page, the shop's robots.txt and terms page — the product's bot identity, 2 s apart).
+* `www.lingandsons.com` is the company's **information website**. Its sitemap has 19 ordinary pages (home, deals, news, rewards, customer service, about, location, contact, terms, privacy, articles); none is a product page. Its menu item **"Online Shopping" links to `https://shop.lingandsons.com/`**, a separate Shopify store.
+* "VIP Deals" builds its list in the browser from `/data/sp.json`; that file is **empty** right now (HTTP 200, 0 bytes, a normal ETag, changed 2026-10-26 08:09 GMT) — not a block, simply no deals published.
+* The scan made 0 requests because it reuses the stored capability report, finds no method that ranks, and stops before crawling. That is by design and honest. What was wrong: the profiler counted the 19 pages as "about 19 products / ~20 requests"; it listed barcode / brand / stock / currency warnings for products that do not exist; the failed run and the website status told the user to "ask the owner for a product feed" and called the site "not supported" — while the owner already publishes a feed.
+
+### Changes
+
+* `packages/connectors/src/profiler.ts`: `findStorefrontLink` (a menu link labelled like a shop, to a **different host on the same company domain**; nothing fetched; other companies, marketplaces, delivery apps and social links never suggested); `noProductPages` verdict (every sampled page read normally, none is a product, no prices, not JavaScript-built, nothing refused by robots.txt, no listing found, no feed) → catalogue estimate dropped ("The sitemap lists ordinary pages, not products"), `profile.storefront`, limitations `catalogue_elsewhere` / `not_a_shop`, product-field noise suppressed, honest summary. `shared/profile-types.ts` (+`storefront`), `shared/limitation-advice.ts` (+2 codes).
+* `services/scan.ts`: error codes `catalogue_elsewhere` / `not_a_shop` with a precise message (still `failed`, still 0 requests, never a success); `core/scan-explain.ts` (new wording, no "feed" advice); `core/site-status.ts` + `services/coverage.ts` ("No products at this address", next step "Add <store> as a website").
+* `apps/web/src/pages/Websites.tsx`: a callout with **"Add <host> as a website"**. It is the customer's click: it adds the website (collection rules still pending) and queues its capability check; if the store is already in the workspace it links to it instead. Nothing is added or collected automatically.
+
+### Verified
+
+* Real site, real profiler (no database): 17 requests, status limited, catalogue size none, storefront `https://shop.lingandsons.com/` ("Online Shopping"), two relevant warnings only (terms restrict commercial use; the shop is elsewhere).
+* Real browser, throwaway account and workspace (reserved `.test` address, no email sent; its schedule switched off afterwards): Ling & Sons page shows the new summary, explanation and button; the button added `shop.lingandsons.com`, opened its page and ran its capability check → **full, Shopify feed, about 1,850 products, terms page present but empty (`none_found`)**. **No collection was started and nothing was confirmed.**
+* The genuine shop data from 2026-10-19 (Exploration Workspace) is intact: 1,850 products, 2,126 variants, 6,378 price observations, AWG, 3 successful runs. The user's own workspace was not touched: 2,381 / 2,566 / 863 products, no new scan.
+* Tests: 914 passed in 55 files (was 885 / 53); typecheck, lint (0 errors, 2 known warnings), build clean. New: `storefront.test.ts` (16), `catalogue-elsewhere.test.ts` (12; two fixture sites on one company domain, plus every other fixture kind checked unchanged: jsonld, html, woo, listing, homegrid, jsrender, termscopy), additions to `site-status` and `scan-explain`.
+* Found by the full run: `retention.test.ts` (2) and one test in `reports.test.ts` failed from 2026-10-24 on — the test clock was pinned to 2026-10-14 while the database stamps rows with its real clock, so the windows drifted with the calendar. Tests-only fix (the clock starts at the real time). Not related to this change; reported as such.
+
+### Left for the user
+
+Whether to add `shop.lingandsons.com` (one click), then confirm its collection rules — Ling & Sons' website terms restrict commercial use without written consent, whether they cover the shop is the owner's decision, and the shop's own terms page is empty. Whether to remove `www.lingandsons.com` afterwards. Nothing was pushed (commit is local).
+
+---
+
+## 2026-10-26 — Directive 7: "Remove website and its data" answered 400 Bad Request
+
+Verbatim: `docs/original-prompt/07_DIRECTIVE_FIX_WEBSITE_REMOVAL_400_2026-10-26.md`.
+
+### Root cause (reproduced, not assumed)
+
+* The web client's `api.del` sent `content-type: application/json` with **no body** (`post`/`put`/`patch` default their body to `{}`; `del` did not). The API is Fastify 5, which answers **400 `FST_ERR_CTP_EMPTY_JSON_BODY` "Body cannot be empty when content-type is set to 'application/json'"** to a request that declares a JSON body it does not carry — and it does so in the body-parsing step, before authentication, validation or the route run. Reproduced against the repo's own Fastify (5.12.7): DELETE with no content type → 200; DELETE with the JSON content type and no body → 400; with `{}` → 200.
+* Every bodyless DELETE in the web app was affected, not only websites: remove a website (Websites page and Setup page), revoke an invitation, remove a member, disconnect an integration.
+* Why it was never caught: the API tests' client sent DELETE with no content type at all, so the browser's real request shape was never exercised.
+* Not the cause (checked): the route and its validation (`siteId` must be a UUID), permissions (admin required; staff get 403), and the database — every foreign key to `sites` is `ON DELETE CASCADE` or `SET NULL`, so removal cleans up products, variants, prices, evidence, scans, profiles, consent, offers, flyers, matches and alerts; saved reports are snapshots and stay.
+
+### Changes
+
+* `apps/web/src/api.ts`: `requestHeaders(hasBody)` — a JSON content type is declared only when there is a JSON body (the CSRF header is always sent).
+* `apps/api/src/app.ts`: an `onRequest` hook drops the content type of a DELETE that declares one but carries no body (no `content-length`, no `transfer-encoding`), so older cached web bundles and other HTTP tools work too. A DELETE with a body is parsed as before; other methods are untouched.
+* `packages/services/src/sites.ts`: `removeSite` deletes by workspace **and** id (it already looked the website up by workspace first).
+* `apps/web/src/pages/Websites.tsx`: the dialog shows the server's message when removal fails ("The website was not removed. …", `role="alert"`), shows "Removing…" with both buttons disabled while the request runs (and cannot be dismissed half-way), resets its error when closed, shows a "Website removed." toast on success, and refreshes every screen that is built on the removed website's data.
+
+### Tests and checks
+
+* `apps/web/src/api.test.ts` (new, 7): DELETE and GET send no content type, POST/PUT/PATCH keep sending JSON, error responses become readable messages.
+* `tests/e2e/site-removal.test.ts` (new, 13), through the real API with the browser's exact header shapes: a DELETE with the JSON content type and no body removes the website and zero rows remain in 13 tables while other websites, the same hostname in another workspace and the saved report are unchanged; the audit event is written; the current web request shape works; a DELETE with a body works; removal twice is 404; invalid id 400; unknown id 404; another workspace's id 404 (both paths); not signed in 401; staff 403; missing CSRF header or foreign Origin 403; a removed website can be added again; removing a member works with the same shape.
+* Red/green proof: with the server hook switched off the new tests fail with `FST_ERR_CTP_EMPTY_JSON_BODY` (10 of 13); with it on they pass.
+* Real browser, throwaway workspace only ("UI Check Workspace", `.test` account): the dialog's confirm → `DELETE … 200 OK`, back to the list, the website and its rows gone, audit event written. A failing DELETE (forced in the page, HTTP 500) shows the red message inside the still-open dialog, "Removing…" with both buttons locked while pending, and a retry with the real network removed the website. The user's workspace (2,381 / 2,566 / 863 products) and the Exploration Workspace were never touched.
+* Full run: see the verification report (final counts).

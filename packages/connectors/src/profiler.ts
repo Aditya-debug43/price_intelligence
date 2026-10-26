@@ -13,7 +13,7 @@ import type {
   TermsPageReview,
   TermsReview,
 } from '@ci/shared';
-import { AccessDeniedError, FetchError, type SafeFetcher } from './safe-fetch.ts';
+import { AccessDeniedError, FetchError, sameSiteHost, type SafeFetcher } from './safe-fetch.ts';
 import { detectChallenge, detectLoginWall } from './challenge.ts';
 import { extractFromHtml, looksJavaScriptRendered, titleOf } from './extract.ts';
 import { discoverFromSitemaps } from './sitemap.ts';
@@ -170,6 +170,36 @@ export function findPromotions($: cheerio.CheerioAPI, origin: string): SiteProfi
   const body = $('body').text().replace(/\s+/g, ' ');
   for (const m of body.matchAll(/(?:use\s+)?(?:code|coupon)[:\s]+["“']?([A-Z0-9][A-Z0-9_-]{3,19})["”']?/g)) coupons.add(m[1]!);
   return { bannerTexts: [...banners].slice(0, 8), saleLinks: [...sale].slice(0, 8), flyerLinks: [...flyers].slice(0, 8), couponMentions: [...coupons].slice(0, 5) };
+}
+
+/** Menu wording that names an online shop ("Online Shopping", "Shop online", "Order online", "Store"…). The whole label must match, so "Store locations" or "Shop hours" do not. */
+const STOREFRONT_LABEL = /^(?:visit\s+|go\s+to\s+)?(?:our\s+)?(?:online\s+(?:shopping|shop|store|grocery|supermarket|market)|shop(?:ping)?\s+online|order\s+online|buy\s+online|web\s?shop|e-?shop|shop\s+now|shopping|shop|store)$/i;
+
+/**
+ * Where a website says its own online store is, when this address is not that store: a link labelled like a shop whose address is on the SAME
+ * company domain but a different host ("www.example.com" → "shop.example.com"). Links to other companies, marketplaces, delivery apps and
+ * social pages are never suggested, and nothing is fetched — this only reads the page already loaded. The first such link in the page wins
+ * (menus come before footers).
+ */
+export function findStorefrontLink($: cheerio.CheerioAPI, pageUrl: string, ownHost: string): NonNullable<SiteProfileData['storefront']> | null {
+  const bare = (h: string) => h.toLowerCase().replace(/^www\./, '');
+  let found: NonNullable<SiteProfileData['storefront']> | null = null;
+  $('a[href]').each((_, el) => {
+    if (found) return;
+    const label = ($(el).text() || $(el).attr('title') || $(el).attr('aria-label') || '').replace(/\s+/g, ' ').trim();
+    if (!label || label.length > 40 || !STOREFRONT_LABEL.test(label)) return;
+    let u: URL;
+    try {
+      u = new URL($(el).attr('href') ?? '', pageUrl);
+    } catch {
+      return;
+    }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return;
+    const host = u.hostname.toLowerCase();
+    if (bare(host) === bare(ownHost) || !sameSiteHost(host, ownHost)) return;
+    found = { url: `${u.origin}${u.pathname || '/'}`, label, host };
+  });
+  return found;
 }
 
 function detectCurrencyFromHtml(html: string): string[] {
@@ -689,6 +719,17 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   const n = samples.length;
   const catalogueRefusedByRobots = robotsRefused > 0 && withPrice === 0 && !apiUsable;
 
+  // An address whose sitemap lists ordinary pages (news, specials, contact…) rather than products: every page sampled from it was read normally
+  // (not JavaScript-built, not refused) and none is a product page. Its sitemap size is then not a catalogue size, and it is said so.
+  const builtByJavaScript = profile.rendering.requiresJavaScript || (n > 0 && withPrice === 0 && sampleLowText === sampleChecked && sampleChecked > 0);
+  const noProductPages = !apiUsable && !profile.catalogue.listing?.found && !builtByJavaScript && !catalogueRefusedByRobots && n > 0 && withPrice === 0 && samples.every((s) => !s.title);
+  if (noProductPages) {
+    profile.catalogue.estimatedProducts = null;
+    profile.catalogue.estimateBasis = 'The sitemap lists ordinary pages, not products';
+    const store = findStorefrontLink($, profile.site.finalUrl ?? `${origin}/`, new URL(origin).hostname);
+    if (store) profile.storefront = store;
+  }
+
   // ── 6. currency
   const codes = [...new Set(currencyEvidence.map((c) => c.code))];
   profile.currency = {
@@ -701,7 +742,7 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
     profile.conflicts.push(`Different currencies were found on this site (${codes.join(', ')}). Prices will be treated per currency; please confirm the main currency.`);
     limit('currency_conflict', 'warning', `Several currencies appear on this site (${codes.join(', ')}). Review the detected currency before relying on price comparisons.`);
   }
-  if (!profile.currency.detected) limit('currency_unknown', 'warning', 'The currency of the prices could not be determined, so prices cannot be converted for comparison until you confirm it.');
+  if (!profile.currency.detected && !noProductPages) limit('currency_unknown', 'warning', 'The currency of the prices could not be determined, so prices cannot be converted for comparison until you confirm it.');
 
   // ── 7. fields matrix
   if (apiUsable) {
@@ -786,10 +827,16 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
   }
 
   // ── 10. limitations (plain language)
-  if (fields.gtin.availability === 'missing') limit('no_gtin', 'info', 'Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review.');
-  if (fields.stock_quantity.availability !== 'available') limit('no_stock_quantity', 'info', 'Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown.');
-  if (fields.brand.availability === 'missing') limit('no_brand', 'info', 'Brands are not published, which makes product matching less certain.');
-  if (!apiUsable && n > 0 && structuredCount < n) limit('weak_structured_data', 'info', 'Some product pages publish no structured data, so layout-based extraction (lower confidence) is used.');
+  if (noProductPages) {
+    const pages = `${n} page${n === 1 ? '' : 's'}`;
+    if (profile.storefront) limit('catalogue_elsewhere', 'warning', `This address does not list products itself: none of the ${pages} sampled from its sitemap is a product page, and no prices were found. Its own menu links to an online store — “${profile.storefront.label}” — at ${profile.storefront.url}. Products and prices are there, not here.`);
+    else limit('not_a_shop', 'warning', `This address does not appear to list products: none of the ${pages} sampled from its sitemap is a product page, and no prices were found.`);
+  }
+  // the fields below describe a shop's product data; for an address with no products they would only be noise
+  if (!noProductPages && fields.gtin.availability === 'missing') limit('no_gtin', 'info', 'Barcodes (GTIN/EAN/UPC) are not published, so product matching relies on brand, name and size — more matches will need review.');
+  if (!noProductPages && fields.stock_quantity.availability !== 'available') limit('no_stock_quantity', 'info', 'Stock quantities are not public. For your own shop, an authorised inventory connection can provide exact counts; for competitors only availability is shown.');
+  if (!noProductPages && fields.brand.availability === 'missing') limit('no_brand', 'info', 'Brands are not published, which makes product matching less certain.');
+  if (!noProductPages && !apiUsable && n > 0 && structuredCount < n) limit('weak_structured_data', 'info', 'Some product pages publish no structured data, so layout-based extraction (lower confidence) is used.');
   if (n < 2 && !apiUsable) limit('few_samples', 'info', 'Fewer than two product pages could be sampled, so field coverage is a rough indication only.');
   if (profile.promotions.flyerLinks.length) limit('flyers_found', 'info', `${profile.promotions.flyerLinks.length} promotional flyer PDF link(s) were found; text-based flyers can be read automatically.`);
 
@@ -807,6 +854,11 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
     const where = [...refusedPaths].slice(0, 3).join(', ');
     limit('robots_disallow', 'blocking', `The website's robots.txt does not permit automated reading of its product pages${where ? ` (${where})` : ''}, so they are not collected.`);
     summary = `The website's robots.txt does not permit automated reading of its product pages${where ? ` (${where})` : ''}. We respect that and do not collect them; nothing was collected from this website.`;
+  } else if (!hasPrices && noProductPages) {
+    status = 'limited';
+    summary = profile.storefront
+      ? `This website does not list products itself: its sitemap has ordinary pages only, and no prices were found. Its menu links to an online store at ${profile.storefront.url} — add that address as a website to collect products.`
+      : 'This website does not appear to list products: its sitemap has ordinary pages only, and no prices were found. Only general information, promotions and social links are available.';
   } else if (!hasPrices) {
     status = 'limited';
     summary = profile.rendering.requiresJavaScript

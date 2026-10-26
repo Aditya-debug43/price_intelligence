@@ -26,6 +26,9 @@ export const FIXTURE_HOSTNAMES: Record<string, string> = {
   tagsize: 'rival-tagsize.test',
   termsban: 'rival-termsban.test',
   termscopy: 'rival-termscopy.test',
+  infosite: 'www.rival-corp.test',
+  corpshop: 'shop.rival-corp.test',
+  infoplain: 'www.rival-plain.test',
   homegrid: 'rival-storefront.test',
   catblocked: 'rival-closed.test',
   blocked: 'rival-robots.test',
@@ -271,6 +274,7 @@ async function route(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, 
   if (s.kind === 'html') return htmlRoutes(h, req, res, url);
   if (s.kind === 'listing') return listingRoutes(h, req, res, url);
   if (s.kind === 'homegrid') return homeGridRoutes(h, req, res, url);
+  if (s.kind === 'infosite') return infoSiteRoutes(h, req, res, url);
   if (s.kind === 'catblocked') return catBlockedRoutes(h, req, res, url);
   return send(h, req, res, 404, 'Not found', 'text/plain');
 }
@@ -543,6 +547,35 @@ async function homeGridRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, r
     if (!p) return send(h, req, res, 404, 'Not found', 'text/plain');
     return send(h, req, res, 200, shell(h, p.title, `<div class="product_main"><h1>${esc(p.title)}</h1><p class="price_color">£${money(p.price)}</p></div>`));
   }
+  return send(h, req, res, 404, 'Not found', 'text/plain');
+}
+
+/**
+ * A company's information website, built like a real one: a menu, news and specials pages, a location page, a sitemap that lists those pages
+ * (none is a product page), and a menu item "Online Shopping" that leaves for the company's separate shop on the same company domain. A
+ * "Store locations" link stays on the same host, and "Order delivery" leaves for another company — neither is the shop.
+ */
+const INFO_PAGES: Record<string, { title: string; text: string }> = {
+  '/special-deals/': { title: 'VIP Deals', text: 'Our VIP deals change every week. Ask at the customer service desk how to join the rewards programme and be told when the next list of deals is published.' },
+  '/about/': { title: 'About us', text: 'We are a family-owned food market that has served the island for decades. Our team is proud of the community we serve and of the people who work with us every day.' },
+  '/location/': { title: 'Location', text: 'Visit us at the main road. Opening hours are Monday to Saturday from seven in the morning until eight in the evening, and Sunday from nine until three.' },
+  '/news/': { title: 'Latest news', text: 'We are celebrating twenty years in business this month and will share the programme of events in store and on our social media pages as soon as it is final.' },
+  '/contact-us/': { title: 'Contact us', text: 'Write to us or call the customer service desk during opening hours. We answer every message within two working days and welcome your suggestions.' },
+};
+
+async function infoSiteRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, url: URL) {
+  const path = url.pathname;
+  const shopOrigin = h.origin.replace('//www.', '//shop.');
+  const shopItem = h.spec.key === 'infoplain' ? '' : `<li><a href="${shopOrigin}/">Online Shopping</a></li>`; // 'infoplain' is the same kind of website with no link to any shop
+  const menu = `<nav><ul><li><a href="/special-deals/">Deals</a></li><li><a href="/news/">Latest News</a></li>${shopItem}<li><a href="/location/">Store locations</a></li><li><a href="https://orders.delivery-app.test/shop">Order delivery</a></li><li><a href="/about/">About</a></li></ul></nav>`;
+  const page = (title: string, text: string) => shell(h, title, `${menu}<main><h1>${esc(title)}</h1><p>${esc(text)}</p></main>`);
+  if (path === '/') return send(h, req, res, 200, page('Fixture Corporate Site', 'Welcome to our food market. Browse our deals, read our latest news and find the nearest location. You can also shop online through the link in the menu above this page.'));
+  if (path === '/sitemap.xml') {
+    const urls = ['/', ...Object.keys(INFO_PAGES)].map((p) => `<url><loc>${h.origin}${p}</loc></url>`).join('');
+    return send(h, req, res, 200, `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`, 'application/xml');
+  }
+  const info = INFO_PAGES[path.endsWith('/') ? path : `${path}/`]; // like the real site, a page answers with or without its trailing slash
+  if (info) return send(h, req, res, 200, page(info.title, info.text));
   return send(h, req, res, 404, 'Not found', 'text/plain');
 }
 

@@ -55,6 +55,8 @@ export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = 
     const byCode: Record<string, [string, string]> = {
       site_unreachable: ['The website could not be reached.', 'This is usually temporary. Try again later.'],
       unsupported_site: ['No supported way of reading this website’s products was found.', 'Ask the owner for a product feed or an authorised platform connection.'],
+      catalogue_elsewhere: [r.error ?? 'This address does not list products itself; its online store is on another address.', 'Add the online store it links to as a website, then collect that one. You can remove this address afterwards — it has nothing to collect.'],
+      not_a_shop: ['None of the pages sampled from this address is a product page, so there is nothing to collect here.', 'Check that this is the address of the online shop. If the shop has its own address, replace this one with it.'],
       empty_feed: ['The website’s product feed answered but listed no products.', 'Check that the shop has products published, or try again later.'],
       no_products_extracted: ['Pages were fetched but no product data could be read from them.', 'The pages may need JavaScript rendering, or the layout is not supported yet.'],
       all_pages_failed: ['None of the product pages could be read.', 'Check the details below for the errors, then try again.'],
@@ -62,6 +64,8 @@ export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = 
       worker_lost: ['The collection stopped responding several times in a row and was abandoned. Everything collected before that is kept.', 'Try again. If it keeps happening, the website may be too large or too slow to read in one run.'],
     };
     const [reason, next] = byCode[r.errorCode ?? ''] ?? [r.error ?? 'The collection failed.', 'Try again; if it keeps failing, see the errors below.'];
+    // An address that lists no products is neither a technical failure nor an empty shop: nothing was requested, and nothing is missing from here.
+    if (r.errorCode === 'catalogue_elsewhere' || r.errorCode === 'not_a_shop') return { summary: 'Nothing was collected: this address does not list products. That is not a technical failure and not an empty shop.', completeness: 'none', reason, nextStep: next };
     return { summary: `Failed: ${r.productsSaved ? `${saved} saved before the failure` : 'no products were saved'}. This is a failure, not an empty catalogue.`, completeness: r.productsSaved ? 'partial' : 'none', reason, nextStep: next };
   }
 

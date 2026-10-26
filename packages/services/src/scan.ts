@@ -416,8 +416,15 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     // Resume with the connector already chosen for this run.
     const candidates: AnyConnector[] = (run.connector ? [getConnector(run.connector)] : ranked.slice(0, 3).map((r) => getConnector(r.id))).filter((c): c is AnyConnector => !!c);
     if (!candidates.length) {
-      const msg = 'No reliable collection method is available for this website yet. ' + (profile.rendering.requiresJavaScript ? 'It needs browser rendering, which is not enabled.' : 'See the capability report for details.');
-      const res = await finish('failed', { productsSaved: 0, errorCode: 'unsupported_site', error: msg, notes: [msg], complete: false, connector: null });
+      // An address that lists no products is not an "unsupported" shop: say what it is, and — when the website itself links to its online store — where that is.
+      const shopElsewhere = profile.limitations.some((l) => l.code === 'catalogue_elsewhere') ? profile.storefront : undefined;
+      const notAShop = profile.limitations.some((l) => l.code === 'not_a_shop');
+      const msg = shopElsewhere
+        ? `This address does not list products itself, so nothing was requested or collected. Its menu links to an online store — “${shopElsewhere.label}” — at ${shopElsewhere.url}: add that address as a website to collect its products.`
+        : notAShop
+          ? 'This address does not appear to list products: none of the pages sampled from its sitemap is a product page, so nothing was requested or collected. Check that it is the address of the online shop.'
+          : 'No reliable collection method is available for this website yet. ' + (profile.rendering.requiresJavaScript ? 'It needs browser rendering, which is not enabled.' : 'See the capability report for details.');
+      const res = await finish('failed', { productsSaved: 0, errorCode: shopElsewhere ? 'catalogue_elsewhere' : notAShop ? 'not_a_shop' : 'unsupported_site', error: msg, notes: [msg], complete: false, connector: null });
       await afterScan(svc, run, siteRef, res, msg, alertIds);
       return res;
     }

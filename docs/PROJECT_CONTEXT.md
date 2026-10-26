@@ -16,7 +16,33 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
-# Update 5 — directive of 2026-10-23: exhaustive functional, real-data and requirements audit (CURRENT STATE — this section wins over Update 4 and everything below)
+# Update 7 — directive of 2026-10-26: "Remove website and its data" returned 400 (CURRENT STATE — read with Updates 6 and 5)
+
+Verbatim directive: `docs/original-prompt/07_DIRECTIVE_FIX_WEBSITE_REMOVAL_400_2026-10-26.md`. Details: `docs/WORK_LOG.md` (2026-10-26, directive 7) and `docs/verification-report.md` ("Website removal").
+
+- **Root cause (reproduced):** the web client's `api.del` sent `content-type: application/json` with no body; Fastify 5 answers 400 `FST_ERR_CTP_EMPTY_JSON_BODY` to that before authentication or the route runs. Every bodyless DELETE in the web app failed (website removal on the Websites and Setup pages, revoking an invitation, removing a member, disconnecting an integration). The API tests never sent that header, so they stayed green.
+- **Fix:** the client declares a JSON content type only when it sends a body (`requestHeaders` in `apps/web/src/api.ts`); the API also tolerates a bodyless DELETE that declares one (an `onRequest` hook in `apps/api/src/app.ts`), so cached older bundles and other tools work; `removeSite` deletes by workspace and id; the confirmation dialog shows the server's message on failure, "Removing…" while pending, locks both buttons meanwhile, and refreshes the screens built on the website's data. The database was never at fault: every foreign key to `sites` cascades or sets null.
+- **Verified:** tests 934 in 57 files (+20: `apps/web/src/api.test.ts`, `tests/e2e/site-removal.test.ts`), typecheck / lint / build clean; red-green proof (tests fail 10 of 13 with the server fix off); the real browser flow in a throwaway workspace. The user's workspace was not touched.
+- **Rule for future tests:** an API test of a browser feature must send the headers the browser sends.
+
+---
+
+# Update 6 — directive of 2026-10-26: why "www.lingandsons.com" never collected (CURRENT STATE — read with Update 5 below; where they differ this one wins)
+
+Verbatim directive: `docs/original-prompt/06_DIRECTIVE_FIX_LING_AND_SONS_COLLECTION_2026-10-26.md`. Details and evidence: `docs/WORK_LOG.md` (2026-10-26) and `docs/verification-report.md` ("Ling & Sons (2026-10-26)").
+
+- **Root cause (confirmed on the real site):** `https://www.lingandsons.com/` is Ling & Sons' *information* website, not a shop. Its sitemap lists 19 ordinary pages (deals, news, rewards, contact, terms, articles); none is a product page. Its menu item "Online Shopping" links to **`https://shop.lingandsons.com/`**, a separate Shopify store (public feed, about 1,850 products, AWG; collected for real on 2026-10-19). The "VIP Deals" page builds its list in the browser from `/data/sp.json`, which is currently an empty file. So there is nothing to collect at the address the user entered, and the failed runs (0 requests, "no reliable collection method") were correct — but the explanations were wrong.
+- **Product defects fixed:** the profiler counted the 19 sitemap pages as "about 19 products / ~20 requests" and listed barcode / brand / stock / currency warnings for products that do not exist; the failure advice said "ask the owner for a product feed" although the owner publishes one; the status said "not supported".
+- **What now happens:** when none of the pages sampled from a sitemap is a product page (and no prices were found, the site is not JavaScript-built, nothing was refused by robots.txt), the capability report says so, drops the catalogue size, and — if the website's own menu links to a shop on the **same company domain** — names it (`SiteProfileData.storefront`, limitation `catalogue_elsewhere`; otherwise `not_a_shop`). The scan fails honestly with that explanation (error codes `catalogue_elsewhere` / `not_a_shop`, 0 requests), the website status reads "No products at this address", and the website page offers a button **"Add <host> as a website"**. The click is the customer's: the shop is never added, checked or collected on their behalf. Links to other companies, marketplaces or delivery apps are never suggested.
+- **Nothing was collected from any competitor in this directive.** The real shop's data (1,850 products, 2,126 variants, 6,378 price observations) is the 2026-10-19 collection in "Exploration Workspace" (before the terms review). A fresh capability check of the shop (in a throwaway workspace) says: full access via the Shopify feed, terms page present but empty (`none_found`), robots.txt allows it. Whether Ling & Sons' website terms (which restrict commercial use without written consent) cover the shop is the owner's decision; asking Ling & Sons in writing is the safe path.
+- **Latent test bug fixed:** `retention.test.ts` and one test in `reports.test.ts` started failing on 2026-10-24 because the test clock was pinned to 2026-10-14 while the database stamped rows with its real clock. Tests now start from the real time. No product code was involved.
+- **Tests:** 914 passed in 55 files (was 885 in 53); typecheck, lint (0 errors) and build clean. New: `storefront.test.ts` (16), `catalogue-elsewhere.test.ts` e2e (12, incl. every other fixture kind unchanged), additions to `site-status`, `scan-explain`.
+- **The user's working websites were not touched:** AdityaGraphics still holds 2,381 / 2,566 / 863 products (own shop / Quickmart / foodstore2go); no new scan ran there.
+- **Ask the user for:** (1) whether to add `shop.lingandsons.com` (one click on the new button, then confirm its collection rules — their informed decision, see the terms note) and whether to remove `www.lingandsons.com` afterwards; (2) the earlier asks in Update 5 still stand (push of the local commits, permissions, AWS).
+
+---
+
+# Update 5 — directive of 2026-10-23: exhaustive functional, real-data and requirements audit (partly superseded by Update 6 above for Ling & Sons)
 
 Verbatim directive: `docs/original-prompt/05_DIRECTIVE_EXHAUSTIVE_AUDIT_2026-10-23.md`. Evidence: `docs/verification-report.md` ("Exhaustive audit"). Requirement-by-requirement status against the ORIGINAL brief: `docs/REQUIREMENTS_MATRIX.md` Part 17. Compliance design: `docs/consent-and-compliance.md`.
 

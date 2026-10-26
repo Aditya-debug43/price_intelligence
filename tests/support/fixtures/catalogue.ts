@@ -66,7 +66,7 @@ export function fixtureGtin(id: number): string {
   return body + String((10 - (sum % 10)) % 10);
 }
 
-export type SiteKind = 'shopify' | 'woocommerce' | 'jsonld' | 'html' | 'listing' | 'homegrid' | 'catblocked' | 'blocked' | 'challenge' | 'failing' | 'jsrender' | 'login' | 'flaky';
+export type SiteKind = 'shopify' | 'woocommerce' | 'jsonld' | 'html' | 'listing' | 'homegrid' | 'catblocked' | 'blocked' | 'challenge' | 'failing' | 'jsrender' | 'login' | 'flaky' | 'infosite';
 
 export interface FixtureProduct {
   itemId: number;
@@ -161,6 +161,13 @@ export const SITE_SPECS: SiteSpec[] = [
   {
     key: 'tagsize', kind: 'shopify', label: 'Fixture Tag-Size Shop (the title has no size; a Size_ tag does)', currency: 'USD', factor: 1,
     items: range(0, 15), titleStyle: 'size_in_tag', exposeGtin: [], outOfStock: [],
+  },
+  // A company's information website (news, deals, contact) whose menu links to its separate online shop on the same company domain.
+  { key: 'infosite', kind: 'infosite', label: 'Fixture Corporate Site (information only; its menu links to the shop)', currency: 'AWG', factor: 1, items: [], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
+  { key: 'infoplain', kind: 'infosite', label: 'Fixture Information Site (no products, no link to any shop)', currency: 'AWG', factor: 1, items: [], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
+  {
+    key: 'corpshop', kind: 'shopify', label: 'Fixture Corporate Shop (the online store the information site links to)', currency: 'AWG', factor: 1.79,
+    items: range(0, 13), titleStyle: 'full', exposeGtin: [], outOfStock: [2],
   },
   { key: 'catblocked', kind: 'catblocked', label: 'Fixture Closed Catalogue (robots.txt forbids the shop pages)', currency: 'USD', factor: 1, items: range(0, 8), titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'blocked', kind: 'blocked', label: 'Fixture Blocked (robots.txt disallows)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },

@@ -1,12 +1,12 @@
 # Verification report
 
-Last full run: **2026-10-23, after the exhaustive audit (directive 5)**; the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
+Last full run: **2026-10-26, after the website-removal fix (directive 7)**: typecheck, lint (0 errors), build and **934 of 934 tests in 57 files** passed; see "Website removal (2026-10-26)" below. Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
 Status words are the project vocabulary defined at the top of [integrations.md](integrations.md). Four kinds of evidence are kept apart on purpose:
 
 | Kind | Meaning | Examples here |
 | --- | --- | --- |
 | **Real external** | Real websites, real mail server, real provider, real clock | your shop and (on 2026-10-19) three competitors, the Gmail account, open.er-api.com, public scraping sandboxes |
-| **Automated test** | Code run by `vitest` against a real PostgreSQL | 885 tests |
+| **Automated test** | Code run by `vitest` against a real PostgreSQL | 934 tests |
 | **Fixture** | Fictional `.test` shops served inside tests; never reachable from the product | `tests/support/fixtures` |
 | **Mock / library-in-process** | A real library talking to a fake peer (SMTP, S3, OAuth) | `email-smtp`, `shopify-oauth`, `s3-storage` |
 
@@ -108,18 +108,48 @@ A random sample of 90 of the 432 new identical proposals: **88–89 are clearly 
 
 Any competitor catalogue (no permission); Super Food's technical feasibility (a Freshop storefront; not probed because its terms forbid it); real flyers; real low-stock events and exact stock (needs Shopify authorisation); Facebook / Instagram / YouTube; inbox arrival of any email (I can see Gmail's `250 OK`, not your mailbox); a multi-day schedule; any deployment (no AWS access); screen readers, tablet width, Safari/Firefox.
 
+## Website removal (2026-10-26) — "Remove website and its data" answered 400
+
+| Question | Finding | Evidence |
+| --- | --- | --- |
+| Why 400? | The web client's `api.del` declared `content-type: application/json` with no body; Fastify 5 answers 400 `FST_ERR_CTP_EMPTY_JSON_BODY` to that, in the body-parsing step, before authentication or the route. Every bodyless DELETE of the web app was affected (website, invitation, member, integration). | Automated: reproduced on the repo's own Fastify 5.12.7 (no content type → 200; JSON content type, no body → 400; with `{}` → 200); the new API test fails 10 of 13 with the server fix off and passes with it on |
+| Why was it not caught? | The API tests sent DELETE with no content type at all. | Code read of `tests/support/api-client.ts` |
+| Database / permissions / validation? | Not the cause. Every foreign key to `sites` cascades or sets null; admin role required (staff 403); id must be a UUID (400); unknown 404. | Schema read; `site-removal.test.ts` |
+| Does removal clean up and stay inside its limits? | After removal, 0 rows remain in 13 site-linked tables; other websites, the same hostname in another workspace and the saved report are unchanged; the removal is in the audit trail; the website can be added again. | Automated, real API with the browser's exact headers |
+| Does the real dialog work? | Confirm → `DELETE … 200 OK`, list refreshed, rows gone, audit event. A forced HTTP 500 shows the message in the dialog (still open, "Removing…" and locked buttons while pending); a real retry then removed the website. | Real browser on the local app, throwaway workspace only; the user's workspace stayed at 2,381 / 2,566 / 863 products |
+
+Not covered by this check: a removal while a collection of the same website is running (its rows go with it; the worker's later writes for that website fail harmlessly and are logged).
+
+## Ling & Sons (2026-10-26) — why `www.lingandsons.com` never collected
+
+Evidence kinds: **real external** (the website, a handful of polite requests; the real profiler; a real browser on the local app), **automated test**, **fixture**.
+
+| Question | Finding | Evidence |
+| --- | --- | --- |
+| What is `https://www.lingandsons.com/`? | The company's information website. Its sitemap lists 19 pages (home, deals, news, VIP rewards, customer service, about, location, contact, terms, privacy, articles) and none is a product page. | Real: sitemap, home page, specials page fetched 2026-10-26 |
+| Where is the shop? | `https://shop.lingandsons.com/` — the home page's menu item "Online Shopping" links to it. A separate Shopify store, public feed, about 1,850 products, AWG. | Real: home page; capability check of the shop in a throwaway workspace (13 requests) |
+| Why 0 requests and "no reliable collection method"? | The scan reuses the stored capability report; nothing ranks, so it stops before crawling. Correct behaviour — but it called the site "unsupported" and advised asking for a product feed. | Stored profiles and scan runs in the database (5 profiles, 7 failed runs, all the same) |
+| Does the site publish any deal data? | "VIP Deals" builds its list in the browser from `/data/sp.json`, which is an empty file (HTTP 200, 0 bytes, changed 2026-10-26 08:09 GMT). No data exists to read; nothing was invented. | Real: the file's headers |
+| May the shop be read? | robots.txt allows normal pages and `/products.json`; the shop's own terms page exists but is empty (the product's terms review: `none_found`). The *website's* terms restrict commercial use without written consent; whether they cover the shop is the owner's call. | Real: robots.txt, terms pages; the product's own terms review |
+
+What changed in behaviour (all measured with the real profiler on the real URL, 17 requests, no database): status stays *limited*; the "about 19 products / ~20 requests" claim is gone; the four irrelevant product-field warnings are gone; the report says the site does not list products and names `https://shop.lingandsons.com/`. In the real browser the website page shows the explanation and **"Add shop.lingandsons.com as a website"**; the click added the shop to a throwaway workspace, opened its page and ran its capability check (full, Shopify feed, about 1,850 products). **No collection was started anywhere in this directive.**
+
+Not changed, on purpose: the other sites. Fixture sites of every kind (JSON-LD, plain HTML, WooCommerce, listing grid, home-page grid, JavaScript-only, terms-restricted) are asserted to get no "not a shop" verdict, no storefront and the same catalogue estimate.
+
+Unrelated defect found by the full run and fixed (tests only): three retention tests had started failing on 2026-10-24 because the test clock was pinned to 2026-10-14 while rows were stamped by the database's real clock. 
+
 ## Automated checks
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **885 passed, 0 failed, 53 files** (final run on 2026-10-23 on the exact code of commit `225a48c` plus documentation; it was 798 in 48 files on 2026-10-19, the last pushed state) |
+| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **934 passed, 0 failed, 57 files** (final run on 2026-10-26; 914 in 55 files after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
 | Live procedure (real websites and the real FX provider; opt-in, sends real requests) | `npm run test:live` | Ran 2026-10-19 against the four named shops (exhaustive procedure, `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`); record in `.data/live-runs/` (git-ignored) |
 | Typecheck, all workspaces, plus `tests/` and `scripts/` | `npm run typecheck` | Clean (exit 0, 2026-10-23) |
 | Lint | `npm run lint` | Exit 0 on 2026-10-23 (2 intentional `any` warnings on 2026-10-19: `connectors/src/extract.ts`, `services/src/jobs.ts`) |
 | Production builds (web, API, worker) | `npm run build` | Succeeds (exit 0, 2026-10-23) |
 | **Production bundles run** | `node apps/api/dist/main.js` and `node apps/worker/dist/main.js` with `NODE_ENV=production`, https `APP_BASE_URL`, `SERVE_WEB=true`, against the real-data database | **18 of 18 checks passed** (see "Production-bundle smoke test"). Docker was not involved |
 
-Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
+Added by the 2026-10-26 website-removal fix (20 tests, 914 → 934): the web client's request shapes (7) and removal through the real API with the browser's headers (13). Added by the 2026-10-26 Ling & Sons fix (29 tests, 885 → 914): storefront detection (16), end-to-end "information website that links to its shop" plus every other fixture kind unchanged (12), site-status addition (1). Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
 Known harmless noise: Vitest sometimes prints "close timed out after 10000ms" after all tests pass (exit code 0) — slow shutdown of the embedded PostgreSQL.
 Integration test files run sequentially against **one shared database**, and the scheduler and retention are global by design, so tests scope their runs and `harness.close()` switches off the schedules of the workspaces it created.
 

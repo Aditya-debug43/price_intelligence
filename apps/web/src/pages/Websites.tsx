@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { CAPABILITY_EXPLANATIONS, adviceForLimitation, formatDateTime, type FieldKey } from '@ci/shared';
+import { CAPABILITY_EXPLANATIONS, adviceForLimitation, formatDateTime, type FieldKey, type SiteProfileData } from '@ci/shared';
 import { api, errorMessage, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Modal, PageHead, SiteStatusPill, Spinner, useToast } from '../ui';
@@ -62,6 +62,39 @@ export function WebsitesPage() {
   );
 }
 
+/**
+ * The website says its online store is on another address. Adding it is the customer's click — it is never added for them — and it joins
+ * the workspace like any website: collection rules still have to be confirmed before anything is collected.
+ */
+function StorefrontOffer({ storefront, existing }: { storefront: NonNullable<SiteProfileData['storefront']>; existing?: SiteItem }) {
+  const { orgId } = useOrg();
+  const nav = useNavigate();
+  const toast = useToast();
+  const add = useOrgMutation(
+    async (id, _: void) => {
+      const { site } = await api.post<{ site: { id: string } }>(orgPath(id, '/sites'), { url: storefront.url, role: 'competitor' });
+      await api.post(orgPath(id, `/sites/${site.id}/profile`));
+      return site.id;
+    },
+    ['sites', 'dashboard'],
+    (siteId) => {
+      toast.push(`${storefront.host} was added. Check what it allows, then confirm the collection rules.`);
+      nav(`/o/${orgId}/websites/${siteId}`);
+    },
+  );
+  return (
+    <div className="callout info">
+      <b>The online store is a separate website.</b> {existing ? <>{storefront.host} is already in your workspace. <Link to={`/o/${orgId}/websites/${existing.id}`}>Open it</Link></> : <>Add <b>{storefront.host}</b> to collect its products. Nothing is collected until you confirm its collection rules.</>}
+      {!existing && (
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" onClick={() => add.mutate(undefined)} disabled={add.isPending}>{add.isPending ? <Spinner label="Adding" /> : `Add ${storefront.host} as a website`}</button>
+        </div>
+      )}
+      {add.error && <div className="callout bad" role="alert" style={{ marginTop: 8 }}>{errorMessage(add.error)}</div>}
+    </div>
+  );
+}
+
 // ───────────────────────────────────────────────────────────── detail
 export function SiteDetailPage() {
   const [openScan, setOpenScan] = useState<string | null>(null);
@@ -88,9 +121,18 @@ export function SiteDetailPage() {
   const runProfile = useOrgMutation((id, _: void) => api.post<{ requestedAt: string }>(orgPath(id, `/sites/${siteId}/profile`)), [], (r) => setWaitingSince(r.requestedAt));
   const collect = useOrgMutation((id, v: { kind: 'discovery' | 'sample'; limit?: number }) => api.post(orgPath(id, `/sites/${siteId}/scans`), v), [['scans', siteId], 'sites', 'dashboard'], () => toast.push('Collection queued.'));
   const cancel = useOrgMutation((id, scanId: string) => api.post(orgPath(id, `/scans/${scanId}/cancel`)), [['scans', siteId], 'dashboard']);
-  const remove = useOrgMutation((id, _: void) => api.del(orgPath(id, `/sites/${siteId}`)), ['sites', 'dashboard'], () => nav(`/o/${orgId}/websites`));
+  // Everything collected from the website goes with it, so every screen built on that data is refreshed.
+  const remove = useOrgMutation((id, _: void) => api.del(orgPath(id, `/sites/${siteId}`)), ['sites', 'dashboard', 'comparison', 'products', 'matches', 'offers', 'stock', 'marketing', 'alerts', 'quality', 'journey', 'scans'], () => {
+    toast.push('Website removed.');
+    nav(`/o/${orgId}/websites`);
+  });
   const [consentOpen, setConsentOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const closeRemove = () => {
+    if (remove.isPending) return; // a removal in progress cannot be dismissed half-way
+    remove.reset();
+    setRemoveOpen(false);
+  };
 
   if (sites.isLoading) return <Spinner label="Loading website" />;
   if (!site) return <div className="callout bad">This website isn’t in your workspace. <Link to={`/o/${orgId}/websites`}>Back to websites</Link></div>;
@@ -128,6 +170,7 @@ export function SiteDetailPage() {
                   })}
                 </div>
               )}
+              {p.storefront && isAdmin && <StorefrontOffer storefront={p.storefront} existing={sites.data?.sites.find((s) => s.hostname === p.storefront!.host)} />}
             </div>
           )}
         </Card>
@@ -191,8 +234,9 @@ export function SiteDetailPage() {
       </div>
       {consentOpen && <ConsentModal site={site} text={sites.data!.consentText} onClose={() => setConsentOpen(false)} />}
       {removeOpen && (
-        <Modal title={`Remove ${site.name}?`} onClose={() => setRemoveOpen(false)} footer={<><button className="btn" onClick={() => setRemoveOpen(false)}>Keep it</button><button className="btn btn-danger" onClick={() => remove.mutate(undefined)} disabled={remove.isPending}>Remove website and its data</button></>}>
+        <Modal title={`Remove ${site.name}?`} onClose={closeRemove} footer={<><button className="btn" onClick={closeRemove} disabled={remove.isPending}>Keep it</button><button className="btn btn-danger" onClick={() => remove.mutate(undefined)} disabled={remove.isPending}>{remove.isPending ? <Spinner label="Removing…" /> : 'Remove website and its data'}</button></>}>
           <p>This deletes the website’s collected products, price history, offers and matches from your workspace. Saved reports are kept as they were generated.</p>
+          {remove.error && <div className="callout bad" role="alert">The website was not removed. {errorMessage(remove.error)}</div>}
         </Modal>
       )}
     </>

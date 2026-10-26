@@ -147,6 +147,12 @@ export interface SiteProfileData {
   };
   /** The terms-of-use review. Absent in profiles made before it existed (those are re-profiled before the next collection). */
   terms?: TermsReview;
+  /**
+   * Set only when this address lists no products of its own (none of the pages sampled from its sitemap is a product page and no prices were
+   * found) AND its own menu links to an online store on the same company domain. It is only what the website itself says: the store is never
+   * added or collected unless the customer adds it.
+   */
+  storefront?: { url: string; label: string; host: string };
   sampledProducts: SampledProduct[];
   limitations: ProfileLimitation[];
   conflicts: string[];

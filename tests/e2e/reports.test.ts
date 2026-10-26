@@ -272,7 +272,8 @@ describe('retention', () => {
     const withSnap = await db().select().from(evidence).where(and(eq(evidence.orgId, t.orgId)));
     const refs = withSnap.map((e) => e.snapshotRef).filter((r): r is string => !!r);
     expect(refs.length).toBeGreaterThan(10);
-    h.advance(10 * 86_400_000);
+    // 10 days after the REAL now: the evidence rows were stamped by the database's real clock, which the harness's fixed start date does not follow
+    h.setNow(new Date(Math.max(Date.now(), h.svc.clock().getTime()) + 10 * 86_400_000));
     const r = await runRetention(h.svc);
     expect(r.snapshotsPurged).toBeGreaterThanOrEqual(refs.length);
     for (const ref of refs) expect(await h.storage.exists(ref)).toBe(false);

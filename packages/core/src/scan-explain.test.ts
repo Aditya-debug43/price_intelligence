@@ -41,6 +41,15 @@ describe('scan run explanations never claim more than the run established', () =
     expect(failed.summary).toMatch(/failure, not an empty catalogue/);
     expect(failed.reason).toMatch(/listed no products/);
     expect(run({ status: 'failed', isComplete: false, productsSaved: 0, errorCode: 'unsupported_site' }).nextStep).toMatch(/product feed/);
+    // an address that lists no products is not "unsupported": it names the shop and never asks for a feed
+    const elsewhere = run({ status: 'failed', isComplete: false, productsSaved: 0, errorCode: 'catalogue_elsewhere', error: 'This address does not list products itself. Its menu links to an online store at https://shop.example.com/.' });
+    expect(elsewhere).toMatchObject({ completeness: 'none', summary: expect.stringContaining('does not list products') });
+    expect(elsewhere.reason).toContain('https://shop.example.com/');
+    expect(elsewhere.nextStep).toMatch(/Add the online store it links to/);
+    expect(elsewhere.nextStep).not.toMatch(/product feed/);
+    const notShop = run({ status: 'failed', isComplete: false, productsSaved: 0, errorCode: 'not_a_shop' });
+    expect(notShop.reason).toMatch(/none of the pages sampled/i);
+    expect(notShop.nextStep).toMatch(/address of the online shop/);
     const lost = run({ status: 'failed', isComplete: false, productsSaved: 40, errorCode: 'worker_lost' });
     expect(lost.completeness).toBe('partial'); // what was saved before the worker went silent is kept, and is not called complete
     expect(lost.summary).toMatch(/40 products saved before the failure/);

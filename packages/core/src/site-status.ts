@@ -16,6 +16,8 @@ export interface SiteStatusInput {
   collecting: boolean;
   /** The website's terms of use forbid automated access and no written permission is recorded. */
   termsForbid?: boolean;
+  /** The latest capability report found that this address lists no products (it is not a shop); storefrontUrl is the online store the website itself links to, if any. */
+  noProducts?: { storefrontUrl: string | null } | null;
   collectingProgress?: { saved: number; estimated: number | null } | null;
   newestObservationAt: Date | null;
   now: Date;
@@ -49,6 +51,15 @@ export function deriveSiteStatus(i: SiteStatusInput): SiteStatus {
   }
   if (i.lastRun?.status === 'blocked') {
     return make('access_denied', 'bad', 'The website refused access during collection. We stopped and will not retry around it.', 'Ask the owner for a product feed, or remove this competitor');
+  }
+  if (i.capability === 'limited' && i.hasUsableMethod === false && i.productCount === 0 && i.noProducts) {
+    const where = i.noProducts.storefrontUrl;
+    return {
+      ...make('unsupported', 'warn',
+        where ? `This address does not list products itself, so there is nothing to collect here. Its own menu links to an online store at ${where}.` : 'This address does not appear to list products: none of the pages sampled from it is a product page, so there is nothing to collect here.',
+        where ? `Add ${where} as a website` : 'Check that this is the address of the online shop'),
+      label: 'No products at this address',
+    };
   }
   if (i.capability === 'limited' && i.hasUsableMethod === false && i.productCount === 0) {
     return make('unsupported', 'warn', 'No supported way of reading this website’s products was found. This is a limitation of the website, not an empty catalogue.', 'Ask the owner for a product feed, or an authorised platform connection');

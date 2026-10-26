@@ -55,6 +55,9 @@ export async function loadCoverage(db: DbLike, orgId: string, now: Date, staleAf
     const complete = !!last && last.status === 'succeeded' && (last.isComplete || last.kind === 'refresh') && stale === 0 && !failing;
     const running = siteRuns.find((r) => r.status === 'queued' || r.status === 'running');
     const finished = siteRuns.find((r) => r.status !== 'queued' && r.status !== 'running');
+    const noProducts = prof?.data.limitations.some((l) => l.code === 'catalogue_elsewhere' || l.code === 'not_a_shop')
+      ? { storefrontUrl: prof.data.limitations.some((l) => l.code === 'catalogue_elsewhere') ? (prof.data.storefront?.url ?? null) : null }
+      : null;
     const status = deriveSiteStatus({
       active: s.active,
       consentStatus: s.consentStatus,
@@ -64,6 +67,7 @@ export async function loadCoverage(db: DbLike, orgId: string, now: Date, staleAf
       lastRun: finished ? { status: finished.status, isComplete: finished.isComplete, kind: finished.kind, errorCode: finished.errorCode, error: finished.error } : null,
       collecting: !!running,
       termsForbid,
+      noProducts,
       collectingProgress: running ? { saved: running.productsSaved, estimated: running.estimatedTotal } : null,
       newestObservationAt: st?.newest ? new Date(st.newest) : null,
       now,

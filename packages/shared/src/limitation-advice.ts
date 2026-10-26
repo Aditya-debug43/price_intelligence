@@ -21,6 +21,8 @@ export const LIMITATION_ADVICE: Record<string, string | null> = {
   currency_unknown: 'Edit the website and choose its currency; prices cannot be converted for comparison until then.',
   terms_prohibit_automation: 'Ask the website’s owner for written permission or a product feed. If you have it, record it under Websites → this website → Confirm collection rules. Until then nothing is collected from this website, and the terms are never worked around.',
   terms_restrict_copying: 'Read the quoted clause and the full terms before you confirm the collection rules, and collect only if your use is allowed — or ask the owner for permission or a feed.',
+  catalogue_elsewhere: 'Add the online store this website links to as a website, then collect that one. Nothing is missing here: this address has no products to collect, so you can remove it once the store is added.',
+  not_a_shop: 'Check that this is the address of the online shop and not of a company information website. If the shop has its own address, replace this one with it.',
   freshop_storefront: 'Collecting it needs browser rendering switched on by the server administrator — and the store’s permission — or a product feed arranged with the store or its vendor.',
   js_required: 'Ask the server administrator to enable browser rendering (and make sure you have the site’s permission), or ask the owner for a product feed.',
   no_gtin: 'Expect more pairs to need your decision on the Match review page.',

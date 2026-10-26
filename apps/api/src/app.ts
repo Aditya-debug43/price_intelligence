@@ -108,6 +108,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     if (cfg.isProduction) reply.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
   });
 
+  // A DELETE that declares a JSON content type but carries no body (what the web app sent before it was fixed, and what many HTTP tools send) has no
+  // body to parse: Fastify would answer 400 "Body cannot be empty…" and the removal would never happen. A body-less DELETE simply has no content type.
+  // A DELETE that does carry a body is parsed exactly as before.
+  app.addHook('onRequest', async (req) => {
+    if (req.method !== 'DELETE' || !req.headers['content-type']) return;
+    const length = req.headers['content-length'];
+    if ((length === undefined || length === '0') && !req.headers['transfer-encoding']) delete req.headers['content-type'];
+  });
+
   // ── CSRF defence in depth: SameSite=Lax cookie + required custom header + Origin check on unsafe methods
   const allowedOrigins = new Set([new URL(cfg.APP_BASE_URL).origin, ...(cfg.CORS_ORIGIN ? [cfg.CORS_ORIGIN] : [])]);
   app.addHook('onRequest', async (req) => {

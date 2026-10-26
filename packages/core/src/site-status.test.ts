@@ -56,6 +56,17 @@ describe('site collection status — one honest answer per website', () => {
     expect(s.nextAction).toMatch(/product feed|authorised platform connection/);
   });
 
+  it('an address that lists no products is not "unsupported": it says so, names the shop its menu links to, and never asks for a feed', () => {
+    const where = state({ capability: 'limited', hasUsableMethod: false, noProducts: { storefrontUrl: 'https://shop.example.com/' } });
+    expect(where).toMatchObject({ state: 'unsupported', label: 'No products at this address', severity: 'warn', nextAction: 'Add https://shop.example.com/ as a website' });
+    expect(where.detail).toContain('https://shop.example.com/');
+    expect(where.nextAction).not.toMatch(/feed/);
+    const none = state({ capability: 'limited', hasUsableMethod: false, noProducts: { storefrontUrl: null } });
+    expect(none).toMatchObject({ state: 'unsupported', label: 'No products at this address', nextAction: 'Check that this is the address of the online shop' });
+    // the verdict only applies while nothing has been collected from the address
+    expect(state({ capability: 'limited', hasUsableMethod: false, productCount: 5, noProducts: { storefrontUrl: null }, lastRun: { status: 'succeeded', isComplete: true, kind: 'discovery' }, newestObservationAt: hoursAgo(1) }).state).toBe('collected');
+  });
+
   it('old data is "stale", and partial coverage is disclosed', () => {
     expect(state({ productCount: 50, lastRun: { status: 'succeeded', isComplete: true, kind: 'discovery' }, newestObservationAt: hoursAgo(40) }).state).toBe('stale');
     expect(state({ productCount: 50, lastRun: { status: 'partial', isComplete: false, kind: 'discovery' }, newestObservationAt: hoursAgo(1) }).state).toBe('partial');

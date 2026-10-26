@@ -146,7 +146,10 @@ export async function updateSite(
 export async function removeSite(db: DbLike, orgId: string, actorUserId: string, siteId: string) {
   const [site] = await db.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.orgId, orgId)));
   if (!site) throw new SiteError('Website not found.', 'not_found', 404);
-  await db.delete(sites).where(eq(sites.id, siteId));
+  // Scoped by workspace as well as by id: even a wrong id can never remove another workspace's website. Everything collected from the website
+  // (products, variants, prices, evidence, scans, offers, flyers, matches, alerts, profiles) goes with it through the schema's cascading keys;
+  // saved reports are snapshots and stay as they were generated.
+  await db.delete(sites).where(and(eq(sites.id, siteId), eq(sites.orgId, orgId)));
   await db.insert(auditEvents).values({ orgId, userId: actorUserId, action: 'site.remove', target: siteId, meta: { host: site.hostname } });
 }
 

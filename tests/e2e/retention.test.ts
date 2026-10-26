@@ -18,7 +18,9 @@ const reportOf: Record<string, string> = {};
 const db = () => h.db.worker;
 /** Retention is global by design; the test database is shared with other files, so each run here is scoped to this file's two workspaces. */
 const SCOPE = () => ({ orgIds: [A.orgId, B.orgId] });
-const t0 = new Date('2026-10-14T12:00:00Z');
+// The test clock starts at the real current time: rows the database stamps itself (report and export creation) use its real clock, so a clock pinned
+// to a fixed past date would make them "newer" than the test thinks and the windows below would drift with the calendar (found when the real date passed 2026-10-24).
+const t0 = new Date(Math.floor(Date.now() / 1000) * 1000);
 const at = (daysFromStart: number) => new Date(t0.getTime() + daysFromStart * DAY);
 const count = async <T>(q: Promise<T[]>) => (await q).length;
 
