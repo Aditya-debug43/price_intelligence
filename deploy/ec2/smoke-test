@@ -1,0 +1,77 @@
+#!/bin/bash
+# Smoke test of a deployed Shelfwatch API. Run ON THE SERVER:  /opt/shelfwatch/app/deploy/ec2/smoke-test
+# Real requests against the API on 127.0.0.1:4000 (override with API_BASE=https://host/api/v1), shaped exactly like the requests that arrive through
+# the Vercel proxy: Origin = the Vercel address, the CSRF header, a JSON body only when there is one. The account uses a reserved .test address,
+# so NO real email is sent (the application's guard refuses to mail reserved domains).
+set -uo pipefail
+B=${API_BASE:-http://127.0.0.1:4000/api/v1}
+ORIGIN=${APP_ORIGIN:-https://price-intelligence-psi.vercel.app}
+EMAIL="deploy-check-$(date +%s)@example.test"
+PW="Correct-Horse-9-Battery-$RANDOM"
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+pass=0; fail=0
+check() { # label expected actual
+  if [ "$2" = "$3" ]; then printf 'PASS  %-62s %s\n' "$1" "$3"; pass=$((pass+1)); else printf 'FAIL  %-62s expected %s, got %s\n' "$1" "$2" "$3"; fail=$((fail+1)); fi
+}
+call() { # method path [json-body] [cookie] -> sets CODE, body in $T/body, headers in $T/h
+  local m=$1 p=$2 d=${3:-} c=${4:-}
+  local args=(-s -m 20 -X "$m" -D "$T/h" -o "$T/body" -w '%{http_code}' -H "Origin: $ORIGIN" -H "x-requested-with: ci-web" -H "accept: application/json")
+  [ -n "$d" ] && args+=(-H "content-type: application/json" --data "$d")
+  [ -n "$c" ] && args+=(-H "cookie: $c")
+  CODE=$(curl "${args[@]}" "$B$p")
+}
+jget() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);const v=process.argv[1].split('.').reduce((a,k)=>a==null?a:a[k],j);console.log(v===undefined?'':typeof v==='object'?JSON.stringify(v):v)}catch{console.log('')}})" "$1" < "$T/body"; }
+
+echo "--- public endpoints"
+call GET /health;  check "GET /health" 200 "$CODE"
+call GET /ready;   check "GET /ready is ready (not degraded)" ready "$(jget status)"
+call GET /meta;    check "GET /meta (public metadata)" 200 "$CODE"
+
+echo "--- registration and email verification (reserved .test address: nothing is emailed)"
+call POST /auth/register "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"displayName\":\"Deployment Check\"}"; check "register a new account" 201 "$CODE"
+call POST /auth/login "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}"; check "login BEFORE verifying the email is refused" 403 "$CODE"
+TOKEN=$(sudo -u postgres psql -d competitor_intel -tAc "select text from email_outbox where to_addresses::text ilike '%${EMAIL}%' and kind='verify-email' order by created_at desc limit 1" | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
+check "verification link was built from APP_BASE_URL (Vercel address)" 1 "$(sudo -u postgres psql -d competitor_intel -tAc "select count(*) from email_outbox where to_addresses::text ilike '%${EMAIL}%' and text like '%${ORIGIN}/verify-email?token=%'")"
+check "outbox row says the reserved address was NOT mailed" 1 "$(sleep 5; sudo -u postgres psql -d competitor_intel -tAc "select count(*) from email_outbox where to_addresses::text ilike '%${EMAIL}%' and sent_at is null and error like 'unroutable_recipient%'")"
+call POST /auth/verify-email "{\"token\":\"$TOKEN\"}"; check "verify the email with the single-use link" 200 "$CODE"
+call POST /auth/verify-email "{\"token\":\"$TOKEN\"}"; check "the same link cannot be used twice" 400 "$CODE"
+
+echo "--- login, session cookie, protected routes"
+call POST /auth/login "{\"email\":\"$EMAIL\",\"password\":\"wrong-password-$RANDOM\"}"; check "wrong password is refused" 401 "$CODE"
+call POST /auth/login "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}"; check "login with the right password" 200 "$CODE"
+SC=$(grep -i '^set-cookie:' "$T/h" | head -1 | tr -d '\r')
+COOKIE=$(printf '%s' "$SC" | sed -E 's/^[Ss]et-[Cc]ookie: *([^;]+);.*/\1/')
+ATTRS=$(printf '%s' "$SC" | sed -E 's/^[^;]*;//' | tr -d ' ' | tr 'A-Z' 'a-z')
+echo "      cookie attributes: $ATTRS  (value not shown)"
+check "cookie is HttpOnly" 1 "$(printf '%s' "$ATTRS" | grep -c httponly)"
+check "cookie is Secure" 1 "$(printf '%s' "$ATTRS" | grep -c secure)"
+check "cookie is SameSite=Lax" 1 "$(printf '%s' "$ATTRS" | grep -c 'samesite=lax')"
+check "cookie is host-only (no Domain attribute)" 0 "$(printf '%s' "$ATTRS" | grep -c 'domain=')"
+call GET /auth/me "" "$COOKIE"; check "GET /auth/me with the session" 200 "$CODE"
+check "  ...returns the account, never the password hash" 0 "$(grep -c -i -E 'passwordHash|password_hash|\$argon|\$2[aby]\$' "$T/body")"
+call GET /orgs "" "$COOKIE"; check "GET /orgs (workspaces) with the session" 200 "$CODE"
+call POST /orgs '{"name":"Deployment Check Workspace"}' "$COOKIE"; check "create a workspace" 201 "$CODE"
+ORG=$(jget organization.id)
+call GET "/orgs/$ORG/dashboard" "" "$COOKIE"; check "GET workspace dashboard (protected, workspace-scoped)" 200 "$CODE"
+call GET "/orgs/$ORG/sites" "" "$COOKIE"; check "GET workspace websites" 200 "$CODE"
+call GET "/orgs/$ORG/settings" "" "$COOKIE"; check "GET workspace settings" 200 "$CODE"
+
+echo "--- security behaviour"
+call GET "/orgs/$ORG/dashboard"; check "no session: protected route is refused" 401 "$CODE"
+call GET "/orgs/00000000-0000-4000-8000-000000000000/dashboard" "" "$COOKIE"; check "someone else's workspace id is not found" 404 "$CODE"
+CODE=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -X POST -H "Origin: $ORIGIN" -H "content-type: application/json" --data '{"name":"x"}' -H "cookie: $COOKIE" "$B/orgs"); check "write without the CSRF header is refused" 403 "$CODE"
+CODE=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -X POST -H "Origin: https://evil.example" -H "x-requested-with: ci-web" -H "content-type: application/json" --data '{"name":"x"}' -H "cookie: $COOKIE" "$B/orgs"); check "write from a foreign Origin is refused" 403 "$CODE"
+CODE=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -X DELETE -H "Origin: $ORIGIN" -H "x-requested-with: ci-web" -H "content-type: application/json" -H "cookie: $COOKIE" "$B/orgs/$ORG/sites/00000000-0000-4000-8000-000000000000"); check "DELETE with a JSON content type and no body reaches the route (404, not 400)" 404 "$CODE"
+
+echo "--- logout"
+call POST /auth/logout "{}" "$COOKIE"; check "logout" 200 "$CODE"
+call GET /auth/me "" "$COOKIE"; check "the old session no longer works" 401 "$CODE"
+
+echo "--- errors never leak secrets"
+call POST /auth/register '{"email":"nope"}'; BODY=$(cat "$T/body"); check "validation error body contains no stack trace or connection string" 0 "$(printf '%s' "$BODY" | grep -c -i -E 'postgres://|stack|node_modules|ci_app|password=')"
+
+echo
+echo "RESULT: $pass passed, $fail failed"
+echo "TEST ACCOUNT: $EMAIL | workspace id: $ORG"
+echo "$EMAIL $ORG" > /tmp/shelfwatch-deploy-check.txt
+[ "$fail" = 0 ]

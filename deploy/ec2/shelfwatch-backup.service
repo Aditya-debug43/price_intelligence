@@ -1,0 +1,8 @@
+[Unit]
+Description=Shelfwatch database backup (pg_dump, 7 days kept locally)
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/shelfwatch-backup

@@ -95,7 +95,22 @@ describe('apps/web/vercel.json', () => {
     for (const api of ['/api/v1/health', '/api/v1/orgs/0b6f/sites/9c1e']) expect(matches(api), api).toBe(false);
   });
 
-  it('does not invent a backend: no rewrite points at an address that is not part of this repository', () => {
-    for (const r of cfg.rewrites as { destination: string }[]) expect(r.destination).not.toMatch(/^https?:\/\//);
+  it('forwards /api/* to the backend over https, keeping the path, and does so before the page rule can catch it', () => {
+    const rules = cfg.rewrites as { source: string; destination: string }[];
+    const api = rules.findIndex((r) => r.source === '/api/:path*');
+    const page = rules.findIndex((r) => r.destination === '/index.html');
+    expect(api, 'an /api/:path* rewrite').toBeGreaterThanOrEqual(0);
+    expect(api).toBeLessThan(page);
+    const dest = new URL(rules[api]!.destination.replace(':path*', 'x'));
+    expect(dest.protocol).toBe('https:'); // cookies are Secure and the API refuses plain http in production
+    expect(rules[api]!.destination.endsWith('/api/:path*')).toBe(true);
+    expect(dest.hostname).not.toMatch(/^(localhost|127\.|10\.|192\.168\.|\[)/); // a real public name, never a development address
+    expect(dest.hostname).toContain('.'); // not a bare internal hostname
+  });
+
+  it('points at exactly one backend, and it is the one documented for deployment', () => {
+    const dests = (cfg.rewrites as { destination: string }[]).map((r) => r.destination).filter((d) => /^https?:\/\//.test(d));
+    expect(dests).toEqual(['https://18-212-221-70.sslip.io/api/:path*']);
+    expect(fs.readFileSync(path.join(repo, 'docs/deployment.md'), 'utf8')).toContain('18-212-221-70.sslip.io');
   });
 });

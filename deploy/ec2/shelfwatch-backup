@@ -1,0 +1,12 @@
+#!/bin/bash
+# Dump the whole database (application tables and the job-queue schema) to /var/backups/shelfwatch, keep 7 days.
+# NOTE: the dump lives on the same disk as the database, so it protects against mistakes and bad upgrades, NOT against losing the instance.
+# Copy the newest file off the server (or to S3) if the data matters.  Run as root (the systemd timer does):  shelfwatch-backup
+set -euo pipefail
+DIR=/var/backups/shelfwatch
+install -d -m 0700 -o postgres -g postgres "$DIR"
+FILE="$DIR/shelfwatch-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
+sudo -u postgres pg_dump -Fc --no-owner -f "$FILE" competitor_intel
+chmod 0600 "$FILE"
+find "$DIR" -name 'shelfwatch-*.dump' -mtime +7 -delete
+echo "backup written: $FILE ($(du -h "$FILE" | cut -f1))"

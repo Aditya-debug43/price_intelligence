@@ -1,0 +1,25 @@
+# Shelfwatch public entry point, stage 1: plain HTTP serves ONLY the Let's Encrypt challenge. The API is never served over plain HTTP.
+# @HOST@ is replaced by the API's public hostname. Installed as /etc/nginx/conf.d/shelfwatch.conf.
+server_tokens off;
+
+# Anything not addressed to the API's own hostname gets no answer at all.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @HOST@;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+    }
+    location / {
+        return 404;
+    }
+}

@@ -1,0 +1,36 @@
+#!/bin/bash
+# Deploy the newest `main` from GitHub to this server: pull, install from the lockfile, build the API and worker, apply migrations, restart.
+# Run on the server:  sudo shelfwatch-update
+# Safe to re-run. Migrations are forward-only; if something is wrong afterwards, check the logs first (journalctl -u shelfwatch-api).
+set -euo pipefail
+APP=/opt/shelfwatch/app
+[ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
+as_app() { sudo -u shelfwatch -H bash -c "set -euo pipefail; cd $APP; $1"; }
+
+echo "== backup first"
+if [ -x /usr/local/sbin/shelfwatch-backup ]; then /usr/local/sbin/shelfwatch-backup; fi
+BEFORE=$(as_app 'git rev-parse --short HEAD')
+as_app 'git fetch --quiet origin && git checkout --quiet main && git merge --ff-only --quiet origin/main'
+AFTER=$(as_app 'git rev-parse --short HEAD')
+echo "== code: $BEFORE -> $AFTER"
+echo "== install (lockfile-exact)"; as_app 'npm ci --no-audit --no-fund 2>&1 | tail -2'
+echo "== build"; as_app 'npm run build -w @ci/api 2>&1 | tail -1; npm run build -w @ci/worker 2>&1 | tail -1'
+echo "== migrations"
+systemd-run --quiet --wait --pipe --collect -p User=shelfwatch -p Group=shelfwatch -p WorkingDirectory=$APP \
+  -p EnvironmentFile=/etc/shelfwatch/shelfwatch.env -p Environment=HOME=/opt/shelfwatch \
+  /usr/bin/node node_modules/.bin/tsx scripts/db-setup.ts 2>&1 | tail -3
+echo "== restart (worker first: it owns the scheduler; only ever one)"
+systemctl restart shelfwatch-worker
+sleep 5
+systemctl restart shelfwatch-api
+st=down
+for i in $(seq 1 30); do
+  # "|| true": while the API is still starting, a refused connection is expected and must not abort the script (pipefail)
+  body=$(curl -s -m 3 http://127.0.0.1:4000/api/v1/ready || true)
+  st=$(printf '%s' "$body" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s).status)}catch{console.log('down')}})")
+  if [ "$st" = ready ]; then break; fi
+  sleep 2
+done
+echo "== readiness: $st"
+[ "$st" = ready ] || { echo "NOT READY - look at:  sudo journalctl -u shelfwatch-api -u shelfwatch-worker -n 50"; exit 1; }
+echo "Done: now running $(as_app 'git log --oneline -1')"

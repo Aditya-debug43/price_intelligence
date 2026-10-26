@@ -1,0 +1,64 @@
+# Shelfwatch public entry point, stage 2: HTTPS. Written by `enable-https` once a real Let's Encrypt certificate exists.
+# @HOST@ is replaced by the API's public hostname. Installed as /etc/nginx/conf.d/shelfwatch.conf.
+server_tokens off;
+
+# Anything not addressed to the API's own hostname gets no answer at all (HTTP), or no TLS handshake (HTTPS).
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+
+# Plain HTTP: the certificate challenge and a redirect to HTTPS - nothing else.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @HOST@;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# The API. The Vercel site forwards /api/* here; the browser never talks to this address directly.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name @HOST@;
+
+    ssl_certificate     /etc/letsencrypt/live/@HOST@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@HOST@/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:5m;
+    ssl_session_timeout 1h;
+    # (HSTS and the other security headers are sent by the API itself in production; adding them here would duplicate them.)
+
+    client_max_body_size 2m;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+    location / {
+        return 404;
+    }
+}

@@ -1,0 +1,18 @@
+#!/bin/bash
+# One-screen status of the Shelfwatch deployment.  Run on the server:  sudo shelfwatch-status
+APP=/opt/shelfwatch/app
+echo "== services"
+for s in postgresql shelfwatch-worker shelfwatch-api nginx; do printf '  %-20s %-9s since %s\n' "$s" "$(systemctl is-active $s)" "$(systemctl show $s -p ActiveEnterTimestamp --value | cut -d' ' -f2-3)"; done
+echo "== code"
+sudo -u shelfwatch git -C "$APP" log --oneline -1 | sed 's/^/  /'
+echo "== readiness (what the API itself reports)"
+curl -s -m 5 http://127.0.0.1:4000/api/v1/ready | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);console.log('  overall:',j.status);for(const [k,v] of Object.entries(j.checks))console.log('  '+k.padEnd(18),v.level.padEnd(8),v.detail)}catch{console.log('  the API did not answer on 127.0.0.1:4000')}})"
+echo "== listening ports"
+ss -tln | awk 'NR>1 {print "  " $4}'
+echo "== resources"
+free -m | awk 'NR==2 {print "  memory: " $3 " MB used of " $2 " MB"} NR==3 {print "  swap:   " $3 " MB used of " $2 " MB"}'
+df -h / | awk 'NR==2 {print "  disk:   " $3 " used of " $2 " (" $5 ")"}'
+echo "== errors in the last hour (API + worker)"
+n=$(journalctl -u shelfwatch-api -u shelfwatch-worker --since "1 hour ago" -p err --no-pager -q 2>/dev/null | wc -l)
+echo "  $n error-level lines  (show them: sudo journalctl -u shelfwatch-api -u shelfwatch-worker --since '1 hour ago' -p err)"
+if [ -d /var/backups/shelfwatch ]; then echo "== newest database backup"; ls -t /var/backups/shelfwatch 2>/dev/null | head -1 | sed 's/^/  /'; fi

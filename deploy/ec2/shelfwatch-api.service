@@ -1,0 +1,29 @@
+[Unit]
+Description=Shelfwatch API (listens on 127.0.0.1:4000 only; nginx is the public entry point)
+After=network-online.target postgresql.service shelfwatch-worker.service
+Wants=network-online.target postgresql.service shelfwatch-worker.service
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=shelfwatch
+Group=shelfwatch
+WorkingDirectory=/opt/shelfwatch/app
+EnvironmentFile=/etc/shelfwatch/shelfwatch.env
+Environment=HOME=/opt/shelfwatch
+ExecStart=/usr/bin/node apps/api/dist/main.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+SyslogIdentifier=shelfwatch-api
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/shelfwatch
+OOMScoreAdjust=200
+LimitNOFILE=16384
+
+[Install]
+WantedBy=multi-user.target

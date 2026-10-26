@@ -1,0 +1,33 @@
+#!/bin/bash
+# Obtain a Let's Encrypt certificate for the API hostname and switch nginx from "challenge only" to HTTPS.
+# Run on the server:  sudo /opt/shelfwatch/app/deploy/ec2/enable-https [hostname]
+# Needs: the hostname resolves to this server, and TCP ports 80 and 443 are open in the AWS security group (Let's Encrypt connects to port 80).
+set -euo pipefail
+HOST=${1:-18-212-221-70.sslip.io}
+HERE=$(cd "$(dirname "$0")" && pwd)
+[ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
+
+echo "== certificate for $HOST"
+certbot certonly --webroot -w /var/www/letsencrypt -d "$HOST" --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring
+
+echo "== nginx: HTTPS configuration"
+cp /etc/nginx/conf.d/shelfwatch.conf /etc/nginx/conf.d/shelfwatch.conf.previous
+sed "s/@HOST@/$HOST/g" "$HERE/nginx-https.conf.template" > /etc/nginx/conf.d/shelfwatch.conf
+if ! nginx -t; then
+  echo "nginx rejected the new configuration - restoring the previous one"
+  mv /etc/nginx/conf.d/shelfwatch.conf.previous /etc/nginx/conf.d/shelfwatch.conf
+  exit 1
+fi
+rm -f /etc/nginx/conf.d/shelfwatch.conf.previous
+systemctl reload nginx
+
+echo "== automatic renewal"
+install -d /etc/letsencrypt/renewal-hooks/deploy
+printf '#!/bin/sh\nsystemctl reload nginx\n' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+systemctl enable --now certbot-renew.timer
+systemctl list-timers certbot-renew.timer --no-pager | head -3
+
+echo "== check (from this server)"
+curl -s -m 10 -o /dev/null -w "https://$HOST/api/v1/health -> HTTP %{http_code}\n" "https://$HOST/api/v1/health"
+echo "HTTPS is on. Public check from anywhere:  curl https://$HOST/api/v1/health"

@@ -59,13 +59,7 @@ up to hit a competitor harder.
 
 `apps/web/vercel.json` sends every page address (`/login`, `/o/<id>/websites`, …) to `index.html`, so a refresh or a pasted link does not 404, and deliberately does **not** do that for `/api/…`.
 
-**Connecting the backend (required before anyone can sign in).** No backend address is built into this repository. When the API has a public **https** address, add one rule *before* the page rule in `apps/web/vercel.json` and redeploy:
-
-```json
-{ "source": "/api/:path*", "destination": "https://YOUR-BACKEND-HOST/api/:path*" }
-```
-
-Then the browser only ever talks to the Vercel address and the app stays same-origin. On the backend set `APP_BASE_URL` to the Vercel address (`https://<project>.vercel.app` or your domain): the process refuses to start unless it is a public https address, links in emails are built from it, and the Origin check accepts it. Until that rule exists the pages load but every `/api` call answers 404.
+**The backend connection.** `apps/web/vercel.json` forwards `/api/*` to the API on EC2 (`https://18-212-221-70.sslip.io`, see the next section), before the page rule. The browser only ever talks to the Vercel address, so the app stays same-origin: the session cookie is host-only on the Vercel address, the Origin check sees `https://price-intelligence-psi.vercel.app` (the backend's `APP_BASE_URL`), and no CORS is involved. To point the site at a different backend, change that one destination and push. If the backend's address changes (for example the instance gets a new public IP), the hostname, the certificate and this rule must all change together.
 
 **npm warnings seen in the Vercel log.**
 - `Unknown project config "cache-dir"` — nothing in this repository sets it (no `.npmrc`, no `cache-dir` anywhere). It comes from Vercel's build environment (or a `NPM_CONFIG_*`/`npm_config_*` variable in the project settings — remove one if you added it). It is a notice that the key will stop working in a future npm major version; it does not affect the build.
@@ -73,6 +67,42 @@ Then the browser only ever talks to the Vercel address and the app stays same-or
 
 **How this was verified** (repeat it after changing dependencies): clone the committed code into an empty folder, then
 `cd apps/web && npm ci && npm run build` (the Vercel sequence), also `npm install` from `apps/web`, and a root install followed by `npm run build -w @ci/web`. All three build; the lockfile is unchanged by the install; `npm ci --os=linux --cpu=x64 --libc=glibc` resolves the Linux builds of Rolldown, esbuild and lightningcss from the lockfile. Running the built Linux binaries needs a Linux machine — Vercel's own build is the final proof.
+
+## The backend on AWS EC2 (as deployed on 2026-10-26)
+
+One Amazon Linux 2023 instance (`t3.micro`: 2 vCPU, 913 MB RAM + 2 GB swap, 8 GB disk) runs everything. The repository's own pieces, as described at the top of this guide:
+
+| What | How it runs | Listens on |
+| --- | --- | --- |
+| API | systemd `shelfwatch-api` — `node apps/api/dist/main.js` as the unprivileged user `shelfwatch` | `127.0.0.1:4000` (private) |
+| Worker (jobs, scheduler, retention) | systemd `shelfwatch-worker` — **exactly one instance**: it owns the scheduler | nothing |
+| PostgreSQL 18 (Amazon repository) | systemd `postgresql`, password (scram) authentication on loopback; roles `ci_app` (row-level security), `ci_worker` (cross-tenant), `postgres` (admin, migrations only) | `127.0.0.1:5432` (private) |
+| nginx | the only public entry point: HTTPS for `18-212-221-70.sslip.io`, `/api/` proxied to the API; plain HTTP only redirects (and answers the certificate challenge); any other name gets no answer | 80, 443 |
+| certbot (Amazon repository) | Let's Encrypt certificate for that name; `certbot-renew.timer` renews it and reloads nginx | — |
+
+Code: `/opt/shelfwatch/app` (a clone of `main`; built with `npm ci` and the `@ci/api` / `@ci/worker` build scripts — the web app is hosted on Vercel, so it is not built here). Configuration and secrets: **`/etc/shelfwatch/shelfwatch.env`** (`root:shelfwatch`, mode 0640; generated on the server; never in Git, never in logs). Uploaded/exported files: `/var/lib/shelfwatch/storage`. Logs: the persistent systemd journal (capped at 200 MB). The files in `deploy/ec2/` are the exact unit files, nginx templates and scripts used.
+
+**Hostname and HTTPS.** There is no domain of your own, so the API uses `18-212-221-70.sslip.io`, a free public name that points at the instance's IP; Let's Encrypt issued a real certificate for it (valid to 2027-01-24, renewed automatically). The name is tied to the IP: **if the instance is stopped and started, its public IP changes unless an Elastic IP is attached**, and the hostname, certificate and the Vercel rewrite would have to be redone. A reboot keeps the IP.
+
+**Network.** AWS security group `launch-wizard-2`: SSH (22), HTTP (80) and HTTPS (443) are open to the internet; **4000 and 5432 are not**. The server has no host firewall of its own (the Amazon image ships with it off); the security group is the firewall. Consider limiting SSH (22) to your own IP address in the security group.
+
+**Secrets.** Created on the server with `openssl` (three database passwords, the `TOKEN_ENCRYPTION_KEY`); the email settings (`SMTP_*`, `EMAIL_FROM`) were copied from the owner's local `.env`. The production secrets are different from the development ones. Losing `TOKEN_ENCRYPTION_KEY` makes stored integration tokens unreadable. The Gmail App Password was shared in chat earlier: replace it (new App Password, then `sudoedit /etc/shelfwatch/shelfwatch.env` and `sudo systemctl restart shelfwatch-api shelfwatch-worker`).
+
+**Everyday commands** (on the server, `ssh -i <your-key-file>.pem ec2-user@18.212.221.70`):
+
+| Do | Command |
+| --- | --- |
+| Overall status, readiness, errors in the last hour | `sudo shelfwatch-status` |
+| Follow the logs | `sudo journalctl -u shelfwatch-api -u shelfwatch-worker -f` (add `-p err` for errors only) |
+| Restart | `sudo systemctl restart shelfwatch-worker && sleep 5 && sudo systemctl restart shelfwatch-api` |
+| Deploy the newest `main` (backup, pull, `npm ci`, build, migrations, restart, wait for ready) | `sudo shelfwatch-update` |
+| Back up the database now | `sudo shelfwatch-backup` (also runs daily at 03:30 UTC; 7 days kept in `/var/backups/shelfwatch`) |
+| Test the API with real requests (creates a throw-away account on a reserved `.test` address; nothing is emailed) | `bash /opt/shelfwatch/app/deploy/ec2/smoke-test` |
+| Reissue/redo HTTPS | `sudo /opt/shelfwatch/app/deploy/ec2/enable-https 18-212-221-70.sslip.io` |
+
+The backups sit on the same disk as the database: they protect against mistakes and bad upgrades, **not** against losing the instance. Copy the newest dump off the server (or to S3, which would be a new billable resource) if the data matters.
+
+**Not covered.** Capacity: a `t3.micro` is enough for a demonstration (about 400 MB in use idle), not for several large catalogue collections at once. The deployment runs the unit-tested code, but no load or soak test was done. Open sign-up means anyone who finds the site can register and add websites that this server will then read: see [consent-and-compliance.md](consent-and-compliance.md).
 
 ## Configuration checklist (production)
 
