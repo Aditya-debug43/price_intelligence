@@ -457,3 +457,35 @@ Verbatim: `docs/original-prompt/07_DIRECTIVE_FIX_WEBSITE_REMOVAL_400_2026-10-26.
 * Red/green proof: with the server hook switched off the new tests fail with `FST_ERR_CTP_EMPTY_JSON_BODY` (10 of 13); with it on they pass.
 * Real browser, throwaway workspace only ("UI Check Workspace", `.test` account): the dialog's confirm → `DELETE … 200 OK`, back to the list, the website and its rows gone, audit event written. A failing DELETE (forced in the page, HTTP 500) shows the red message inside the still-open dialog, "Removing…" with both buttons locked while pending, and a retry with the real network removed the website. The user's workspace (2,381 / 2,566 / 863 products) and the Exploration Workspace were never touched.
 * Full run: see the verification report (final counts).
+
+---
+
+## 2026-10-26 — Directive 8: the web app would not build on Vercel (`tsc: command not found`)
+
+Verbatim: `docs/original-prompt/08_DIRECTIVE_FIX_VERCEL_FRONTEND_BUILD_2026-10-26.md`. Vercel was building commit `417cd2b` with Root Directory `apps/web`.
+
+### Root cause (reproduced in a clean clone, not assumed)
+
+* Vercel's docs: "the install path is set by the root directory". So `npm install` runs **inside `apps/web`**, and npm installs only that workspace's own dependency tree (125 packages in the reproduction). `apps/web/package.json` declared `vite` but **not `typescript`**; `typescript` was only a root `devDependency`. Result: the install succeeds, `vite` is there, `tsc` is not — `sh: tsc: command not found`, exit 127. (On Windows the same step prints "'tsc' is not recognized".)
+* It worked locally because everyone installs from the repository root, which installs every workspace plus the root tools.
+* A second, latent break found while testing the fix: `apps/web/src/api.test.ts` (added in directive 7) imports `vitest`, also root-only; the web `tsc` scans all of `src`, so the next deploy would have failed with "Cannot find module 'vitest'".
+* The lockfile is fine: it already holds the Linux x64 builds of Rolldown, esbuild and lightningcss with integrity hashes, and `npm ci --os=linux --cpu=x64 --libc=glibc` resolves them.
+* Warnings: `Unknown project config "cache-dir"` is not from this repository (no `.npmrc`, no `cache-dir` anywhere) — it comes from Vercel's environment. The `esbuild` postinstall notice is npm 11's "install script not yet approved" message; esbuild is only an optional peer of Vite 8 (which builds with Rolldown); the build passes regardless, so nothing was configured.
+
+### Changes
+
+* `apps/web/package.json`: `typescript` `~5.9.3` in devDependencies (same range as the root) and `engines.node >=22.12.0` (Vite 8 needs it; Vercel reads it). `package-lock.json`: +4 lines only (the `apps/web` entry), no version changed.
+* `apps/web/src/api.test.ts` moved to `tests/unit/web-api.test.ts` (checked by the root project, which has `vitest`); the deployable workspace now contains no test files.
+* `apps/web/vercel.json` (new): Vite framework, `dist`, and a rewrite of every page address to `/index.html` — the app has client-side routes (`/login`, `/o/<id>/websites`) that would 404 on refresh — but **not** for `/api/…`. No backend address is invented.
+* `tests/unit/web-deploy.test.ts` (new, 9): every command in the web scripts has its package declared in `apps/web`; every package its sources import is declared there; no test files in `apps/web/src`; workspace dependencies exist; the lockfile's `apps/web` entry matches the manifest; the Node requirement matches the root; `vercel.json` sends pages (not `/api`) to the app and points nowhere outside the repository. Red proof: with `typescript` removed and a test file added back, 4 of 9 fail, naming the cause.
+* `docs/deployment.md`: new section "Hosting the web app on Vercel" (settings table, the one rule to add when a backend URL exists, warnings explained, how to verify).
+
+### Verified
+
+* Clean clones of the committed code with the changes applied: `npm ci` from `apps/web` (126 packages) then `npm run build` passes (`tsc --noEmit` + `vite build`, 765 modules, `dist/`); plain `npm install` from `apps/web` gives the same and leaves the lockfile content unchanged; root `npm ci` (676 packages) then `npm run build -w @ci/web` passes. Before the fix the same first step failed exactly as on Vercel.
+* Repository: typecheck, lint (0 errors, 2 known warnings) and build (web, api, worker) clean; **943 of 943 tests in 58 files** (934 before; +9).
+* Not verifiable here: running Linux binaries (needs Linux) and Vercel's own build — the final proof is a redeploy.
+
+### Needs the user
+
+Push the commit; then in Vercel: Root Directory `apps/web`, the "include source files outside the Root Directory" switch on, Node 22.x or newer, no `NODE_ENV=production` / "exclude development dependencies". Add the `/api` rewrite when the backend has an https address (see deployment.md), and set the backend's `APP_BASE_URL` to the Vercel address.

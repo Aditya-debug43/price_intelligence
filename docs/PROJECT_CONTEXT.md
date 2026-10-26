@@ -16,6 +16,18 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 8 — directive of 2026-10-26: the web app would not build on Vercel (CURRENT STATE — read with Updates 5–7)
+
+Verbatim directive: `docs/original-prompt/08_DIRECTIVE_FIX_VERCEL_FRONTEND_BUILD_2026-10-26.md`. Details: `docs/WORK_LOG.md` (directive 8) and `docs/deployment.md` ("Hosting the web app on Vercel").
+
+- **Root cause (reproduced):** with Root Directory `apps/web`, Vercel runs the install *inside* `apps/web`, which installs only that workspace's own dependency tree. `apps/web` used `tsc` in its build script but did not declare `typescript` (root devDependency only) → `sh: tsc: command not found`, exit 127. Locally everything is installed from the repository root, so it worked. A second, latent break (`apps/web/src/api.test.ts` importing the root-only `vitest`) was found and removed.
+- **Fix:** `typescript` and `engines.node` in `apps/web/package.json` (lockfile +4 lines); the web test moved to `tests/unit/web-api.test.ts`; `apps/web/vercel.json` (Vite, `dist`, a page rewrite that excludes `/api`); `tests/unit/web-deploy.test.ts` guards all of it; docs section added. The `cache-dir` and `esbuild` npm warnings are not from the repository and do not affect the build.
+- **API address:** the web app has none — it calls `/api/v1/…` on its own hostname — so on Vercel a rewrite of `/api/*` to the backend's https address is required, and **none is committed because no backend address exists yet.** Until it is added the pages load but sign-in and data calls answer 404. The backend's `APP_BASE_URL` must be the Vercel address.
+- **Verified:** clean clones → `npm ci` / `npm install` from `apps/web` and a root install all build; repository checks clean; 943 tests in 58 files. Not verifiable here: Vercel's own Linux build.
+- **Rule for future changes:** anything the web build needs must be declared in `apps/web/package.json`, and web tests live under `tests/unit`, not in `apps/web/src`.
+
+---
+
 # Update 7 — directive of 2026-10-26: "Remove website and its data" returned 400 (CURRENT STATE — read with Updates 6 and 5)
 
 Verbatim directive: `docs/original-prompt/07_DIRECTIVE_FIX_WEBSITE_REMOVAL_400_2026-10-26.md`. Details: `docs/WORK_LOG.md` (2026-10-26, directive 7) and `docs/verification-report.md` ("Website removal").

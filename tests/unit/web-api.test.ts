@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, api, errorMessage, orgPath, requestHeaders } from './api';
+import { ApiError, api, errorMessage, orgPath, requestHeaders } from '../../apps/web/src/api.ts';
 
 /**
  * Found when "Remove website and its data" answered 400 Bad Request: `api.del` declared `content-type: application/json` but sent no body, and the

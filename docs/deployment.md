@@ -38,6 +38,42 @@ Run one API and one worker to begin with. Jobs go through PostgreSQL (pg-boss) w
 safe, but each website is limited to one request at a time by the per-host limiter inside a process; do not scale workers
 up to hit a competitor harder.
 
+## Hosting the web app on Vercel
+
+`apps/web` is a static single-page app (Vite), so Vercel can host it while the API runs elsewhere (for example on EC2). Two facts decide everything:
+
+1. **Vercel installs only the Root Directory's own dependency tree.** With Root Directory `apps/web` the install command runs *inside* `apps/web` (Vercel: "the install path is set by the root directory"), so tools that sit only in the repository root's `devDependencies` are not installed. The build script is `tsc --noEmit -p tsconfig.json && vite build`; `typescript` used to be a root-only dependency, so Vercel stopped with `sh: tsc: command not found` (exit 127). It worked locally because everyone installs from the repository root. `apps/web` now declares `typescript` and its Node requirement itself, ships no test files (their runner exists only at the root), and `tests/unit/web-deploy.test.ts` fails if any of that regresses.
+2. **The app has no API address setting** (see above): it calls `/api/v1/…` on its own hostname. Vercel serves only the static files, so `/api/*` must be forwarded to the backend.
+
+**Vercel project settings** (Project → Settings → Build and Deployment):
+
+| Setting | Value |
+| --- | --- |
+| Root Directory | `apps/web` |
+| Include source files outside of the Root Directory in the Build Step | **On** (the default for new projects) — the app imports `@ci/shared` from `packages/shared`, and `tsconfig.json` extends `../../tsconfig.base.json` |
+| Framework Preset / Output Directory | Vite / `dist` (also set in `apps/web/vercel.json`) |
+| Install Command | the default (`npm install`), or `npm ci` for a lockfile-exact install — both verified |
+| Build Command | the default (`npm run build`) |
+| Node.js Version | 22.x or newer (`apps/web/package.json` → `engines.node` is `>=22.12.0`; Vite 8 does not run on older Node) |
+| Environment variables | none are needed to build. Do **not** set `NODE_ENV=production` for the build or enable "Exclude development dependencies": the build needs `typescript` and `vite`, which are development dependencies |
+
+`apps/web/vercel.json` sends every page address (`/login`, `/o/<id>/websites`, …) to `index.html`, so a refresh or a pasted link does not 404, and deliberately does **not** do that for `/api/…`.
+
+**Connecting the backend (required before anyone can sign in).** No backend address is built into this repository. When the API has a public **https** address, add one rule *before* the page rule in `apps/web/vercel.json` and redeploy:
+
+```json
+{ "source": "/api/:path*", "destination": "https://YOUR-BACKEND-HOST/api/:path*" }
+```
+
+Then the browser only ever talks to the Vercel address and the app stays same-origin. On the backend set `APP_BASE_URL` to the Vercel address (`https://<project>.vercel.app` or your domain): the process refuses to start unless it is a public https address, links in emails are built from it, and the Origin check accepts it. Until that rule exists the pages load but every `/api` call answers 404.
+
+**npm warnings seen in the Vercel log.**
+- `Unknown project config "cache-dir"` — nothing in this repository sets it (no `.npmrc`, no `cache-dir` anywhere). It comes from Vercel's build environment (or a `NPM_CONFIG_*`/`npm_config_*` variable in the project settings — remove one if you added it). It is a notice that the key will stop working in a future npm major version; it does not affect the build.
+- `esbuild … postinstall … not yet covered by allowScripts` — npm 11's notice that a dependency's install script has not been approved. `esbuild` is only an *optional peer* of Vite; Vite 8 builds with Rolldown, and esbuild's script only checks its own binary. The build passes with or without it, so no approval is configured.
+
+**How this was verified** (repeat it after changing dependencies): clone the committed code into an empty folder, then
+`cd apps/web && npm ci && npm run build` (the Vercel sequence), also `npm install` from `apps/web`, and a root install followed by `npm run build -w @ci/web`. All three build; the lockfile is unchanged by the install; `npm ci --os=linux --cpu=x64 --libc=glibc` resolves the Linux builds of Rolldown, esbuild and lightningcss from the lockfile. Running the built Linux binaries needs a Linux machine — Vercel's own build is the final proof.
+
 ## Configuration checklist (production)
 
 Copy `.env.example`; every value is validated at start-up and an unsafe production configuration stops the process.

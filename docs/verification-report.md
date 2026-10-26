@@ -1,12 +1,12 @@
 # Verification report
 
-Last full run: **2026-10-26, after the website-removal fix (directive 7)**: typecheck, lint (0 errors), build and **934 of 934 tests in 57 files** passed; see "Website removal (2026-10-26)" below. Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
+Last full run: **2026-10-26, after the Vercel build fix (directive 8)**: typecheck, lint (0 errors), build and **943 of 943 tests in 58 files** passed; see "Web app on Vercel (2026-10-26)" below. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
 Status words are the project vocabulary defined at the top of [integrations.md](integrations.md). Four kinds of evidence are kept apart on purpose:
 
 | Kind | Meaning | Examples here |
 | --- | --- | --- |
 | **Real external** | Real websites, real mail server, real provider, real clock | your shop and (on 2026-10-19) three competitors, the Gmail account, open.er-api.com, public scraping sandboxes |
-| **Automated test** | Code run by `vitest` against a real PostgreSQL | 934 tests |
+| **Automated test** | Code run by `vitest` against a real PostgreSQL | 943 tests |
 | **Fixture** | Fictional `.test` shops served inside tests; never reachable from the product | `tests/support/fixtures` |
 | **Mock / library-in-process** | A real library talking to a fake peer (SMTP, S3, OAuth) | `email-smtp`, `shopify-oauth`, `s3-storage` |
 
@@ -108,6 +108,17 @@ A random sample of 90 of the 432 new identical proposals: **88–89 are clearly 
 
 Any competitor catalogue (no permission); Super Food's technical feasibility (a Freshop storefront; not probed because its terms forbid it); real flyers; real low-stock events and exact stock (needs Shopify authorisation); Facebook / Instagram / YouTube; inbox arrival of any email (I can see Gmail's `250 OK`, not your mailbox); a multi-day schedule; any deployment (no AWS access); screen readers, tablet width, Safari/Firefox.
 
+## Web app on Vercel (2026-10-26) — `tsc: command not found`
+
+| Question | Finding | Evidence |
+| --- | --- | --- |
+| Why did the build fail? | Vercel installs inside the Root Directory (`apps/web`), which installs only that workspace's own dependencies. The web build runs `tsc`, but `typescript` was declared only at the repository root. | Reproduced in a clean clone: `npm install` from `apps/web` → 125 packages, `vite` present, no `tsc`, build fails; Vercel's docs state the install path is the Root Directory |
+| Anything else that would break the next deploy? | `apps/web/src/api.test.ts` imported the root-only `vitest` and would have failed the web `tsc`. Moved to `tests/unit`. | Same clean-clone build after the first fix |
+| Does the fix hold on every install path? | `npm ci` from `apps/web` (126 packages), `npm install` from `apps/web`, and a root install + `npm run build -w @ci/web` all build (765 modules, `dist/`); the lockfile content is unchanged by the install. | Real: three clean clones, npm 11.17 / Node 24 on Windows |
+| Linux (Vercel's platform)? | The lockfile holds the Linux x64 builds of Rolldown, esbuild and lightningcss with integrity hashes, and `npm ci --os=linux --cpu=x64 --libc=glibc` installs them. Running them needs Linux — not done here. | Real install with the Linux flags; lockfile read |
+| The npm warnings? | `cache-dir`: not from the repository (no `.npmrc`, no `cache-dir`); it comes from Vercel's environment. `esbuild` postinstall: npm 11's "not yet approved" notice; esbuild is an optional peer of Vite 8, which builds with Rolldown. Neither affects the build. | Repository search; `npm ls esbuild`; the build passing |
+| Is the app ready for a separately hosted backend? | Not by itself: it has no API address setting and calls `/api/v1/…` on its own hostname, so Vercel needs a rewrite of `/api/*` to the backend's https address. None is committed — no backend address exists yet. | Code read (`apps/web/src/api.ts`); `docs/deployment.md` |
+
 ## Website removal (2026-10-26) — "Remove website and its data" answered 400
 
 | Question | Finding | Evidence |
@@ -142,14 +153,14 @@ Unrelated defect found by the full run and fixed (tests only): three retention t
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **934 passed, 0 failed, 57 files** (final run on 2026-10-26; 914 in 55 files after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
+| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **943 passed, 0 failed, 58 files** (final run on 2026-10-26; 934 in 57 after the removal fix, 914 in 55 after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
 | Live procedure (real websites and the real FX provider; opt-in, sends real requests) | `npm run test:live` | Ran 2026-10-19 against the four named shops (exhaustive procedure, `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`); record in `.data/live-runs/` (git-ignored) |
 | Typecheck, all workspaces, plus `tests/` and `scripts/` | `npm run typecheck` | Clean (exit 0, 2026-10-23) |
 | Lint | `npm run lint` | Exit 0 on 2026-10-23 (2 intentional `any` warnings on 2026-10-19: `connectors/src/extract.ts`, `services/src/jobs.ts`) |
 | Production builds (web, API, worker) | `npm run build` | Succeeds (exit 0, 2026-10-23) |
 | **Production bundles run** | `node apps/api/dist/main.js` and `node apps/worker/dist/main.js` with `NODE_ENV=production`, https `APP_BASE_URL`, `SERVE_WEB=true`, against the real-data database | **18 of 18 checks passed** (see "Production-bundle smoke test"). Docker was not involved |
 
-Added by the 2026-10-26 website-removal fix (20 tests, 914 → 934): the web client's request shapes (7) and removal through the real API with the browser's headers (13). Added by the 2026-10-26 Ling & Sons fix (29 tests, 885 → 914): storefront detection (16), end-to-end "information website that links to its shop" plus every other fixture kind unchanged (12), site-status addition (1). Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
+Added by the 2026-10-26 Vercel build fix (9 tests, 934 → 943): the web workspace builds from its own dependencies and its Vercel configuration is valid (`tests/unit/web-deploy.test.ts`). Added by the 2026-10-26 website-removal fix (20 tests, 914 → 934): the web client's request shapes (7) and removal through the real API with the browser's headers (13). Added by the 2026-10-26 Ling & Sons fix (29 tests, 885 → 914): storefront detection (16), end-to-end "information website that links to its shop" plus every other fixture kind unchanged (12), site-status addition (1). Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
 Known harmless noise: Vitest sometimes prints "close timed out after 10000ms" after all tests pass (exit code 0) — slow shutdown of the embedded PostgreSQL.
 Integration test files run sequentially against **one shared database**, and the scheduler and retention are global by design, so tests scope their runs and `harness.close()` switches off the schedules of the workspaces it created.
 
