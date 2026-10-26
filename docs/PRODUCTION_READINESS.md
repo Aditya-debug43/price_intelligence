@@ -7,8 +7,7 @@ Shelfwatch in front of real customers. Companion documents: [verification-report
 
 ## Verdict
 
-**Not production-ready — and not deployed.** The product now works end to end **on real data on the development machine**; it has not been put on a server, so the
-deployed system, its worker, its database, TLS and the hosted frontend ↔ backend path are all unverified. No AWS access exists on the development machine, so no deployment was attempted or claimed.
+**Not production-ready, but deployed as a demonstration (2026-10-26).** The backend runs on one AWS EC2 instance (API, worker, PostgreSQL, nginx with a Let's Encrypt certificate) and the web app on Vercel, connected through a Vercel rewrite; registration, email verification, login, protected routes, a worker job and a full reboot were tested on the deployed system (see "The backend on AWS EC2" in [deployment.md](deployment.md) and "Backend on AWS EC2" in [verification-report.md](verification-report.md)). What is still missing for production: a stable address (Elastic IP) and a domain, backups kept off the server, monitoring and alerting, a restricted SSH rule, load testing, and a decision on open sign-up.
 
 **What is now true (verified 2026-10-19, with real external data):**
 
@@ -57,7 +56,7 @@ deployed system, its worker, its database, TLS and the hosted frontend ↔ backe
 
 ## What is not verified at all
 
-- **A deployment of any kind** (no AWS access; nothing is hosted).
+- **Production hardening of the deployment**: no load or soak test; backups only on the same disk; no monitoring or alerting; a single small instance (t3.micro); the public IP is not fixed.
 - Docker image and compose file: written, **never built or run**.
 - Backup restore drill: written, **never executed** (no `pg_dump`/`pg_restore` on the dev machine).
 - A real `SIGTERM` shutdown (Windows dev machine).

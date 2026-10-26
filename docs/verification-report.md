@@ -1,16 +1,16 @@
 # Verification report
 
-Last full run: **2026-10-26, after the Vercel build fix (directive 8)**: typecheck, lint (0 errors), build and **943 of 943 tests in 58 files** passed; see "Web app on Vercel (2026-10-26)" below. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
+Last full run: **2026-10-26, after the EC2 deployment (directive 9)**: typecheck, lint (0 errors) and **944 of 944 tests in 58 files** passed; the deployed system was tested separately, see "Backend on AWS EC2 (2026-10-26)" below. Before that, the Vercel build fix (directive 8): 943 in 58. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
 Status words are the project vocabulary defined at the top of [integrations.md](integrations.md). Four kinds of evidence are kept apart on purpose:
 
 | Kind | Meaning | Examples here |
 | --- | --- | --- |
 | **Real external** | Real websites, real mail server, real provider, real clock | your shop and (on 2026-10-19) three competitors, the Gmail account, open.er-api.com, public scraping sandboxes |
-| **Automated test** | Code run by `vitest` against a real PostgreSQL | 943 tests |
+| **Automated test** | Code run by `vitest` against a real PostgreSQL | 944 tests |
 | **Fixture** | Fictional `.test` shops served inside tests; never reachable from the product | `tests/support/fixtures` |
 | **Mock / library-in-process** | A real library talking to a fake peer (SMTP, S3, OAuth) | `email-smtp`, `shopify-oauth`, `s3-storage` |
 
-**Nothing has been deployed.** No AWS access exists on the development machine, so no claim below is about a hosted environment (see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)).
+**The backend was deployed to AWS EC2 on 2026-10-26** (section "Backend on AWS EC2" below). Every other section was produced on the development machine before that and makes no claim about the hosted environment (see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)).
 
 ## Exhaustive audit (2026-10-23) — permission first, then a fresh account on the real sites
 
@@ -106,7 +106,28 @@ A random sample of 90 of the 432 new identical proposals: **88–89 are clearly 
 
 ### 7. Not verified in this audit
 
-Any competitor catalogue (no permission); Super Food's technical feasibility (a Freshop storefront; not probed because its terms forbid it); real flyers; real low-stock events and exact stock (needs Shopify authorisation); Facebook / Instagram / YouTube; inbox arrival of any email (I can see Gmail's `250 OK`, not your mailbox); a multi-day schedule; any deployment (no AWS access); screen readers, tablet width, Safari/Firefox.
+Any competitor catalogue (no permission); Super Food's technical feasibility (a Freshop storefront; not probed because its terms forbid it); real flyers; real low-stock events and exact stock (needs Shopify authorisation); Facebook / Instagram / YouTube; inbox arrival of any email (I can see Gmail's `250 OK`, not your mailbox); a multi-day schedule; any deployment (done later: see "Backend on AWS EC2 (2026-10-26)"); screen readers, tablet width, Safari/Firefox.
+
+## Backend on AWS EC2 (2026-10-26)
+
+Evidence kinds: **real external** (the EC2 instance, Let's Encrypt, the live Vercel site, a real browser), **automated test** (the repository's suite).
+
+| Question | Finding | Evidence |
+| --- | --- | --- |
+| What is deployed, and from which code? | `main` at `2d14cf2` (later `7e0ff1e`, which only adds deployment files and the Vercel rewrite) on one Amazon Linux 2023 `t3.micro`: API and worker as systemd services, PostgreSQL 18, nginx, certbot. The live Vercel bundle files (`index-DB1g3kQb.js`, `index-D2eFELfK.css`) are the same names a clean build of this code produces, so frontend and backend are compatible. | Real: `shelfwatch-status`, `git log` on the server, the live site's HTML |
+| Is the backend healthy? | `/api/v1/ready` is **ready** on every check: database, 12 of 12 migrations, tenant isolation (the API connects with the restricted role), job queue, worker heartbeat, storage, email, encryption key. | Real: on the server and through the public address |
+| Is HTTPS genuine? | A publicly trusted Let's Encrypt certificate for `18-212-221-70.sslip.io` (valid to 2027-01-24, renewal timer enabled). From outside: HTTP 200 with the certificate verified; plain HTTP only redirects; the bare IP gets no answer; port 4000 is closed. | Real: `curl`, `openssl s_client` from the development machine |
+| Does the live Vercel site reach it? | Yes. `/api/*` on `price-intelligence-psi.vercel.app` was 404 before the rewrite and answers from the backend after it. A real browser on the live site registered an account (`POST /auth/register` 201), verified the email, signed in, created a workspace (201) and loaded the dashboard, websites, settings, members, alerts, reports and journey (all 200); the browser console had no messages and no request failed. | Real: browser pane on the live site; its network log |
+| Does authentication behave? | 30 of 30 requests of `deploy/ec2/smoke-test` pass, **also when sent through the Vercel address**: wrong password 401; login before verification 403; session cookie `HttpOnly`, `Secure`, `SameSite=Lax`, host-only; protected routes 401 without a session; another workspace's id 404; missing CSRF header and foreign Origin 403; single-use verification link; logout invalidates the session; error bodies hold no stack trace or connection string. | Real: run on the server against the Vercel address |
+| Does the worker work? | A capability check queued from the live site was run by the worker on EC2 and stored (`site profiled … status: full, requests: 11`, 14.4 s). One earlier run took 75 s for 12 requests; the same check measured later on the server takes 14.6 s, as it does locally. The cause of that one slow run was not established (most likely a cold start on a small instance). | Real: worker log, stored profile |
+| Does it survive a restart? | The services restart on SIGTERM cleanly. After a full **reboot** of the instance (back in about 33 s) postgres, worker, API, nginx and both timers were active again without anyone starting them, readiness was `ready` on the first check, **every table's row count was identical** to before, and the browser's session was still valid without signing in again. | Real: reboot, counts before and after |
+| Are secrets protected? | Production secrets were generated on the server and live only in `/etc/shelfwatch/shelfwatch.env` (`root:shelfwatch`, mode 640). Zero lines in the service logs mention a connection string, password, token or authorization header; no secret in any process command line or in the application directory or Git. The email settings were copied from the owner's local `.env` over SSH. | Real: log and file searches (counts only) |
+| Which ports are open? | Internet: 22 (SSH), 80 (redirect and certificate challenge), 443. Closed: 4000 (API, bound to 127.0.0.1) and 5432 (PostgreSQL, 127.0.0.1). The security group was changed by the owner in the AWS Console; no AWS credentials were used. | Real: connection probes from the development machine |
+| Do the repository's checks still pass? | typecheck, lint (0 errors) and **944 of 944 tests in 58 files**. The deployment guard now also requires the `/api` rewrite to be https, path-preserving, ahead of the page rule, and the only backend. | Automated |
+
+Not verified: real email delivery to an inbox (the deployment was tested with a reserved `.test` address, which the application refuses to mail; the SMTP settings are configured and `/ready` reports email as configured); any real competitor collection on the server; behaviour under load; the Elastic-IP case (a stop/start of the instance); restoring a backup on the server.
+
+Test data created on the production database (4 throw-away accounts and workspaces) was removed afterwards; the database holds no users.
 
 ## Web app on Vercel (2026-10-26) — `tsc: command not found`
 
@@ -153,7 +174,7 @@ Unrelated defect found by the full run and fixed (tests only): three retention t
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **943 passed, 0 failed, 58 files** (final run on 2026-10-26; 934 in 57 after the removal fix, 914 in 55 after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
+| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **944 passed, 0 failed, 58 files** (final run on 2026-10-26; 943 before the Vercel rewrite guard was extended; 934 in 57 after the removal fix, 914 in 55 after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
 | Live procedure (real websites and the real FX provider; opt-in, sends real requests) | `npm run test:live` | Ran 2026-10-19 against the four named shops (exhaustive procedure, `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`); record in `.data/live-runs/` (git-ignored) |
 | Typecheck, all workspaces, plus `tests/` and `scripts/` | `npm run typecheck` | Clean (exit 0, 2026-10-23) |
 | Lint | `npm run lint` | Exit 0 on 2026-10-23 (2 intentional `any` warnings on 2026-10-19: `connectors/src/extract.ts`, `services/src/jobs.ts`) |
@@ -342,7 +363,7 @@ Honesty: the readiness endpoint would have repeated raw SQL from database errors
 
 ## Not verified
 
-- **Any deployment.** No AWS access, resources or deployment files exist on the development machine; nothing is hosted. No hosted frontend ↔ backend check, HTTPS/TLS, hosted logs or deployed worker could be examined.
+- **Any deployment** (at the time of this audit). Done on 2026-10-26: see "Backend on AWS EC2 (2026-10-26)".
 - **Your inbox:** that the Gmail messages arrived, and the reset-email round trip through Gmail. Rotate the App Password you pasted in chat.
 - **Own-store stock alerts on real data**, **flyers / PDFs from real sites**, **retention on real data**, **headless rendering of a live site** (Super Food Plaza needs it, and is a 10 s-crawl-delay site).
 - **Shopify authorised inventory, Meta (Instagram/Facebook), YouTube, Anthropic, S3/R2/MinIO** — need your credentials.

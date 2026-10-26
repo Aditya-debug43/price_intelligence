@@ -16,6 +16,18 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 9 — directive of 2026-10-26: the backend runs on AWS EC2 and the Vercel frontend is connected (CURRENT STATE — read with Updates 5–8)
+
+Verbatim directive: `docs/original-prompt/09_DIRECTIVE_DEPLOY_BACKEND_TO_EC2_2026-10-26.md`. Details: `docs/deployment.md` ("The backend on AWS EC2"), `docs/WORK_LOG.md` (directive 9), `docs/verification-report.md` ("Backend on AWS EC2").
+
+- **Deployed:** one Amazon Linux 2023 `t3.micro` at `18.212.221.70` (us-east-1c): systemd `shelfwatch-api` (127.0.0.1:4000) and `shelfwatch-worker` (exactly one), PostgreSQL 18 on loopback, nginx (80/443) with a Let's Encrypt certificate for **`18-212-221-70.sslip.io`**; code in `/opt/shelfwatch/app` (a clone of `main`), secrets only in `/etc/shelfwatch/shelfwatch.env` (`root:shelfwatch` 640). The web app stays on Vercel (`https://price-intelligence-psi.vercel.app`); `apps/web/vercel.json` forwards `/api/*` to the backend, so the browser stays same-origin. The backend's `APP_BASE_URL` is the Vercel address.
+- **Verified** (real requests, a real browser on the live site, a full reboot): see the verification report. Everything in the checks passed; the database was left with no users (test accounts removed).
+- **Operations** (on the server): `sudo shelfwatch-status`, `sudo journalctl -u shelfwatch-api -u shelfwatch-worker -f`, `sudo shelfwatch-update`, `sudo shelfwatch-backup` (daily timer, same disk), `bash /opt/shelfwatch/app/deploy/ec2/smoke-test`. The files are in `deploy/ec2/`.
+- **Not done / owner's decisions:** an Elastic IP (the public IP changes on stop/start, which breaks the hostname, certificate and rewrite), limiting SSH in the security group, replacing the Gmail App Password shared earlier in chat, off-server backups, open sign-up (anyone can add websites that this server reads: terms and permissions still apply), copying the development data (the production database is fresh), a custom domain. The AWS firewall was opened by the owner in the Console; no AWS credentials were used and no billable resource was created.
+- **Rule:** never write the SSH key's location or any secret into the repository; keep the production environment file out of Git.
+
+---
+
 # Update 8 — directive of 2026-10-26: the web app would not build on Vercel (CURRENT STATE — read with Updates 5–7)
 
 Verbatim directive: `docs/original-prompt/08_DIRECTIVE_FIX_VERCEL_FRONTEND_BUILD_2026-10-26.md`. Details: `docs/WORK_LOG.md` (directive 8) and `docs/deployment.md` ("Hosting the web app on Vercel").

@@ -171,7 +171,7 @@ Source: `docs/original-prompt/03_DIRECTIVE_REMOVE_DEMO_2026-10-18.md`. Evidence 
 | D20 | Documentation current (`PROJECT_CONTEXT`, `WORK_LOG`, this matrix, `PRODUCTION_READINESS`, `integrations`, `limitations`) | ✅ | updated 2026-10-18/19 | — |
 
 **What would let me claim "real end to end":** D6 (the owner confirming the Gmail messages arrived), plus a **deployed** system on which the customer journey has been run (Part 16, R18–R20). D13 and D14 are met on the development machine
-(see the updated rows above): *verified on four real shops and real Gmail acceptance; not deployed; every match still needs a person's review.*
+(see the updated rows above): *verified on four real shops and real Gmail acceptance; not deployed at that time (the backend has run on AWS EC2 since 2026-10-26); every match still needs a person's review.*
 
 ## Part 16 — Directive 4 (2026-10-19): real-data verification first, then GitHub and AWS
 

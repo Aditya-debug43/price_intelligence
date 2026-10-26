@@ -1,7 +1,7 @@
 # Deployment
 
-Nothing here has been deployed. The steps describe how the pieces fit; the Docker files are **untested** because Docker was not
-available where they were written. Deploying to production, and any paid hosting or provider cost, is your decision.
+Since 2026-10-26 the backend runs on one AWS EC2 instance and the web app on Vercel (see "The backend on AWS EC2" and "Hosting the web app on Vercel" below). The rest of this guide describes how the pieces fit; the Docker files are **untested** because Docker was not
+available where they were written — the EC2 deployment does not use them. Any paid hosting or provider cost is your decision.
 
 ## Pieces
 

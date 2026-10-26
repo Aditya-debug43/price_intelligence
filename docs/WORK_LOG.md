@@ -489,3 +489,38 @@ Verbatim: `docs/original-prompt/08_DIRECTIVE_FIX_VERCEL_FRONTEND_BUILD_2026-10-2
 ### Needs the user
 
 Push the commit; then in Vercel: Root Directory `apps/web`, the "include source files outside the Root Directory" switch on, Node 22.x or newer, no `NODE_ENV=production` / "exclude development dependencies". Add the `/api` rewrite when the backend has an https address (see deployment.md), and set the backend's `APP_BASE_URL` to the Vercel address.
+
+---
+
+## 2026-10-26 — Directive 9: deploy the backend to AWS EC2 and connect the live Vercel frontend
+
+Verbatim: `docs/original-prompt/09_DIRECTIVE_DEPLOY_BACKEND_TO_EC2_2026-10-26.md` (the SSH key's location is deliberately not recorded). Result: the backend is **deployed and verified**; the Vercel site is connected to it.
+
+### What was found first
+
+* Architecture (from the code): Fastify API (`apps/api`, port 4000), one worker with the scheduler (`apps/worker`), PostgreSQL 15+ with three roles set up by `scripts/db-setup.ts`; the web app has no API address setting and calls `/api/v1/…` on its own origin; the production configuration refuses to start unless `APP_BASE_URL` is a public https address, and registration needs SMTP.
+* The instance: a fresh Amazon Linux 2023 `t3.micro` (2 vCPU, 913 MB RAM, no swap, 8 GB disk), nothing installed, only SSH listening, no firewall on the host, no IAM role. **The AWS security group allowed only SSH**: ports 80/443 were blocked from the internet (probed from outside). I cannot edit security groups without AWS credentials, so the owner opened 80 and 443 in the Console (4000 stays closed).
+* There was no production database: the development data lives in an embedded PostgreSQL on the owner's computer, which EC2 cannot reach. A **fresh** production database was created (no old test accounts or pre-terms competitor data); copying the development data is the owner's decision.
+
+### What was done
+
+* **Server:** Node 22, PostgreSQL 18, nginx, git, certbot from the Amazon repositories (nothing downloaded from elsewhere); 2 GB swap; persistent size-capped journal; user `shelfwatch`; PostgreSQL on loopback with password authentication. Code: clone of `main`, `npm ci`, the existing build scripts for API and worker. Environment file generated on the server (`root:shelfwatch` 640); email settings copied over SSH from the owner's local `.env`. Migrations with the project's own `db-setup` (12 of 12). systemd services for worker then API (restart on failure and at boot, 45 s clean-stop window, hardened sandbox, API bound to 127.0.0.1).
+* **HTTPS:** `18-212-221-70.sslip.io` (free public name for the IP; the owner approved it) with a Let's Encrypt certificate; nginx serves only the challenge over HTTP until the certificate existed, then HTTPS with `/api/` proxied to the API.
+* **Frontend connection:** `apps/web/vercel.json` forwards `/api/:path*` to the backend (committed only after the address was verified from outside); the backend's `APP_BASE_URL` is the Vercel address, so the Origin check, the host-only cookie and the verification links all fit; no CORS involved.
+* **Repository** (commit `7e0ff1e`): `deploy/ec2/` (unit files, nginx templates, `shelfwatch-status`, `shelfwatch-update`, `shelfwatch-backup` + daily timer, `enable-https`, `smoke-test`), the extended guard test, `docs/deployment.md` ("The backend on AWS EC2"), directive 9. The stale "nothing is deployed" statements in the other documents were corrected.
+
+### Problems met and fixed on the way
+
+* A directory check in my own stage script failed because it ran as the wrong user (fixed, re-run; idempotent).
+* `shelfwatch-update` aborted on the first refused connection while the API was still starting (`set -o pipefail`): fixed and re-tested to exit 0 with readiness `ready`.
+* Two checks of my smoke test were wrongly specified (an anchored `LIKE`, and a check that ran before the worker had processed the mail job): fixed; 30 of 30.
+* The first capability check on the server took 75 s (later runs 14.4 s and 14.6 s, like locally); cause not established.
+* A duplicate HSTS header (nginx and the API both sent it): removed from nginx.
+
+### Verified (see verification-report.md, "Backend on AWS EC2")
+
+Ready on every check; trusted certificate; 30 of 30 smoke requests, also through the Vercel address; a real browser on the live site registered, verified, signed in, created a workspace and loaded the protected pages with a clean console; a worker job ran; a full reboot recovered everything with identical data and a still-valid session; no secrets in logs, process lists or the application directory. Test accounts were removed afterwards (the production database holds no users).
+
+### Left for the owner
+
+Attach an **Elastic IP** (otherwise a stop/start of the instance changes the address and breaks the hostname, certificate and rewrite), consider limiting SSH to your own IP, replace the Gmail App Password that was shared in chat, decide about open sign-up (anyone can add websites for this server to read), copy backups off the server, and (if wanted) restore the development data. Nothing billable was created.

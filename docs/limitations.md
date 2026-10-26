@@ -4,7 +4,7 @@ Read this with [verification-report.md](verification-report.md) (what was actual
 integration checklist) and [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (the verdict). Status words are those defined at the top
 of `integrations.md`. As of 2026-10-23 (after the exhaustive audit; the 2026-10-19 real-data results below still stand).
 
-**The product is not claimed to be production-ready, and it is not deployed.** The whole chain has been verified on four real Aruba grocery shops
+**The product is not claimed to be production-ready; it is deployed as a demonstration (backend on one small AWS EC2 instance since 2026-10-26, web app on Vercel).** The whole chain has been verified on four real Aruba grocery shops
 (own shop + three competitors) on the development machine, and real Gmail accepts the app's mail; nothing has been hosted, and the review of
 matches is still a human job because no shop publishes barcodes or brands.
 
@@ -32,7 +32,7 @@ audit of the web interface. The fictional websites live only in `tests/support` 
 ## The largest remaining gaps
 
 0. **Collecting the competitors needs their permission, and the terms say so.** Their public terms of use *forbid* automated access (Quickmart: "spider, crawl, or scrape"; Super Food Plaza: "spiders, robots") or *restrict* copying and commercial use (foodstore2go, Ling & Sons). robots.txt allows the pages, but robots.txt is not the whole of "permission". Shelfwatch now reads the terms and refuses to collect from a website whose terms forbid automated access unless the owner's written permission is recorded. In the 2026-10-23 audit **no competitor was collected**; the competitor data held was collected on 2026-10-19, before this check existed.
-1. **Nothing is deployed.** No AWS access exists on the development machine, so the hosted API, worker, database, TLS, logs and frontend ↔ backend path are unverified.
+1. **The deployment is a demonstration, not a production setup.** It runs on a single `t3.micro` (913 MB RAM) with PostgreSQL on the same machine; the public IP is not fixed (a stop/start changes it and breaks the hostname, certificate and Vercel rewrite until redone); backups sit on the same disk; there is no monitoring or alerting and no load test. Open sign-up lets anyone register and have this server read websites they add. See [deployment.md](deployment.md).
 2. **Matches need a person.** None of the four shops publishes a barcode, and their "vendor" fields are not brands (see below), so every match rests on name + size.
    The app proposes (235 identical, 661 comparable, 41 different-pack) and never confirms by itself; bulk review exists. Of the 235 identical matches accepted in the test workspace
    in one bulk action, 24 were checked against both live pages; 4 carried a vintage year on one side only (now flagged by a rule added after the audit; their acceptance stands because a person's decision is never overwritten).
