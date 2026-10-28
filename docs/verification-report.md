@@ -149,7 +149,7 @@ Question from the owner's professor: can a customer open each product, yours and
 | What the customer sees | The card's link, "No page link" when none is safe, the exact markup | Automated: `tests/unit/web-source-links.test.ts` (10) |
 | Whole suite | typecheck, lint (0 errors), build; **974 of 974 tests in 62 files** | Automated |
 
-Limits: a link shows the address recorded when the product was last collected; Shelfwatch does not re-check the page when someone clicks, so a shop that moved or removed the page shows its own redirect or "not found" page. The own-website rule on the server (`productPageLink`) is not in production until the backend is updated (SSH to the instance is still blocked); the website applies the rest of the rule in the browser. No logged-in check of the production website was possible.
+Limits: a link shows the address recorded when the product was last collected; Shelfwatch does not re-check the page when someone clicks, so a shop that moved or removed the page shows its own redirect or "not found" page. The own-website rule on the server (`productPageLink`) is not in production until the backend is updated (SSH to the instance is still blocked); the website applies the rest of the rule in the browser. No logged-in check of the production website was possible. Deployment evidence: commit `3c83c80` on `main`; the live Vercel site serves the new `app-shell` chunk, byte-identical to the local production build; `/api/v1/health` through Vercel answers.
 
 ## Backend on AWS EC2 (2026-10-26)
 

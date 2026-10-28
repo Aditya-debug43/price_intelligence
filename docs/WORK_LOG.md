@@ -582,6 +582,7 @@ Verbatim: `docs/original-prompt/11_DIRECTIVE_PRODUCT_LINKS_2026-10-28.md` (the o
 
 ### Not done / limits
 
-* **Production backend not updated.** SSH to EC2 is still dropped by the security group (checked again 2026-10-28); the API answers (`/api/v1/health`). The new website is safe against the old backend (same address strings; the safety rule runs in the browser too), but the server-side "own website" rule only exists after `sudo shelfwatch-update` on the server.
+* **Website deployed, backend not.** Commit `3c83c80` was pushed to `main`; the live Vercel site now serves the new code (its `app-shell-cWYcWmC2.js` chunk is byte-identical to the local production build and contains the link code; `/api/v1/health` through the Vercel rewrite answers). The links were not clicked on the production site itself (no credential for the owner's account there).
+* **Production backend not updated.** SSH to EC2 is still dropped by the security group (checked again 2026-10-28, twice, from two different addresses); the API answers (`/api/v1/health`). The new website is safe against the old backend (same address strings; the safety rule runs in the browser too), but the server-side "own website" rule only exists after `sudo shelfwatch-update` on the server.
 * No logged-in check of the production website: there is no credential for the owner's account there and no account was created on it.
 * Redirects: an address is shown as stored; if a shop later moves or removes a page, the shop's own redirect or "not found" page appears. Shelfwatch does not claim the page still exists — a re-collection refreshes the address, and a product that disappears from a complete catalogue is marked delisted.
