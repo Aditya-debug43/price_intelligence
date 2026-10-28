@@ -16,6 +16,18 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 14 — directive of 2026-10-28: a website's "slow down" must not end a collection; collection reliability measured (CURRENT STATE — read with Updates 5–13)
+
+Verbatim directive: `docs/original-prompt/14_DIRECTIVE_COLLECTION_RELIABILITY_AUXITO_2026-10-28.md`. Details: `docs/WORK_LOG.md` (directive 14), `docs/verification-report.md` ("Collection reliability").
+
+- **Incident:** auxito.com stopped at 750 of 1,483 products (Shopify feed, HTTP 429 on page 4 of 6; cursor `{"page":4}` saved; 750 products / 1,039 variants stored correctly). shop.lingandsons.com had stopped the same way at 750 of 1,850 that morning. The limit is temporary (the same page answered normally ten minutes later). "Run the collection again to continue" was not true: a new run restarted at page 1.
+- **Systemic causes found:** no continuation; 2 retries in ~6 s then give up and nothing retries by itself; a 429 counted as an access denial and, three times, blocked the host for the whole worker process (every workspace) until a restart; a 429/5xx on robots.txt read as "forbidden" and a website limiting us while it was checked was judged; a first-page 429 escalated to crawling every product page; throttled pages counted as read and a throttled sitemap did not make the list incomplete; a non-paging feed was read until the budget was spent; "saved" was a per-page tally.
+- **Now:** a temporary stop (429, 5xx, timeout, not-its-feed) saves what was read, ends `partial` with `next_attempt_at`, and the scheduler's recovery pass continues the SAME run from its saved place (2, 4, 8, 16, 32, 60 min; Retry-After respected; bounded; click-to-continue within 24 h; old-style runs recognised). Migration `0012_scan_continuation` (`scan_runs.next_attempt_at`, `continuations`). Politeness: "slow down" widens spacing, is never a denial, a refusal stops only its own run. No hidden escalation. Run counts are distinct products held. Explanations and the website status say "Paused … continues by itself".
+- **Measured:** 24 eligible scenarios through the real pipeline: 14 of 24 (58.3%) on the previous code, **24 of 24 (100%)** now; 8 non-collectable websites end in their honest state; the real owner websites collect completely with the new code (lasfit.com 1,129 / 9,199; groceriestogoaruba.com 2,381 / 2,385; 0 differences from their feeds). 1,061 tests in 69 files.
+- **Deployment:** see the status line in the work log (the backend update needs SSH, which the AWS security group drops from the owner's changing address; the website part deploys on push).
+
+---
+
 # Update 13 — directive of 2026-10-28: one impossible price must not fail a whole collection (CURRENT STATE — read with Updates 5–12)
 
 Verbatim directive: `docs/original-prompt/13_DIRECTIVE_FIX_COLLECTION_FAILURE_AFTER_URL_CHANGE_2026-10-28.md`. Details: `docs/WORK_LOG.md` (directive 13), `docs/verification-report.md` ("Collection failure on lasfit.com").
