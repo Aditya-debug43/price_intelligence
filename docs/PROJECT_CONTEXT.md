@@ -16,6 +16,17 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 13 — directive of 2026-10-28: one impossible price must not fail a whole collection (CURRENT STATE — read with Updates 5–12)
+
+Verbatim directive: `docs/original-prompt/13_DIRECTIVE_FIX_COLLECTION_FAILURE_AFTER_URL_CHANGE_2026-10-28.md`. Details: `docs/WORK_LOG.md` (directive 13), `docs/verification-report.md` ("Collection failure on lasfit.com").
+
+- **Root cause:** a variant in the owner's own Shopify feed has a compare-at price of 139982999149929.98; prices are numeric(14,4) (< 10 billion) → "numeric field overflow"; the whole 250-product batch was one transaction, so it rolled back and the scan crashed with 0 saved; the screen showed the SQL statement and values because the database's real reason (in the error's `cause`) was never read. **Not caused by the URL change** (that address never changed; the same feed fails for anyone).
+- **Now:** values the database cannot hold are left out as unknown and named in the run's notes; a product whose data the database still refuses is skipped while the rest is saved, and the run is "partial" with the reason (`products_skipped`); the database's real reason replaces the SQL text everywhere (`services/db-errors.ts`, `core/storable.ts`). Non-data failures still stop the run.
+- **Verified:** 1,001 tests in 66 files; the real lasfit.com collected in a temporary database (1,129 products, 9,199 variants, complete, 0 differences from its feed, 10/10 pages agree, a second collection adds no duplicates) and on the production server in a throw-away workspace (same numbers, ~70 s).
+- **Deployed:** commit `8bb4f09`, backend updated on EC2 (backup first); no website change needed. The owner's own lasfit.com has 0 products until they click "Collect catalogue" again.
+
+---
+
 # Update 12 — directive of 2026-10-28: no minimum number of competitors (CURRENT STATE — read with Updates 5–11)
 
 Verbatim directive: `docs/original-prompt/12_DIRECTIVE_REMOVE_MINIMUM_COMPETITORS_2026-10-28.md`. Details: `docs/WORK_LOG.md` (directive 12), `docs/verification-report.md` ("Competitor count").
