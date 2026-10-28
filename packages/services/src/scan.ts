@@ -548,7 +548,8 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     const frontier = await frontierCounts();
     // "Saved" counts distinct products this run saved, as the database holds them: a crawl of listing pages meets the same product on several pages,
     // and the page-by-page tally would then claim more products than the website has.
-    const [held] = await svc.db.select({ products: sql<number>`count(*)::int`, variants: sql<number>`coalesce(sum((select count(*) from variants v where v.product_id = ${products.id})), 0)::int` }).from(products).where(and(eq(products.siteId, run.siteId), eq(products.lastScanRunId, run.id)));
+    const heldRows = await svc.db.execute<{ products: number; variants: number }>(sql`select count(distinct p.id)::int as products, count(v.id)::int as variants from products p left join variants v on v.product_id = p.id where p.site_id = ${run.siteId} and p.last_scan_run_id = ${run.id}`);
+    const held = heldRows.rows[0];
     const savedProducts = held && held.products > 0 ? held.products : o.productsSaved;
     await svc.db
       .update(scanRuns)

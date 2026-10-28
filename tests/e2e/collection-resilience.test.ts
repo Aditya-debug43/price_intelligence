@@ -99,6 +99,7 @@ describe('the website asks to slow down in the middle of the catalogue', () => {
     expect(done.status).toBe('succeeded');
     expect(done.isComplete).toBe(true);
     expect(done.productsSaved).toBe(600);
+    expect(done.variantsSaved).toBe(600); // the run's own count of variants is what the database holds for it
     expect(done.nextAttemptAt).toBeNull();
     expect(done.error).toBeNull();
     expect(await runsOf(siteId)).toHaveLength(1);
