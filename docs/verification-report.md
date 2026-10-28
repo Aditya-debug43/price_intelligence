@@ -1,6 +1,6 @@
 # Verification report
 
-Last full run: **2026-10-28, after the product page links (directive 11)**: typecheck, lint (0 errors), build and **974 of 974 tests in 62 files** passed; see "Product page links (2026-10-28)" below. Before that, the product-count investigation (directive 10): 950 in 59; see "Product count reconciliation (2026-10-28)". Before that, the EC2 deployment (directive 9): 944 in 58; the deployed system was tested separately, see "Backend on AWS EC2 (2026-10-26)" below. Before that, the Vercel build fix (directive 8): 943 in 58. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
+Last full run: **2026-10-28, after removing the minimum of 3 competitors (directive 12)**: typecheck, lint (0 errors), build and **988 of 988 tests in 64 files** passed; see "Competitor count (2026-10-28)" below. Before that, the product page links (directive 11): 974 in 62; see "Product page links (2026-10-28)". Before that, the product-count investigation (directive 10): 950 in 59; see "Product count reconciliation (2026-10-28)". Before that, the EC2 deployment (directive 9): 944 in 58; the deployed system was tested separately, see "Backend on AWS EC2 (2026-10-26)" below. Before that, the Vercel build fix (directive 8): 943 in 58. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
 Status words are the project vocabulary defined at the top of [integrations.md](integrations.md). Four kinds of evidence are kept apart on purpose:
 
 | Kind | Meaning | Examples here |
@@ -130,6 +130,22 @@ Question from the owner's professor: are products being missed when collecting g
 **Repeatability (real collections, local copy of the data, backup taken first).** Two collections in a row: both `succeeded`/complete via the Shopify feed, 11 requests, 2,381 discovered and saved, 2,385 variants, 0 errors, sitemap estimate 2,381 (so the cross-check made no extra request). Products and variants unchanged; the product-id fingerprint identical before and after; the 879 match decisions made by a person unchanged (fingerprint identical; 2,053 matches in all); 2 reports and 3 alerts unchanged. Price and stock observations grew by one per variant per run (2,385 each) — the design (a time series), not duplicates.
 
 **Not done at the time: production (updated later the same day, see "Product page links").** The server could not be reached over SSH during this work (the AWS security group drops port 22 from the current address; the API itself, Vercel and the database were healthy). The changes were therefore verified locally and are ready for `sudo shelfwatch-update`; the production figures are the ones in the owner's screenshot (2,385 variants, the same as locally). See the work log.
+
+## Competitor count (2026-10-28) — "one competitor is enough"
+
+Evidence kinds: **automated test** (real collections of fictional shops through the real pipeline), **local app in the in-app browser** (throwaway account, its own empty workspace, example.com/.org/.net only; no worker, so nothing was collected).
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Where the minimum lived | `DEFAULTS.minCompetitors` (sent to the website by the API), the getting-started step, the Setup form (three empty lines, "Add at least 3"); **not** in the database, API validation, collection, matching, comparison or reports | Code search of `apps/`, `packages/`, every migration |
+| Exactly 1 competitor | Step done, guide moves on to "check what each website allows"; collected, matched (identical > 10), compared (every row has one card), report complete (not partial), 1 site and 1 basket line in the report | Automated: `tests/e2e/competitor-count.test.ts` |
+| 2, 3, 4, 5 competitors, add then remove one at a time | Every count accepted; the guide says "N competitor(s) added"; a sixth is still refused (limit unchanged); removing back to none turns the step to "to do"; re-adding works | Automated |
+| A competitor not collected yet | Empty comparison (no error), partial report, "not collected yet" | Automated |
+| Existing workspace with 3 competitors | Collected, matched and compared as before (up to 3 cards per row) | Automated |
+| Validation kept | `javascript:`, `ftp:`, cloud-metadata and private addresses and non-addresses are still refused | Automated + browser (metadata address refused with its message) |
+| Regression guard | Re-adding `minCompetitors` fails the guard; the guard also bans the wording, list padding to 3 and count comparisons | Automated: `tests/unit/competitor-minimum.test.ts` (red/green shown) |
+| Setup page, real browser | New workspace: one empty line, "Competitors (up to 5)", one-competitor hint. One URL typed → saved; guide "1 competitor added … up to 5". "Add competitor" ×2 → 3 saved. "Remove" one → 2 saved. | Local app in the in-app browser |
+| Whole suite | typecheck, lint (0 errors), build; **988 of 988 tests in 64 files** | Automated |
 
 ## Product page links (2026-10-28) — "click a price card, open the product on its own website"
 

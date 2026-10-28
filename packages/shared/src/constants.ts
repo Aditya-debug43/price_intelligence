@@ -223,8 +223,8 @@ export const DEFAULTS = {
   reportingCurrency: 'USD',
   snapshotRetentionDays: 90,
   historyRetentionDays: 365,
+  /** The most competitor websites one workspace tracks. There is deliberately no minimum: one competitor is enough, more can be added any time. */
   maxCompetitors: 5,
-  minCompetitors: 3,
   /** An observation older than this is shown as stale, never as freshly observed. */
   staleAfterHours: 36,
 } as const;

@@ -200,7 +200,7 @@ describe('workspace setup', () => {
     const l = (await owner.get(`${base()}/sites`)).body;
     expect(l.sites).toHaveLength(6);
     expect(l.consentText.competitor).toMatch(/robots\.txt/);
-    expect(l.limits).toEqual({ maxCompetitors: 5, minCompetitors: 3 });
+    expect(l.limits).toEqual({ maxCompetitors: 5 }); // no minimum: one competitor is enough
     const r = await owner.patch(`${base()}/sites/${sites.woo}`, { name: 'Fixture Mart (edited)', currency: 'usd' });
     expect(r.body.site).toMatchObject({ name: 'Fixture Mart (edited)', currency: 'USD', currencySource: 'user' });
     await owner.patch(`${base()}/sites/${sites.woo}`, { name: 'Fixture Mart (WooCommerce, USD)' });

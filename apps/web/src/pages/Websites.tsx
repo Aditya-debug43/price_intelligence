@@ -33,7 +33,7 @@ export function WebsitesPage() {
         )}
       />
       <div style={{ marginBottom: 14 }}><JourneyCard compact /></div>
-      <DataState q={q} isEmpty={(d) => d.sites.length === 0} empty={<Card><EmptyState title="No websites yet" action={<Link className="btn btn-primary" to={`/o/${orgId}/setup`}>Add your website and competitors</Link>}>Add your own website and three to five competitors to begin.</EmptyState></Card>}>
+      <DataState q={q} isEmpty={(d) => d.sites.length === 0} empty={<Card><EmptyState title="No websites yet" action={<Link className="btn btn-primary" to={`/o/${orgId}/setup`}>Add your website and competitors</Link>}>Add your own website and at least one competitor to begin. You can add more competitors whenever you like.</EmptyState></Card>}>
         {(d) => (
           <Card pad={false}>
             <div className="table-wrap">

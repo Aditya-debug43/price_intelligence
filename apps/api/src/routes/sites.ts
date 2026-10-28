@@ -17,7 +17,7 @@ export async function siteRoutes(app: FastifyInstance) {
       // Every website carries the same honest collection state the dashboard and reports use.
       sites: list.map((s) => ({ ...s, status: coverage.find((c) => c.siteId === s.id)?.status ?? null })),
       consentText: { version: CONSENT_TEXT_VERSION, ...CONSENT_TEXT },
-      limits: { maxCompetitors: DEFAULTS.maxCompetitors, minCompetitors: DEFAULTS.minCompetitors },
+      limits: { maxCompetitors: DEFAULTS.maxCompetitors },
     };
   });
 

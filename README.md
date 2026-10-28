@@ -1,6 +1,6 @@
 # Shelfwatch — competitor intelligence for online shops
 
-Shelfwatch watches your online shop and three to five competitor websites, matches their products to yours, and gives you a
+Shelfwatch watches your online shop and up to five competitor websites (one is enough to start), matches their products to yours, and gives you a
 daily report: who is cheaper, what is on offer, what is running low in your own shop, and what competitors are promoting.
 
 It is a standalone, multi-tenant web application. Nothing in it is specific to groceries or to one shop platform — you enter

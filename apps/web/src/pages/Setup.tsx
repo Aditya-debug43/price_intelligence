@@ -4,15 +4,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, errorMessage, orgPath } from '../api';
 import { useMeta, useOrg, useOrgQuery } from '../app-shell';
 import { COMMON_CURRENCIES, COMMON_ZONES, Card, DataState, Field, PageHead, Spinner, useToast } from '../ui';
+import { competitorsHint, competitorsTitle, initialCompetitorRows, type CompetitorRow as Row } from '../competitor-rows';
 import type { Settings, SitesResponse } from '../types';
-
-interface Row {
-  id?: string;
-  url: string;
-  name: string;
-  original?: string;
-  error?: string;
-}
 
 /** Whether two addresses are different websites (a different host), as opposed to the same website written another way. */
 function differentWebsite(a: string, b: string): boolean {
@@ -33,7 +26,7 @@ export function SetupPage() {
   const sites = useOrgQuery<SitesResponse>('sites', '/sites');
   const settings = useOrgQuery<{ settings: Settings }>('settings', '/settings');
   const [source, setSource] = useState<Row>({ url: '', name: '' });
-  const [competitors, setCompetitors] = useState<Row[]>([{ url: '', name: '' }, { url: '', name: '' }, { url: '', name: '' }]);
+  const [competitors, setCompetitors] = useState<Row[]>(initialCompetitorRows([]));
   const [form, setForm] = useState<Settings | null>(null);
   const [recipients, setRecipients] = useState('');
   const [saving, setSaving] = useState(false);
@@ -44,9 +37,7 @@ export function SetupPage() {
     if (loaded || !sites.data || !settings.data) return;
     const src = sites.data.sites.find((s) => s.role === 'source');
     if (src) setSource({ id: src.id, url: src.url, name: src.name, original: src.url });
-    const comps = sites.data.sites.filter((s) => s.role === 'competitor').map((s) => ({ id: s.id, url: s.url, name: s.name, original: s.url }));
-    while (comps.length < 3) comps.push({ id: undefined, url: '', name: '', original: undefined } as never);
-    setCompetitors(comps);
+    setCompetitors(initialCompetitorRows(sites.data.sites.filter((s) => s.role === 'competitor')));
     setForm(settings.data.settings);
     setRecipients(settings.data.settings.alertPrefs.recipients.join(', '));
     setLoaded(true);
@@ -54,7 +45,6 @@ export function SetupPage() {
 
   if (!isAdmin) return <div className="callout warn">Only owners and admins can change the business setup.</div>;
   const max = sites.data?.limits.maxCompetitors ?? 5;
-  const min = sites.data?.limits.minCompetitors ?? 3;
 
   async function save() {
     if (!form) return;
@@ -165,7 +155,7 @@ export function SetupPage() {
             </div>
 
             <div className="step">
-              <Card title={`Competitors (${min}–${max})`} actions={<button className="btn btn-sm" disabled={competitors.length >= max} onClick={() => setCompetitors([...competitors, { url: '', name: '' }])}>Add competitor</button>}>
+              <Card title={competitorsTitle(max)} actions={<button className="btn btn-sm" disabled={competitors.length >= max} onClick={() => setCompetitors([...competitors, { url: '', name: '' }])}>Add competitor</button>}>
                 <div className="stack">
                   {competitors.map((c, i) => (
                     <div className="grid2" key={i} style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) auto', alignItems: 'start' }}>
@@ -176,7 +166,7 @@ export function SetupPage() {
                       <button className="btn btn-sm btn-ghost" style={{ marginTop: 22 }} aria-label={`Clear competitor ${i + 1}`} onClick={() => setCompetitors(competitors.map((x, n) => (n === i ? { ...x, url: '', name: '' } : x)))}>Remove</button>
                     </div>
                   ))}
-                  {filled < min && <div className="hint">Add at least {min} competitors for meaningful comparisons. You can save now and add the rest later.</div>}
+                  {competitorsHint(filled) && <div className="hint">{competitorsHint(filled)}</div>}
                 </div>
               </Card>
             </div>

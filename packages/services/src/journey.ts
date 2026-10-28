@@ -59,16 +59,15 @@ export async function loadJourney(svc: Pick<Services, 'config' | 'clock' | 'mail
   add(
     {
       id: 'competitors',
-      title: `Add ${DEFAULTS.minCompetitors}–${DEFAULTS.maxCompetitors} competitors`,
+      title: 'Add your competitors',
+      // One competitor is enough to compare against; more can be added whenever the customer wants (up to the limit).
       detail:
         competitors.length === 0
-          ? 'Add the websites you compete with.'
-          : competitors.length < DEFAULTS.minCompetitors
-            ? `${competitors.length} added. Add at least ${DEFAULTS.minCompetitors} for comparisons that mean something.`
-            : `${competitors.length} competitors added.`,
-      action: competitors.length >= DEFAULTS.minCompetitors ? null : { label: 'Add competitors', to: 'setup' },
+          ? `Add at least one website you compete with. You can add up to ${DEFAULTS.maxCompetitors}, and more at any time.`
+          : `${competitors.length} competitor${competitors.length === 1 ? '' : 's'} added. You can add up to ${DEFAULTS.maxCompetitors}, whenever you like.`,
+      action: competitors.length >= 1 ? null : { label: 'Add a competitor', to: 'setup' },
     },
-    competitors.length >= DEFAULTS.minCompetitors,
+    competitors.length >= 1,
   );
   add(
     {

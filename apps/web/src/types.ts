@@ -59,7 +59,7 @@ export interface SiteItem {
 export interface SitesResponse {
   sites: SiteItem[];
   consentText: { version: string; source: string; competitor: string };
-  limits: { maxCompetitors: number; minCompetitors: number };
+  limits: { maxCompetitors: number };
 }
 
 export interface ProfileResponse {

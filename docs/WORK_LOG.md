@@ -586,3 +586,39 @@ Verbatim: `docs/original-prompt/11_DIRECTIVE_PRODUCT_LINKS_2026-10-28.md` (the o
 * **Production backend updated (after the owner allowed SSH from their current address).** backup first (`/var/backups/shelfwatch/…T134759Z.dump` and the update script's own `…T134806Z.dump`, 6.3 MB each), then `sudo shelfwatch-update` took the server from `ad828d6` to `46f2aed` (so it also carries directive 10's completeness cross-check), no new migration (12 applied), worker restarted first, readiness `ready`, smoke test **30 of 30**; the smoke test's own throw-away account and workspace were removed again and the 3 real accounts and workspaces were not touched. Read-only check of the production data under the new rule: the owner's workspace has 7,959 variants (2,385 / 878 / 2,570 / 2,126 on its four websites), **0** without a page address and **0** on another website, and 2,056 matched pairs, so no card is hidden by the server-side rule. (Before that, SSH had been dropped by the security group on three tries from two different addresses.)
 * No logged-in check of the production website: there is no credential for the owner's account there and no account was created on it.
 * Redirects: an address is shown as stored; if a shop later moves or removes a page, the shop's own redirect or "not found" page appears. Shelfwatch does not claim the page still exists — a re-collection refreshes the address, and a product that disappears from a complete catalogue is marked delisted.
+
+---
+
+## 2026-10-28 — Directive 12: "Remove the minimum of 3 competitor URLs"
+
+Verbatim: `docs/original-prompt/12_DIRECTIVE_REMOVE_MINIMUM_COMPETITORS_2026-10-28.md`.
+
+### Root cause (found by searching every layer, then proved with a failing test before any fix)
+
+There was **no** database constraint, no API validation and nothing in collection, matching, comparison or reports that needed more than one competitor. The "minimum of 3" lived in four places, all consequences of one setting:
+
+1. `DEFAULTS.minCompetitors = 3` in `packages/shared/src/constants.ts`, **sent to the website by the API** (`GET /sites` → `limits.minCompetitors`).
+2. The getting-started guide (`packages/services/src/journey.ts`): the step "Add 3–5 competitors" was only "done" with 3 or more. With 1 or 2 it stayed the **current** step forever ("Add at least 3 for comparisons that mean something"), so the guide never moved on to checking the websites, never reached "You're set up", and kept sending the customer back to Setup — the "does not work properly / prevents them from proceeding".
+3. The Setup page (`apps/web/src/pages/Setup.tsx`): pre-filled **three empty lines**, titled the section "Competitors (3–5)" and said "Add at least 3 competitors".
+4. Wording: the Websites page empty state ("three to five competitors"), the README and the requirements matrix.
+
+(`maxCompetitors = 5`, enforced in `addSite`, is unchanged on purpose.)
+
+### Changes
+
+* `constants.ts`: `minCompetitors` removed; `api/routes/sites.ts` and the web `SitesResponse` type no longer carry it (an older website build falls back harmlessly; a newer one never reads it).
+* `journey.ts`: the step is "Add your competitors", **done with one**, and says "N competitor(s) added. You can add up to 5, whenever you like."; with none it says "Add at least one website you compete with."
+* `apps/web/src/competitor-rows.ts` (new) + `Setup.tsx`: the list starts with the competitors the workspace already has, or **one** empty line; the title is "Competitors (up to 5)"; the only hint ("Add the website of at least one competitor…") disappears as soon as one URL is typed. "Add competitor", "Remove", editing, the replace-website confirmation and every URL check are unchanged.
+* `Websites.tsx`, README, `REQUIREMENTS_MATRIX.md` (J3): wording.
+* Nothing in the database changed, so **no migration** and no production data is touched.
+
+### Tests (all new tests fail on the old code)
+
+* `tests/e2e/competitor-count.test.ts` (7, real collections of fictional shops): exactly one competitor (journey step done, the guide moves on to the next real step; collect, match, compare, report all work; every comparison row has one card; the report is complete, not partial); a competitor never collected (empty comparison, partial report, "not collected yet", no error); 1 to 5 competitors added one by one, the sixth still refused (limit unchanged), removed one by one back to none (the step becomes "to do" again), and re-added; every kind of unsafe or malformed address still refused; three competitors collected, matched and compared exactly as before. Red first: 5 of 7 failed on the old code.
+* `tests/unit/competitor-minimum.test.ts` (7): the regression guard — no `minCompetitors`-style setting, no "at least 3 competitors" / "3–5 competitors" wording, no list padded to 3 lines, no competitor count compared with 3 anywhere in `apps/` or `packages/`, no competitor-count constraint in any migration; the Setup rows helper (one empty line or exactly the saved competitors; never padded) and hint. Red/green: re-adding the constant fails it.
+* `tests/e2e/api.test.ts`: `limits` is now `{ maxCompetitors: 5 }`.
+
+### Verified
+
+* typecheck, lint (0 errors), build, full suite (numbers in the verification report).
+* Real browser (local app, throwaway account and its own empty workspace, example.com / example.org / example.net only, no worker so nothing was collected): the Setup page of a new workspace shows one empty competitor line, "Competitors (up to 5)" and the one-competitor hint; with ONE competitor typed it saved and went to Websites; the guide showed "1 competitor added … You can add up to 5", step done, next step "check what each website allows"; "Add competitor" twice, saved three; "Remove" on one, saved two (guide: "2 competitors added"); an address in the cloud-metadata range was still refused with its message. The throwaway account, workspace, queued jobs and mail record were removed afterwards.

@@ -16,6 +16,17 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 12 — directive of 2026-10-28: no minimum number of competitors (CURRENT STATE — read with Updates 5–11)
+
+Verbatim directive: `docs/original-prompt/12_DIRECTIVE_REMOVE_MINIMUM_COMPETITORS_2026-10-28.md`. Details: `docs/WORK_LOG.md` (directive 12), `docs/verification-report.md` ("Competitor count").
+
+- **Rule now:** one competitor is enough; there is only an **upper** limit (`DEFAULTS.maxCompetitors = 5`, enforced in `addSite`). The original brief's "3–5 competitors" (section A below, J3 in the matrix) was relaxed by the owner.
+- **Root cause:** nothing in the database, API validation, collection, matching, comparison or reports needed more than one competitor. `DEFAULTS.minCompetitors = 3` (also sent to the website in `GET /sites` → `limits`) made the getting-started guide's step "Add 3–5 competitors" stay the *current* step with 1 or 2 competitors (so the guide never moved on or finished), and the Setup page pre-filled three empty lines and said "Add at least 3".
+- **Changed:** `minCompetitors` removed (shared constants, API response, web type); `journey.ts` step "Add your competitors" is done with one; `apps/web/src/competitor-rows.ts` + `Setup.tsx` start with the competitors you have or one empty line ("Competitors (up to 5)"); wording in Websites page, README, matrix. No migration, no data change.
+- **Guard:** `tests/unit/competitor-minimum.test.ts` fails if a minimum-competitors setting, "at least 3 competitors"/"3–5" wording, a list padded to 3, a competitor count compared with 3, or a competitor-count constraint in a migration ever appears; `tests/e2e/competitor-count.test.ts` runs real collections with 1–5 competitors, a never-collected competitor, removal and three competitors as before.
+
+---
+
 # Update 11 — directive of 2026-10-28: every price card links to the product's own page at its own website (CURRENT STATE — read with Updates 5–10)
 
 Verbatim directive: `docs/original-prompt/11_DIRECTIVE_PRODUCT_LINKS_2026-10-28.md` (the owner's professor: "customers should be able to click a product or its price card and open that exact product on the original website"). Details: `docs/verification-report.md` ("Product page links"), `docs/WORK_LOG.md` (directive 11).

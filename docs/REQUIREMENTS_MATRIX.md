@@ -15,7 +15,7 @@ workspace (registration → workspace → setup → dashboard → report); cross
 | --- | --- | --- | --- | --- |
 | J1 | Register / sign in | ✅ | `api.test.ts`; live walk-through | verification policy (see AU3) |
 | J2 | Create/access the correct organisation | ✅ | onboarding page; `GET/POST /orgs` | — |
-| J3 | Enter own site + 3–5 competitors | ✅ | `Setup.tsx`; max 5 enforced; port rule enforced at add time (`workspace-modes.test.ts`); journey step guides the minimum of 3 | — (P2 done) |
+| J3 | Enter own site + competitors (1–5; **no minimum since directive 12, 2026-10-28** — the brief's "3–5" was relaxed by the owner) | ✅ | `Setup.tsx` (starts with the competitors you have, or one empty line); max 5 enforced; port rule enforced at add time (`workspace-modes.test.ts`); the journey step is done with one competitor; `tests/e2e/competitor-count.test.ts`, `tests/unit/competitor-minimum.test.ts` | — |
 | J4 | Validate and profile sites | ✅ | profiler tests; live probe | — |
 | J5 | Know what can be collected (capability) | ✅ | capability report page | surface "unsupported by this website" + authorised alternative — P2/P3 |
 | J6 | Collect accessible catalogue automatically | ✅ fixtures / ❌ never run on real catalogues | connector + pipeline tests | real-site verification needs per-site consent — P3/P7 |
