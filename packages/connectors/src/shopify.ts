@@ -2,7 +2,8 @@ import * as cheerio from 'cheerio';
 import { canonicalizeUrl, parseMachinePrice } from '@ci/core';
 import type { Availability, SiteProfileData } from '@ci/shared';
 import { buildQuality } from './extract.ts';
-import type { ConnectorBatch, ConnectorContext, EvidenceDoc, ExtractedProduct, ExtractedVariant, FeedConnector } from './types.ts';
+import { discoverFromSitemaps } from './sitemap.ts';
+import type { ConnectorBatch, ConnectorContext, EvidenceDoc, ExtractedProduct, ExtractedVariant, FeedConnector, ReconcileOutcome } from './types.ts';
 
 /**
  * Shopify storefront catalogue: GET /products.json?limit=250&page=N
@@ -183,5 +184,34 @@ export const shopifyConnector: FeedConnector = {
       }
     }
     return { products, evidence, cursor: null, progress: { estimatedTotal: null, discovered: products.length }, warnings };
+  },
+
+  /**
+   * Compares the feed with the store's own product sitemaps (the two public views of the catalogue) and reads the pages of listed products
+   * the feed did not return. Nothing is invented: a product counts only when its own page was read.
+   */
+  async reconcile(ctx, known, opts): Promise<ReconcileOutcome> {
+    const empty: ConnectorBatch = { products: [], evidence: [], cursor: null, progress: { estimatedTotal: null, discovered: 0 }, warnings: [] };
+    const d = await discoverFromSitemaps(ctx.fetcher, [`${ctx.site.origin}/sitemap.xml`], { maxSitemaps: 12, maxUrls: 50_000, productOnly: true });
+    if (!d.sitemaps.some((s) => !s.failed && (s.urlCount ?? 0) > 0)) return { listed: 0, missing: 0, batch: empty, unreadable: [], failed: true };
+    const handleOf = (u: string): string => {
+      try {
+        const h = new URL(u).pathname.match(/\/products\/([^/]+)/)?.[1];
+        return h ? decodeURIComponent(h) : '';
+      } catch {
+        return '';
+      }
+    };
+    const listed = new Map<string, string>();
+    for (const u of d.urls) {
+      const h = handleOf(u.url);
+      if (h) listed.set(h, u.url);
+    }
+    const missing = [...listed.keys()].filter((h) => !known.has(h));
+    const toRead = missing.slice(0, opts.max);
+    const batch = toRead.length ? await this.refresh(ctx, toRead.map((h) => listed.get(h)!)) : empty;
+    const read = new Set(batch.products.map((p) => String((p.attrs as { handle?: string } | undefined)?.handle ?? '')));
+    const unreadable = missing.filter((h) => !read.has(h));
+    return { listed: listed.size, missing: missing.length, batch, unreadable, failed: false };
   },
 };

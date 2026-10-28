@@ -163,10 +163,49 @@ async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> 
     if (limit && saved >= limit) return { state: 'partial', saved, notes: [...notes, `Small live refresh: stopped after ${saved} products by design (not a full catalogue).`], estimatedTotal: estimated };
     if (batch.done) {
       if (saved === 0) return { state: 'failed', saved, notes: [...notes, 'The product feed answered but listed no products.'], errorCode: 'empty_feed', error: 'The product feed listed no products. If this is unexpected, the feed may be restricted or disabled.', tryNext: true, estimatedTotal: estimated };
-      return { state: 'complete', saved, notes, estimatedTotal: estimated };
+      const checked = await crossCheckFeed(env, connector, saved, estimated, notes);
+      return { state: checked.state, saved: checked.saved, notes, errorCode: checked.errorCode, estimatedTotal: estimated };
     }
   }
   return { state: 'partial', saved, notes, errorCode: 'page_limit' };
+}
+
+/** Most products read from their own pages in one run when the feed turned out to be shorter than the site's sitemaps (the rest follows on the next run). */
+const RECONCILE_MAX = 300;
+
+/**
+ * A feed that ends early (a short page before the real end) would look exactly like a complete catalogue. So a feed run may only claim "complete"
+ * when the site's own product sitemaps — the other public view of the catalogue — do not list more than was collected. When they do, the products
+ * the feed did not return are read from their own pages and saved; anything that cannot be read keeps the run honestly "partial", with the numbers.
+ * No extra request is made when the feed already covers what the profile found (the normal case).
+ */
+async function crossCheckFeed(env: RunEnv, connector: FeedConnector, saved: number, estimated: number | null, notes: string[]): Promise<{ state: State; saved: number; errorCode?: string }> {
+  if (!connector.reconcile || estimated === null || saved >= estimated) return { state: 'complete', saved };
+  const { svc, run, ic, ctx, site } = env;
+  const known = new Set(
+    (await svc.db.select({ handle: sql<string | null>`${products.attrs}->>'handle'` }).from(products).where(and(eq(products.siteId, site.id), isNull(products.delistedAt)))).map((r) => r.handle ?? '').filter(Boolean),
+  );
+  const r = await connector.reconcile(ctx, known, { max: RECONCILE_MAX });
+  if (r.failed) {
+    notes.push(`The product feed listed ${saved} products, fewer than the ${estimated} the site's sitemaps suggested, and the sitemaps could not be read again to check. The catalogue may be incomplete.`);
+    return { state: 'partial', saved, errorCode: 'feed_shorter_than_catalogue' };
+  }
+  if (r.missing === 0) return { state: 'complete', saved }; // the earlier estimate was out of date: the sitemaps list nothing the feed lacks
+  const fromFeed = saved;
+  let recovered = 0;
+  if (r.batch.products.length) {
+    const ing = await ingestBatch(ic, r.batch);
+    recovered = ing.products;
+    saved += recovered;
+    run.variantsSaved += ing.variants;
+    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, requestsMade: env.fetcher.requestsMade, urlsDiscovered: Math.max(run.urlsDiscovered, saved) });
+  }
+  notes.push(`The product feed ended early: it listed ${fromFeed} products, but the site's product sitemaps list ${r.listed}. ${recovered} of the ${r.missing} products the feed did not return were read from their own pages and saved.`);
+  if (r.unreadable.length) {
+    notes.push(`${r.unreadable.length} could not be read${r.missing > RECONCILE_MAX ? ` (at most ${RECONCILE_MAX} are read per run; the rest follows on the next run)` : ''}, for example ${r.unreadable.slice(0, 3).join(', ')}. They are not counted as collected.`);
+    return { state: 'partial', saved, errorCode: 'feed_shorter_than_catalogue' };
+  }
+  return { state: 'complete', saved };
 }
 
 /** Rolling-refresh priority: matched products, active offers and recent movers first, then the stalest. */

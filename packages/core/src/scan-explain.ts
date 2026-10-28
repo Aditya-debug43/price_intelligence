@@ -21,6 +21,12 @@ export interface ScanExplanation {
   reason: string | null;
   /** What the customer (or the next run) can do about it, or null. */
   nextStep: string | null;
+  /**
+   * What the collected number covers: the products the website itself publishes (its feed and sitemaps). A store's admin total can be higher —
+   * drafts, archived products and products not sold on the website are not public, so no public collection method can see them. Null when
+   * nothing was collected.
+   */
+  scopeNote: string | null;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -30,6 +36,17 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * reason and the next step. It never claims completeness the run did not establish.
  */
 export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = {}): ScanExplanation {
+  return { ...explainCore(r, queue), scopeNote: scopeNoteOf(r) };
+}
+
+/** What a collected number covers — said every time, so a store admin's larger total is never a mystery. */
+function scopeNoteOf(r: ScanRunFacts): string | null {
+  if (r.productsSaved === 0 || !['succeeded', 'partial'].includes(r.status)) return null;
+  const listed = r.estimatedTotal && r.estimatedTotal > 0 ? ` of the ${r.estimatedTotal.toLocaleString('en-US')} the website lists publicly (its product feed and sitemaps)` : ' that the website lists publicly';
+  return `${plural(r.productsSaved, 'product')} collected${listed}. A store’s own admin total can be higher: drafts, archived products and products that are not sold on the website are not public, so no public collection method can see them.`;
+}
+
+function explainCore(r: ScanRunFacts, queue: Record<string, number>): Omit<ScanExplanation, 'scopeNote'> {
   const saved = plural(r.productsSaved, 'product');
   const of = r.estimatedTotal ? ` of about ${r.estimatedTotal}` : '';
   const failed = queue['failed'] ?? 0;
@@ -89,6 +106,10 @@ export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = 
       break;
     case 'page_limit':
       reason = 'The run stopped at its page limit.';
+      break;
+    case 'feed_shorter_than_catalogue':
+      reason = 'The product feed ended before the website’s own product sitemaps did, and the products it did not return could not all be read from their own pages (the notes say how many and which).';
+      next = 'Collect again later. If the same products are missed again, the website may be keeping them out of its feed or refusing their pages: ask its owner.';
       break;
     default:
       if (r.kind === 'sample') {

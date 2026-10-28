@@ -1,12 +1,12 @@
 # Verification report
 
-Last full run: **2026-10-26, after the EC2 deployment (directive 9)**: typecheck, lint (0 errors) and **944 of 944 tests in 58 files** passed; the deployed system was tested separately, see "Backend on AWS EC2 (2026-10-26)" below. Before that, the Vercel build fix (directive 8): 943 in 58. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
+Last full run: **2026-10-28, after the product-count investigation (directive 10)**: typecheck, lint (0 errors), build and **950 of 950 tests in 59 files** passed; see "Product count reconciliation (2026-10-28)" below. Before that, the EC2 deployment (directive 9): 944 in 58; the deployed system was tested separately, see "Backend on AWS EC2 (2026-10-26)" below. Before that, the Vercel build fix (directive 8): 943 in 58. Earlier the same day: directive 7 (website removal, 934 in 57) and directive 6 (Ling & Sons, 914 in 55). Directive 6 (Ling & Sons) ran the same day with 914 in 55. Before that: 2026-10-23, the exhaustive audit (directive 5); the 2026-10-19 real-data audit (directive 4) follows it and still stands. The 2026-10-19 competitor collection predates the terms-of-use review described in the first section. Everything below was actually executed unless marked otherwise.
 Status words are the project vocabulary defined at the top of [integrations.md](integrations.md). Four kinds of evidence are kept apart on purpose:
 
 | Kind | Meaning | Examples here |
 | --- | --- | --- |
 | **Real external** | Real websites, real mail server, real provider, real clock | your shop and (on 2026-10-19) three competitors, the Gmail account, open.er-api.com, public scraping sandboxes |
-| **Automated test** | Code run by `vitest` against a real PostgreSQL | 944 tests |
+| **Automated test** | Code run by `vitest` against a real PostgreSQL | 950 tests |
 | **Fixture** | Fictional `.test` shops served inside tests; never reachable from the product | `tests/support/fixtures` |
 | **Mock / library-in-process** | A real library talking to a fake peer (SMTP, S3, OAuth) | `email-smtp`, `shopify-oauth`, `s3-storage` |
 
@@ -108,6 +108,29 @@ A random sample of 90 of the 432 new identical proposals: **88–89 are clearly 
 
 Any competitor catalogue (no permission); Super Food's technical feasibility (a Freshop storefront; not probed because its terms forbid it); real flyers; real low-stock events and exact stock (needs Shopify authorisation); Facebook / Instagram / YouTube; inbox arrival of any email (I can see Gmail's `250 OK`, not your mailbox); a multi-day schedule; any deployment (done later: see "Backend on AWS EC2 (2026-10-26)"); screen readers, tablet width, Safari/Firefox.
 
+## Product count reconciliation (2026-10-28) — "3,116 in the admin, 2,385 in Shelfwatch"
+
+Question from the owner's professor: are products being missed when collecting groceriestogoaruba.com? Evidence kinds: **real external** (the live store's public storefront, fetched 2026-10-28), **local data** (the local copy of the collected data; same code as production), **automated test**.
+
+| Stage | Count | Evidence |
+| --- | --- | --- |
+| Shopify admin count (owner's screenshot) | **3,116** (the screenshot reads 3116; the owner's text says 3,316) | Screenshot, not reproducible by Shelfwatch: it needs the owner's admin session |
+| Public product feed, paged **past** the collector's stop point | pages 1–9: 250 each, page 10: 131, **pages 11 and 12: empty** → **2,381 products**, 2,385 variants | Real: `/products.json?limit=250&page=N` |
+| Public product sitemaps (an independent public view) | 1,000 + 1,000 + 381 = **2,381** product URLs | Real: `/sitemap_products_*.xml` |
+| Discovered by the collector | **2,381** (10 pages, 11 requests, no errors) | Local: scan run, then repeated twice more |
+| Extracted / attempted / saved | **2,381 products, 2,385 variants** (one product, the gift card, has 5 variants) | Local: scan run counters |
+| In the database | **2,381 products** (0 delisted, 0 duplicate ids), **2,385 variants** | Local: queries |
+| Set comparison, feed vs sitemaps vs database | **0 differences in every direction** (same 2,381 handles and ids) | Real + local |
+| Shown by My Stock | "2385 of 2385 **products**" — this is the **variant** count (the page joined variants to products and printed the result as products) | Code: `loadStock`; fixed |
+
+**Conclusion.** No public product was being missed. The store's public catalogue is 2,381 products (2,385 variants); the admin's larger number (735 more by the screenshot, 935 by the typed figure) counts products that are **not public** — no public source Shelfwatch may use lists them. The likely reasons are drafts, archived products and products not sold through the Online Store, but that cannot be proven from outside: the breakdown (Status: Active / Draft / Archived, and availability on the Online Store) is in the owner's own Shopify admin, or through the authorised Shopify inventory connection (Settings → Integrations), which needs the owner's Shopify app credentials (not configured).
+
+**Real defects found and fixed.** (1) My Stock printed variants as "products" (now: "of 2,385 items · 2,381 products"). (2) A feed run was declared complete as soon as the feed returned a short page, without checking the site's own sitemaps; a feed that ended early would have been reported as a whole catalogue (now cross-checked: the products the feed missed are read from their own pages, anything unreadable keeps the run partial with the numbers). (3) Nothing said what the collected number covers (now stated with every run: public products only; a store admin's total can be higher).
+
+**Repeatability (real collections, local copy of the data, backup taken first).** Two collections in a row: both `succeeded`/complete via the Shopify feed, 11 requests, 2,381 discovered and saved, 2,385 variants, 0 errors, sitemap estimate 2,381 (so the cross-check made no extra request). Products and variants unchanged; the product-id fingerprint identical before and after; the 879 match decisions made by a person unchanged (fingerprint identical; 2,053 matches in all); 2 reports and 3 alerts unchanged. Price and stock observations grew by one per variant per run (2,385 each) — the design (a time series), not duplicates.
+
+**Not done: production.** The server could not be reached over SSH during this work (the AWS security group drops port 22 from the current address; the API itself, Vercel and the database were healthy). The changes were therefore verified locally and are ready for `sudo shelfwatch-update`; the production figures are the ones in the owner's screenshot (2,385 variants, the same as locally). See the work log.
+
 ## Backend on AWS EC2 (2026-10-26)
 
 Evidence kinds: **real external** (the EC2 instance, Let's Encrypt, the live Vercel site, a real browser), **automated test** (the repository's suite).
@@ -174,14 +197,14 @@ Unrelated defect found by the full run and fixed (tests only): three retention t
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **944 passed, 0 failed, 58 files** (final run on 2026-10-26; 943 before the Vercel rewrite guard was extended; 934 in 57 after the removal fix, 914 in 55 after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
+| Tests (unit + integration + end-to-end; embedded PostgreSQL 18; fictional sites served inside the tests; 6 real-Chrome tests; real SMTP library in process) | `npx vitest run` | **950 passed, 0 failed, 59 files** (final run on 2026-10-28; 944 in 58 before the completeness cross-check; 943 before the Vercel rewrite guard was extended; 934 in 57 after the removal fix, 914 in 55 after the Ling & Sons fix, 885 in 53 on 2026-10-23) |
 | Live procedure (real websites and the real FX provider; opt-in, sends real requests) | `npm run test:live` | Ran 2026-10-19 against the four named shops (exhaustive procedure, `LIVE_SOURCE_URL` / `LIVE_COMPETITOR_URLS`); record in `.data/live-runs/` (git-ignored) |
 | Typecheck, all workspaces, plus `tests/` and `scripts/` | `npm run typecheck` | Clean (exit 0, 2026-10-23) |
 | Lint | `npm run lint` | Exit 0 on 2026-10-23 (2 intentional `any` warnings on 2026-10-19: `connectors/src/extract.ts`, `services/src/jobs.ts`) |
 | Production builds (web, API, worker) | `npm run build` | Succeeds (exit 0, 2026-10-23) |
 | **Production bundles run** | `node apps/api/dist/main.js` and `node apps/worker/dist/main.js` with `NODE_ENV=production`, https `APP_BASE_URL`, `SERVE_WEB=true`, against the real-data database | **18 of 18 checks passed** (see "Production-bundle smoke test"). Docker was not involved |
 
-Added by the 2026-10-26 Vercel build fix (9 tests, 934 → 943): the web workspace builds from its own dependencies and its Vercel configuration is valid (`tests/unit/web-deploy.test.ts`). Added by the 2026-10-26 website-removal fix (20 tests, 914 → 934): the web client's request shapes (7) and removal through the real API with the browser's headers (13). Added by the 2026-10-26 Ling & Sons fix (29 tests, 885 → 914): storefront detection (16), end-to-end "information website that links to its shop" plus every other fixture kind unchanged (12), site-status addition (1). Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
+Added by the 2026-10-28 count investigation (6 tests, 944 → 950): a feed that ends early is not reported as complete (reads the missed products from their pages; stays partial when some cannot be read; no extra request for a normal store; a stale estimate does not cause a false partial; repeat run changes nothing) and My Stock counts items and products separately (`tests/e2e/catalogue-completeness.test.ts`). Added by the 2026-10-26 Vercel build fix (9 tests, 934 → 943): the web workspace builds from its own dependencies and its Vercel configuration is valid (`tests/unit/web-deploy.test.ts`). Added by the 2026-10-26 website-removal fix (20 tests, 914 → 934): the web client's request shapes (7) and removal through the real API with the browser's headers (13). Added by the 2026-10-26 Ling & Sons fix (29 tests, 885 → 914): storefront detection (16), end-to-end "information website that links to its shop" plus every other fixture kind unchanged (12), site-status addition (1). Added by the 2026-10-23 audit (87 tests, 798 → 885): terms review (7 unit + 7 end-to-end), promotional-text rules (21), CSV/Excel formula-injection export safety (17), size-in-tags (3), partial-report rule, plus parsing/domain/site-status additions. Added by the 2026-10-19 audit (38 tests): real-shop title shapes, bulk match review (10), placeholder-brand detection, standing "regular price" detection, pack notation, vintage years, reserved-address mail guard, sitemap/listing fixes, and static-file caching (3). Per-file counts: `npx vitest run --reporter=verbose`.
 Known harmless noise: Vitest sometimes prints "close timed out after 10000ms" after all tests pass (exit code 0) — slow shutdown of the embedded PostgreSQL.
 Integration test files run sequentially against **one shared database**, and the scheduler and retention are global by design, so tests scope their runs and `harness.close()` switches off the schedules of the workspaces it created.
 

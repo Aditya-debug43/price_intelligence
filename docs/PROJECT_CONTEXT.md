@@ -16,6 +16,18 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 10 — directive of 2026-10-28: why 2,385 in Shelfwatch against 3,116 in the Shopify admin (CURRENT STATE — read with Updates 5–9)
+
+Verbatim directive: `docs/original-prompt/10_DIRECTIVE_PRODUCT_COUNT_MISMATCH_2026-10-28.md`. Details: `docs/verification-report.md` ("Product count reconciliation"), `docs/WORK_LOG.md` (directive 10).
+
+- **Finding:** no public product was missed. groceriestogoaruba.com publishes **2,381 products (2,385 variants)**: the public feed (paged past the collector's stop point), the product sitemaps and the database are the same set (0 differences). "2385 … products" on My Stock was the **variant** count mislabelled. The admin's 3,116 (the screenshot; the owner's text says 3,316) counts products that are not public (drafts, archived, not on the Online Store — likely, unproven); the breakdown is in the owner's admin or via the authorised Shopify connection (needs the owner's Shopify app credentials).
+- **Fixed:** My Stock shows items and products; a feed run is cross-checked against the site's sitemaps before it may claim "complete" (missed products are read from their own pages; unreadable ones keep it partial); every collection result states what its number covers.
+- **Verified:** 950 tests in 59 files; two real collections of the owner's store on the local data (backup first): 2,381/2,385, no duplicates, product ids, match decisions, reports and alerts unchanged.
+- **Production not updated:** SSH to EC2 was blocked (security group drops port 22 from the current address, which keeps changing); the app itself was healthy. To deploy: allow SSH from the current address, then `sudo shelfwatch-update` on the server; the Vercel part deploys on push.
+- **Local backup:** `.data/postgres-backup-2026-10-28-before-completeness-check` (199 MB, git-ignored). Two real collections added observations to the local copy of the owner's data.
+
+---
+
 # Update 9 — directive of 2026-10-26: the backend runs on AWS EC2 and the Vercel frontend is connected (CURRENT STATE — read with Updates 5–8)
 
 Verbatim directive: `docs/original-prompt/09_DIRECTIVE_DEPLOY_BACKEND_TO_EC2_2026-10-26.md`. Details: `docs/deployment.md` ("The backend on AWS EC2"), `docs/WORK_LOG.md` (directive 9), `docs/verification-report.md` ("Backend on AWS EC2").

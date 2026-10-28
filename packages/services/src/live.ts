@@ -43,7 +43,10 @@ export async function loadOffers(db: DbLike, orgId: string, now: Date, maps: Sit
 export interface StockView {
   rows: StockRow[];
   counts: { low: number; out: number; unknown: number; in: number };
+  /** Items — variants, the things a customer can buy. The counts above are per item. */
   total: number;
+  /** The distinct products those items belong to (a product can have several variants, e.g. a gift card in five amounts). */
+  products: number;
 }
 
 /**
@@ -51,7 +54,7 @@ export interface StockView {
  * claim; otherwise `quantity` is null. In-stock rows are omitted unless `includeInStock` is set.
  */
 export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold: number, opts: { includeInStock?: boolean; limit?: number; staleHours?: number } = {}): Promise<StockView> {
-  const out: StockView = { rows: [], counts: { low: 0, out: 0, unknown: 0, in: 0 }, total: 0 };
+  const out: StockView = { rows: [], counts: { low: 0, out: 0, unknown: 0, in: 0 }, total: 0, products: 0 };
   const source = maps.source;
   if (!source) return out;
   const staleHours = opts.staleHours ?? DEFAULTS.staleAfterHours;
@@ -65,6 +68,7 @@ export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold
     .leftJoin(stockStates, eq(stockStates.variantId, variants.id))
     .where(and(eq(variants.siteId, source.id), isNull(products.delistedAt)));
   out.total = rows.length;
+  out.products = new Set(rows.map((r) => r.productId)).size;
   for (const r of rows) {
     const state: StockState = (r.state as StockState | null) ?? 'unknown';
     out.counts[state === 'low_stock' ? 'low' : state === 'out_of_stock' ? 'out' : state === 'unknown' ? 'unknown' : 'in']++;

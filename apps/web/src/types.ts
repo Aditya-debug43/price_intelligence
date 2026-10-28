@@ -93,7 +93,7 @@ export interface ScanDetailData {
   run: ScanRun;
   siteName: string;
   queue: Record<string, number>;
-  explanation: { summary: string; completeness: 'complete' | 'partial' | 'none'; reason: string | null; nextStep: string | null };
+  explanation: { summary: string; completeness: 'complete' | 'partial' | 'none'; reason: string | null; nextStep: string | null; scopeNote?: string | null };
   failureReasons: { reason: string; count: number }[];
   failedUrls: { url: string; error: string | null }[];
   skippedUrls: { url: string; error: string | null }[];
@@ -168,7 +168,10 @@ export interface ComparisonResponse {
 export interface StockResponse {
   rows: StockRow[];
   counts: { low: number; out: number; unknown: number; in: number };
+  /** Items (variants — what a customer can buy); the counts above are per item. */
   total: number;
+  /** The distinct products those items belong to. Absent from a backend older than the website (the two are deployed separately). */
+  products?: number;
   threshold: number;
   mode: 'public' | 'authorised';
   connection: { id: string; provider: string; lastSyncAt: string | null; lastError: string | null; syncHealth: 'ok' | 'failed' | 'stale' | 'never' } | null;

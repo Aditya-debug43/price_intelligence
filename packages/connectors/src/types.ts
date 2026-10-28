@@ -118,12 +118,31 @@ export interface Connector {
   applicability(profile: SiteProfileData): ConnectorApplicability;
 }
 
+/** What a feed cross-check against the site's own product sitemaps found. */
+export interface ReconcileOutcome {
+  /** Products the sitemaps list (unique). */
+  listed: number;
+  /** Listed products that are not among the known ones. */
+  missing: number;
+  /** The missing products that could be read from their own pages (to be saved by the runner). */
+  batch: ConnectorBatch;
+  /** Missing products that could not be read (not found, refused, or beyond the per-run cap), by handle. */
+  unreadable: string[];
+  /** True when no product sitemap could be read at all: nothing was checked. */
+  failed: boolean;
+}
+
 export interface FeedConnector extends Connector {
   readonly kind: 'feed';
   /** Fetch one page of the catalogue. `cursor` null starts at the beginning. Returns `done` when exhausted. */
   fetchPage(ctx: ConnectorContext, cursor: Record<string, unknown> | null): Promise<ConnectorBatch & { done: boolean }>;
   /** Re-fetch specific known product URLs (rolling refresh / small live sample). */
   refresh(ctx: ConnectorContext, urls: string[]): Promise<ConnectorBatch>;
+  /**
+   * Optional cross-check used when a feed ends with fewer products than the site's own sitemaps suggest: a feed that stops early would otherwise
+   * look like a complete catalogue. Reads the sitemaps and the pages of up to `max` listed products whose handle is not in `known`.
+   */
+  reconcile?(ctx: ConnectorContext, known: Set<string>, opts: { max: number }): Promise<ReconcileOutcome>;
 }
 
 export interface PageConnector extends Connector {

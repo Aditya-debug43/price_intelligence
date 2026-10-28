@@ -114,6 +114,10 @@ export interface SiteSpec {
   zeroPriceItems?: number[];
   /** The site's terms-of-use page: forbids automated collection, restricts copying, or says nothing about either. Omitted = the site has no terms page. */
   terms?: 'forbid_automation' | 'restrict_copying' | 'neutral';
+  /** The product feed ends early: it returns only the first N products, as a short page, while the sitemaps and the product pages still list and serve all of them. */
+  feedTruncatedAt?: number;
+  /** Items whose own page answers 404 although the sitemaps list them (so they cannot be read even when the feed misses them). */
+  pageHidden?: number[];
 }
 
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
@@ -169,6 +173,10 @@ export const SITE_SPECS: SiteSpec[] = [
     key: 'corpshop', kind: 'shopify', label: 'Fixture Corporate Shop (the online store the information site links to)', currency: 'AWG', factor: 1.79,
     items: range(0, 13), titleStyle: 'full', exposeGtin: [], outOfStock: [2],
   },
+  // The feed stops after 12 of 30 products (a short page, so a collector that trusts it would call 12 a complete catalogue); the sitemaps list all 30.
+  { key: 'shortfeed', kind: 'shopify', label: 'Fixture Short-Feed Shop (the feed ends after 12 of 30 products)', currency: 'USD', factor: 1, items: range(0, 29), titleStyle: 'full', exposeGtin: [], outOfStock: [], feedTruncatedAt: 12 },
+  // The same, and three of the products the feed misses cannot be read from their own pages either.
+  { key: 'shortfeedhidden', kind: 'shopify', label: 'Fixture Short-Feed Shop (three missing products have no readable page)', currency: 'USD', factor: 1, items: range(0, 29), titleStyle: 'full', exposeGtin: [], outOfStock: [], feedTruncatedAt: 12, pageHidden: [20, 21, 22] },
   { key: 'catblocked', kind: 'catblocked', label: 'Fixture Closed Catalogue (robots.txt forbids the shop pages)', currency: 'USD', factor: 1, items: range(0, 8), titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'blocked', kind: 'blocked', label: 'Fixture Blocked (robots.txt disallows)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },
   { key: 'challenge', kind: 'challenge', label: 'Fixture Protected (bot challenge)', currency: 'USD', factor: 1, items: [0, 1], titleStyle: 'full', exposeGtin: [], outOfStock: [] },

@@ -524,3 +524,32 @@ Ready on every check; trusted certificate; 30 of 30 smoke requests, also through
 ### Left for the owner
 
 Attach an **Elastic IP** (otherwise a stop/start of the instance changes the address and breaks the hostname, certificate and rewrite), consider limiting SSH to your own IP, replace the Gmail App Password that was shared in chat, decide about open sign-up (anyone can add websites for this server to read), copy backups off the server, and (if wanted) restore the development data. Nothing billable was created.
+
+---
+
+## 2026-10-28 — Directive 10: "Shelfwatch shows 2,385 products, my Shopify admin says 3,116"
+
+Verbatim: `docs/original-prompt/10_DIRECTIVE_PRODUCT_COUNT_MISMATCH_2026-10-28.md`. The screenshot reads **3116**; the owner's text and prompt say 3,316 — flagged to the owner.
+
+### What the evidence says
+
+* The public store was enumerated independently of the collector on 2026-10-28 (polite requests to the owner's own shop): the feed paged **past** the collector's stop rule has 2,381 products (pages 11 and 12 empty), the product sitemaps list the same 2,381, and the database holds the same 2,381 — **0 differences in every direction**. 2,385 variants (one gift card has 5). No product is missed, duplicated or merged.
+* "2385 of 2385 **products**" on My Stock is the **variant** count: `loadStock` joins variants to products and printed `rows.length` as products. The store has 2,381 products.
+* The admin's 3,116 is a different population (everything in the admin, including products that are not public). Shelfwatch uses the public storefront only; the breakdown by status and sales channel is in the owner's admin, or reachable through the authorised Shopify connection (needs the owner's Shopify app credentials, not configured).
+* A weakness in the completeness logic (not triggered for this store): a feed run was declared complete as soon as the feed returned a short page and at least one product was saved; it never compared that with the independent sitemap estimate.
+
+### Changes
+
+* `packages/services/src/live.ts`, `apps/web/src/pages/Stock.tsx`, `apps/web/src/types.ts`: My Stock reports items (variants) and products separately ("of 2,385 items · 2,381 products"); the page tolerates a backend that predates the field (the website and the backend are deployed separately).
+* `packages/connectors/src/{types,shopify}.ts`, `packages/services/src/scan.ts`: `FeedConnector.reconcile` and `crossCheckFeed`. A feed run may claim "complete" only when the site's product sitemaps list nothing more than was collected. If they list more (a feed that ended early), the products the feed missed are read from their own pages (at most 300 per run, bounded by the request budget) and saved once; anything unreadable keeps the run `partial` (error code `feed_shorter_than_catalogue`) with the numbers and examples, and is not counted. When the feed already covers the profile's estimate (the normal case) no extra request is made; a stale, too-high estimate is checked against freshly read sitemaps and does not cause a false partial.
+* `packages/core/src/scan-explain.ts`, `apps/web/src/pages/Websites.tsx`: every collection result now says what the number covers ("N products collected of the M the website lists publicly… A store's own admin total can be higher: drafts, archived products and products not sold on the website are not public…"); the pill reads "Complete public catalogue"; new wording for the partial reason above.
+* Tests: `tests/e2e/catalogue-completeness.test.ts` (6) with two new fictional shops whose feed ends after 12 of 30 products (one where three of the missing products have no readable page). Red/green proof: with the check off, the short-feed shop ends with 12 of 30 reported as a complete catalogue; with it on, 30 are saved and the run is complete (or 27 and partial).
+
+### Verified
+
+* typecheck, lint (0 errors), build; **950 of 950 tests in 59 files** (944 before).
+* Two real collections of the owner's store on the local copy of the data, after a backup (stopped the embedded database cleanly and copied its folder to `.data/postgres-backup-2026-10-28-before-completeness-check`, git-ignored): both complete via the Shopify feed, 11 requests, 2,381 discovered/saved, 2,385 variants, 0 errors; products, variants, product-id fingerprint, the 879 person-made match decisions (2,053 matches), 2 reports and 3 alerts all unchanged; observations +2,385 per run by design.
+
+### Not done
+
+**Production was not touched.** SSH to the EC2 instance stopped working during this work: the AWS security group now drops port 22 from this computer's address (which also changes — the connection moved between three different public addresses), while the API, the database and Vercel were healthy (`ready`, worker heartbeat 0 min). The owner must either allow this address for SSH or run `sudo shelfwatch-update` themselves; the production figures cited are the ones in the owner's screenshot (2,385 variants — the same as the local copy). The Vercel website part deploys on push and is safe against the older backend.

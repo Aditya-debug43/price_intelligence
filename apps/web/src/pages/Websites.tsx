@@ -421,9 +421,10 @@ function ScanDetailPanel({ scanId }: { scanId: string }) {
           const seconds = r.startedAt && r.finishedAt ? Math.max(0, Math.round((new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()) / 1000)) : null;
           return (
             <div className="stack-s">
-              <div className="row"><span className={`pill ${pillCls}`}>{d.explanation.completeness === 'complete' ? 'Complete catalogue' : d.explanation.completeness === 'partial' ? 'Partial' : r.status === 'queued' || r.status === 'running' ? 'In progress' : 'Nothing collected'}</span><b>{d.explanation.summary}</b></div>
+              <div className="row"><span className={`pill ${pillCls}`}>{d.explanation.completeness === 'complete' ? 'Complete public catalogue' : d.explanation.completeness === 'partial' ? 'Partial' : r.status === 'queued' || r.status === 'running' ? 'In progress' : 'Nothing collected'}</span><b>{d.explanation.summary}</b></div>
               {d.explanation.reason && <div><b>Why:</b> {d.explanation.reason}</div>}
               {d.explanation.nextStep && <div><b>Next:</b> {d.explanation.nextStep}</div>}
+              {d.explanation.scopeNote && <div className="small muted"><b>What this number covers:</b> {d.explanation.scopeNote}</div>}
               <dl className="kv" style={{ margin: 0 }}>
                 <dt>Pages found</dt><dd className="num">{r.urlsDiscovered}</dd>
                 <dt>Pages read</dt><dd className="num">{r.urlsFetched}</dd>

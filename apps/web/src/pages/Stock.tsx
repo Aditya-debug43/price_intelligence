@@ -28,7 +28,7 @@ export function StockPage() {
               <div className="kpi"><div className="k">Out of stock</div><div className="v" style={{ color: d.counts.out ? 'var(--coral)' : undefined }}>{d.counts.out}</div></div>
               <div className="kpi"><div className="k">Low stock (≤ {d.threshold})</div><div className="v" style={{ color: d.counts.low ? 'var(--amber)' : undefined }}>{d.counts.low}</div></div>
               <div className="kpi"><div className="k">Availability unknown</div><div className="v">{d.counts.unknown}</div></div>
-              <div className="kpi"><div className="k">In stock</div><div className="v">{d.counts.in}</div><div className="d">of {d.total} products</div></div>
+              <div className="kpi"><div className="k">In stock</div><div className="v">{d.counts.in.toLocaleString('en-US')}</div><div className="d" title="A product can come in several variants (sizes, amounts…). Each variant is one item you can sell, and each has its own stock state.">of {d.total.toLocaleString('en-US')} items{d.products !== undefined && <> · {d.products.toLocaleString('en-US')} products</>}</div></div>
             </div>
             <div className="row"><label className="check"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /><span>Also list items that are in stock</span></label></div>
             {d.rows.length === 0 ? (

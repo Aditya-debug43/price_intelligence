@@ -29,6 +29,8 @@ export const FIXTURE_HOSTNAMES: Record<string, string> = {
   infosite: 'www.rival-corp.test',
   corpshop: 'shop.rival-corp.test',
   infoplain: 'www.rival-plain.test',
+  shortfeed: 'rival-shortfeed.test',
+  shortfeedhidden: 'rival-shortfeed-hidden.test',
   homegrid: 'rival-storefront.test',
   catblocked: 'rival-closed.test',
   blocked: 'rival-robots.test',
@@ -323,13 +325,15 @@ async function shopifyRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, re
     const limit = Math.min(250, Number(url.searchParams.get('limit') ?? 30));
     const page = Math.max(1, Number(url.searchParams.get('page') ?? 1));
     if (h.failFeedFromPage !== null && page >= h.failFeedFromPage) return send(h, req, res, 503, 'Service Unavailable', 'text/plain', { 'retry-after': '0' });
-    const list = live(h).slice((page - 1) * limit, page * limit);
+    // a feed that ends early: only the first N products are ever returned (page 1 is then a short page, page 2 is empty)
+    const visible = s.feedTruncatedAt ? live(h).slice(0, s.feedTruncatedAt) : live(h);
+    const list = visible.slice((page - 1) * limit, page * limit);
     return send(h, req, res, 200, JSON.stringify({ products: list.map((p) => shopifyJson(h, p)) }), 'application/json');
   }
   const m = path.match(/^\/products\/([^/]+?)(\.json)?$/);
   if (m) {
     const p = live(h).find((x) => x.handle === m[1]);
-    if (!p) return send(h, req, res, 404, 'Not found', 'text/plain');
+    if (!p || s.pageHidden?.includes(p.itemId)) return send(h, req, res, 404, 'Not found', 'text/plain');
     if (m[2]) return send(h, req, res, 200, JSON.stringify({ product: shopifyJson(h, p) }), 'application/json');
     return send(h, req, res, 200, productPage(h, p, true));
   }
