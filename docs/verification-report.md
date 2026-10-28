@@ -145,6 +145,7 @@ Evidence kinds: **automated test** (real collections of fictional shops through 
 | Validation kept | `javascript:`, `ftp:`, cloud-metadata and private addresses and non-addresses are still refused | Automated + browser (metadata address refused with its message) |
 | Regression guard | Re-adding `minCompetitors` fails the guard; the guard also bans the wording, list padding to 3 and count comparisons | Automated: `tests/unit/competitor-minimum.test.ts` (red/green shown) |
 | Setup page, real browser | New workspace: one empty line, "Competitors (up to 5)", one-competitor hint. One URL typed → saved; guide "1 competitor added … up to 5". "Add competitor" ×2 → 3 saved. "Remove" one → 2 saved. | Local app in the in-app browser |
+| Production | Backend updated (backup first, 46f2aed → f082b7f); throw-away account, new workspace, ONE competitor: `limits` = `{"maxCompetitors":5}`, guide step "to do" with none and "done" with one (next step "check what each website allows"), unsafe address refused, dashboard and reports 200; account removed again. Vercel serves the new entry bundle (byte-identical to the local build) | Real: the production API and the live website bundle |
 | Whole suite | typecheck, lint (0 errors), build; **988 of 988 tests in 64 files** | Automated |
 
 ## Product page links (2026-10-28) — "click a price card, open the product on its own website"
