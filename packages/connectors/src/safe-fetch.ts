@@ -28,6 +28,8 @@ export class FetchError extends Error {
       | 'too_large'
       | 'content_type'
       | 'timeout'
+      | 'rate_limited'
+      | 'temporarily_unavailable'
       | 'network'
       | 'redirect'
       | 'budget'
@@ -143,6 +145,8 @@ interface HostState {
   denials: number;
   blocked: boolean;
   requests: number;
+  /** Extra spacing added after the website asked us to slow down (HTTP 429/503); it eases off again as requests succeed. */
+  penaltyMs: number;
 }
 
 /**
@@ -161,7 +165,7 @@ export class DomainLimiter {
   private state(host: string): HostState {
     let s = this.hosts.get(host);
     if (!s) {
-      s = { sem: new Semaphore(this.defaults.maxConcurrency), nextStart: 0, backoffUntil: 0, denials: 0, blocked: false, requests: 0 };
+      s = { sem: new Semaphore(this.defaults.maxConcurrency), nextStart: 0, backoffUntil: 0, denials: 0, blocked: false, requests: 0, penaltyMs: 0 };
       this.hosts.set(host, s);
     }
     return s;
@@ -191,7 +195,19 @@ export class DomainLimiter {
   }
 
   noteSuccess(host: string) {
-    this.state(host).denials = 0;
+    const s = this.state(host);
+    s.denials = 0;
+    if (s.penaltyMs > 0) s.penaltyMs = s.penaltyMs < 1000 ? 0 : Math.round(s.penaltyMs * 0.85);
+  }
+
+  /** The website asked us to slow down: space this host's requests further apart (doubling, up to 20 s) until requests succeed again. */
+  slowDown(host: string) {
+    const s = this.state(host);
+    s.penaltyMs = Math.min(20_000, s.penaltyMs ? s.penaltyMs * 2 : 3000);
+  }
+
+  penalty(host: string): number {
+    return this.state(host).penaltyMs;
   }
 
   backoff(host: string, ms: number) {
@@ -204,7 +220,7 @@ export class DomainLimiter {
     await s.sem.acquire();
     try {
       const start = Math.max(this.now(), s.nextStart, s.backoffUntil);
-      s.nextStart = start + Math.max(0, delayMs);
+      s.nextStart = start + Math.max(0, delayMs) + s.penaltyMs;
       const pause = start - this.now();
       if (pause > 0) await this.wait(pause);
       s.requests++;
@@ -290,6 +306,11 @@ export interface RobotsInfo {
   /** Human-readable explanation when robots.txt could not be honoured normally. */
   note: string | null;
   crawlDelaySeconds: number | null;
+  /**
+   * robots.txt could not be read right now (the website asked us to slow down, was briefly unavailable, or did not answer). Nothing is fetched while the rules are
+   * unknown, but this is NOT the website's "no": it is never cached and never reported as a robots.txt refusal, and the collection tries again later.
+   */
+  temporary?: boolean;
 }
 
 // ───────────────────────────────────────────────────────────── fetcher
@@ -319,6 +340,12 @@ export class SafeFetcher {
   /** Hard ceiling for this fetcher instance (a scan's request budget). */
   requestBudget = Number.POSITIVE_INFINITY;
   private delayByHost = new Map<string, number>();
+  /**
+   * Consecutive access denials (401/403) per host and the hosts this fetcher has stopped for that reason. Kept PER FETCHER (one collection run), never in the
+   * limiter that the whole worker shares: a stop must end this run, not every later collection of that website, for every workspace, until a restart.
+   */
+  private readonly denials = new Map<string, number>();
+  private readonly stoppedHosts = new Set<string>();
 
   constructor(policy: Partial<FetchPolicy> = {}, private readonly deps: SafeFetcherDeps = {}) {
     this.policy = { ...DEFAULT_POLICY, ...policy };
@@ -349,7 +376,10 @@ export class SafeFetcher {
     const key = new URL(origin).origin;
     let p = this.robotsCache.get(key);
     if (!p) {
-      p = this.loadRobots(key);
+      p = this.loadRobots(key).then((info) => {
+        if (info.temporary) this.robotsCache.delete(key); // asked again next time, not remembered as a refusal
+        return info;
+      });
       this.robotsCache.set(key, p);
     }
     return p;
@@ -359,6 +389,9 @@ export class SafeFetcher {
     const base = { origin, fetchedAt: (this.deps.now ?? (() => new Date()))() };
     try {
       const res = await this.fetch(`${origin}/robots.txt`, { kind: 'text', skipRobots: true, maxBytes: 512 * 1024 });
+      if (res.status === 429 || res.status === 408 || res.status >= 500) {
+        return { ...base, parsed: DISALLOW_ALL_ROBOTS, httpStatus: res.status, fetched: false, temporary: true, note: `robots.txt could not be read right now (HTTP ${res.status}); nothing is collected until the website's rules can be read.`, crawlDelaySeconds: null };
+      }
       const mode = robotsFromStatus(res.status);
       if (mode === 'parse') {
         const parsed = parseRobots(res.text());
@@ -385,6 +418,7 @@ export class SafeFetcher {
         fetched: false,
         note: `robots.txt could not be retrieved (${(e as Error).message}); collection is paused until it can be read.`,
         crawlDelaySeconds: null,
+        temporary: true,
       };
     }
   }
@@ -392,6 +426,7 @@ export class SafeFetcher {
   async isAllowed(url: string): Promise<{ allowed: boolean; rule: string | null; info: RobotsInfo }> {
     const u = new URL(url);
     const info = await this.robots(u.origin);
+    if (info.temporary) throw new FetchError(info.note ?? 'robots.txt could not be read right now', info.httpStatus === 429 ? 'rate_limited' : 'temporarily_unavailable', url);
     const d = robotsDecision(info.parsed, this.policy.userAgent, u.pathname + u.search);
     if (d.allowed && u.pathname.length > 1 && !u.pathname.endsWith('/')) {
       // Our URLs are normalised without a trailing slash, while many sites treat "/shop" and "/shop/" as the same page. A rule written for
@@ -420,7 +455,7 @@ export class SafeFetcher {
       if (!opts.allowCrossHostRedirect && host !== startKey && !sameSiteHost(u.hostname.toLowerCase(), startHost)) {
         throw new FetchError(`Redirect to a different site (${host}) was not followed`, 'redirect', current);
       }
-      if (this.limiter.isBlocked(host)) {
+      if (this.stoppedHosts.has(host)) {
         throw new AccessDeniedError(`Access to ${host} was denied repeatedly; collection from this site is stopped for this run`, current);
       }
       if (!opts.skipRobots) {
@@ -498,20 +533,22 @@ export class SafeFetcher {
 
         // Denials: never retry, never evade. Repeated denial stops the host.
         if (out.status === 401 || out.status === 403) {
-          const stopped = this.limiter.noteDenial(host, this.policy.maxConsecutiveDenials);
-          if (stopped) throw new AccessDeniedError(`Access denied by ${host} (HTTP ${out.status}); collection stopped`, u.toString());
+          const n = (this.denials.get(host) ?? 0) + 1;
+          this.denials.set(host, n);
+          if (n >= this.policy.maxConsecutiveDenials) {
+            this.stoppedHosts.add(host);
+            throw new AccessDeniedError(`Access denied by ${host} (HTTP ${out.status}); collection stopped`, u.toString());
+          }
           return out;
         }
         if (out.status === 429 || out.status === 503) {
+          // "Slow down" is not "no": it is neither retried at once nor held against the website. Space this host's later requests further apart, wait out a short
+          // Retry-After here, and hand the response back; a long wait is NOT slept through (it would hold a worker for minutes): the collection pauses and continues after it.
           const retryAfter = parseRetryAfter(out.headers['retry-after']);
-          if (attempt < this.policy.maxRetries) {
-            const backoff = Math.min(retryAfter ?? 2 ** attempt * 2000, 60_000);
-            this.limiter.backoff(host, backoff);
+          this.limiter.slowDown(host);
+          if (attempt < this.policy.maxRetries && (retryAfter === null || retryAfter <= MAX_INLINE_WAIT_MS)) {
+            this.limiter.backoff(host, Math.min(retryAfter ?? 2 ** attempt * 2000, MAX_INLINE_WAIT_MS));
             continue;
-          }
-          if (out.status === 429) {
-            const stopped = this.limiter.noteDenial(host, this.policy.maxConsecutiveDenials);
-            if (stopped) throw new AccessDeniedError(`${host} keeps rate-limiting us (HTTP 429); collection stopped`, u.toString());
           }
           return out;
         }
@@ -519,7 +556,10 @@ export class SafeFetcher {
           this.limiter.backoff(host, 2 ** attempt * 1000);
           continue;
         }
-        if (out.status < 400) this.limiter.noteSuccess(host);
+        if (out.status < 400) {
+          this.denials.delete(host);
+          this.limiter.noteSuccess(host);
+        }
         return out;
       } catch (e) {
         lastErr = e;
@@ -607,7 +647,10 @@ function gunzipLimited(buf: Buffer, maxOut: number): Buffer {
   }
 }
 
-function parseRetryAfter(v: string | undefined): number | null {
+/** The longest Retry-After a fetch waits out by itself; a longer one ends the sitting and the collection continues later. */
+const MAX_INLINE_WAIT_MS = 30_000;
+
+export function parseRetryAfter(v: string | undefined): number | null {
   if (!v) return null;
   const n = Number(v);
   if (Number.isFinite(n)) return Math.max(0, n) * 1000;

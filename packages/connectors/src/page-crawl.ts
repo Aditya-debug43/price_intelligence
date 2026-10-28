@@ -3,6 +3,7 @@ import { canonicalizeUrl, UNTRUSTED_PREAMBLE, validateLlmExtraction, wrapUntrust
 import type { ConnectorId, SiteProfileData } from '@ci/shared';
 import { AccessDeniedError, FetchError } from './safe-fetch.ts';
 import { detectChallenge, detectLoginWall } from './challenge.ts';
+import { httpFailure, isTransientCode } from './feed-errors.ts';
 import { buildQuality, extractFromHtml, visibleText, EXTRACT_VERSION } from './extract.ts';
 import { extractListingPage } from './listing.ts';
 import { discoverFromSitemaps, looksLikeProductUrl } from './sitemap.ts';
@@ -134,9 +135,13 @@ export function makePageConnector(def: { id: ConnectorId; label: string; strateg
         const d = await discoverFromSitemaps(ctx.fetcher, roots, { maxSitemaps: 40, maxUrls: 100_000, productOnly: true });
         urls = d.urls;
         warnings.push(...d.warnings);
-        estimated = d.truncated ? null : d.urls.length;
+        // A sitemap file that could not be read (or was left unread) means the list of pages may be missing some: never a complete enumeration.
+        estimated = d.truncated || d.incomplete ? null : d.urls.length;
+        if (d.incomplete && !d.truncated) warnings.push('Some sitemap files could not be read, so the list of pages may be incomplete.');
       } catch (e) {
         if (e instanceof AccessDeniedError) throw e;
+        // The website is busy or asked us to slow down: that is not "no sitemap" and must not send the run to a more request-hungry method.
+        if (isTransientCode((e as { code?: unknown }).code)) throw e;
         warnings.push(`Sitemap discovery failed: ${(e as Error).message}`);
       }
       if (urls.length === 0) {
@@ -158,6 +163,8 @@ export function makePageConnector(def: { id: ConnectorId; label: string; strateg
       const challenge = detectChallenge(html, res.headers, res.status);
       if (challenge.detected) throw new AccessDeniedError(`${challenge.kind} detected; automated collection stopped`, url);
       if (res.status === 401 || res.status === 403) throw new AccessDeniedError(`HTTP ${res.status} on ${url}`, url);
+      // A throttled or briefly unavailable page is an error to retry, not an empty page that would be counted as read.
+      if (res.status === 408 || res.status === 429 || res.status >= 500) throw httpFailure(res, `The page ${url}`);
       if (res.status < 200 || res.status >= 300) {
         warnings.push(`${url} returned HTTP ${res.status}`);
         return empty;

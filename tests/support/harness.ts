@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { inject } from 'vitest';
 import { MemoryStorage, generateKeyRingSpec, loadConfig } from '@ci/core';
 import { DomainLimiter, SafeFetcher } from '@ci/connectors';
@@ -127,6 +128,8 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
       // The scheduler is global: it visits every organisation in the (shared) test database. A finished test file must not leave
       // schedulable organisations behind for the next file's scheduler pass to start collections for.
       await db.worker.update(orgSettings).set({ scheduleEnabled: false });
+      // A collection this file left paused would be continued by the next file's recovery pass (the database is shared) against fixture websites that no longer exist.
+      await db.worker.execute(sql`update scan_runs set status = 'cancelled', next_attempt_at = null where status = 'partial' and error_code in ('rate_limited', 'temporarily_unavailable', 'timeout', 'network', 'invalid_response', 'http_error')`);
       await fixtures.close();
       await db.close();
     },

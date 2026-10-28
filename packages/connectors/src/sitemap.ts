@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { canonicalizeUrl } from '@ci/core';
 import type { SitemapSummary } from '@ci/shared';
+import { httpFailure, isTransientCode } from './feed-errors.ts';
 import type { SafeFetcher } from './safe-fetch.ts';
 
 const parser = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true, trimValues: true, parseTagValue: false });
@@ -91,6 +92,8 @@ export interface DiscoveredUrls {
   sitemaps: SitemapSummary[];
   warnings: string[];
   truncated: boolean;
+  /** A sitemap file could not be read, or was left unread: the list of pages may be missing some. */
+  incomplete: boolean;
 }
 
 /** Walks sitemap indexes (product sitemaps first) and collects candidate product URLs within the given limits. */
@@ -115,6 +118,8 @@ export async function discoverFromSitemaps(
     let parsed: ParsedSitemap;
     try {
       const res = await fetcher.fetch(next, { kind: 'xml', maxBytes: 25 * 1024 * 1024 });
+      // Busy or asking us to slow down: a retryable error for the whole collection, not a sitemap that does not exist.
+      if (res.status === 408 || res.status === 429 || res.status >= 500) throw httpFailure(res, `The sitemap ${next}`);
       if (res.status < 200 || res.status >= 300) {
         summaries.push({ url: next, kind: classifySitemapUrl(next), urlCount: null, failed: true });
         warnings.push(`Sitemap ${next} returned HTTP ${res.status}`);
@@ -122,6 +127,7 @@ export async function discoverFromSitemaps(
       }
       parsed = parseSitemap(res.text());
     } catch (e) {
+      if (isTransientCode((e as { code?: unknown }).code)) throw e;
       summaries.push({ url: next, kind: classifySitemapUrl(next), urlCount: null, failed: true });
       warnings.push(`Sitemap ${next} could not be read: ${(e as Error).message}`);
       continue;
@@ -158,5 +164,6 @@ export async function discoverFromSitemaps(
     }
   }
   if (queue.length) warnings.push(`Sitemap limit reached; ${queue.length} sitemap file(s) were not read`);
-  return { urls: [...urls.entries()].map(([url, lastmod]) => ({ url, lastmod })), sitemaps: summaries, warnings, truncated };
+  const incomplete = summaries.some((s) => s.failed) || queue.length > 0;
+  return { urls: [...urls.entries()].map(([url, lastmod]) => ({ url, lastmod })), sitemaps: summaries, warnings, truncated, incomplete };
 }

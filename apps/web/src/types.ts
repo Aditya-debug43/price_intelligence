@@ -93,7 +93,7 @@ export interface ScanDetailData {
   run: ScanRun;
   siteName: string;
   queue: Record<string, number>;
-  explanation: { summary: string; completeness: 'complete' | 'partial' | 'none'; reason: string | null; nextStep: string | null; scopeNote?: string | null };
+  explanation: { summary: string; completeness: 'complete' | 'partial' | 'none'; reason: string | null; nextStep: string | null; scopeNote?: string | null; resumeAt?: string | null };
   failureReasons: { reason: string; count: number }[];
   failedUrls: { url: string; error: string | null }[];
   skippedUrls: { url: string; error: string | null }[];

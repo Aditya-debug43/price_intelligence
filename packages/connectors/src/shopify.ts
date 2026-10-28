@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { canonicalizeUrl, parseMachinePrice } from '@ci/core';
 import type { Availability, SiteProfileData } from '@ci/shared';
+import { httpFailure } from './feed-errors.ts';
 import { buildQuality } from './extract.ts';
 import { discoverFromSitemaps } from './sitemap.ts';
 import type { ConnectorBatch, ConnectorContext, EvidenceDoc, ExtractedProduct, ExtractedVariant, FeedConnector, ReconcileOutcome } from './types.ts';
@@ -131,7 +132,7 @@ export const shopifyConnector: FeedConnector = {
     if (res.status === 404 || res.status === 401 || res.status === 403) {
       throw Object.assign(new Error(`The Shopify product feed returned HTTP ${res.status}`), { code: 'feed_unavailable' });
     }
-    if (res.status < 200 || res.status >= 300) throw Object.assign(new Error(`Shopify feed returned HTTP ${res.status}`), { code: 'http_error' });
+    if (res.status < 200 || res.status >= 300) throw httpFailure(res, 'The Shopify product feed');
     let data: { products?: ShopifyProduct[] };
     try {
       data = res.json();

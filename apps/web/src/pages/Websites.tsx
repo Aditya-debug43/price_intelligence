@@ -423,7 +423,7 @@ function ScanDetailPanel({ scanId }: { scanId: string }) {
             <div className="stack-s">
               <div className="row"><span className={`pill ${pillCls}`}>{d.explanation.completeness === 'complete' ? 'Complete public catalogue' : d.explanation.completeness === 'partial' ? 'Partial' : r.status === 'queued' || r.status === 'running' ? 'In progress' : 'Nothing collected'}</span><b>{d.explanation.summary}</b></div>
               {d.explanation.reason && <div><b>Why:</b> {d.explanation.reason}</div>}
-              {d.explanation.nextStep && <div><b>Next:</b> {d.explanation.nextStep}</div>}
+              {d.explanation.nextStep && <div><b>Next:</b> {d.explanation.nextStep}{d.explanation.resumeAt ? ` (next attempt at about ${formatDateTime(d.explanation.resumeAt)})` : ''}</div>}
               {d.explanation.scopeNote && <div className="small muted"><b>What this number covers:</b> {d.explanation.scopeNote}</div>}
               <dl className="kv" style={{ margin: 0 }}>
                 <dt>Pages found</dt><dd className="num">{r.urlsDiscovered}</dd>

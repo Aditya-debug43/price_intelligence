@@ -11,7 +11,7 @@ export interface SiteStatusInput {
   /** Products currently listed (not delisted). */
   productCount: number;
   /** Most recent collection run that is not merely queued or cancelled, if any. */
-  lastRun: { status: ScanStatus; isComplete: boolean; kind: string; errorCode?: string | null; error?: string | null } | null;
+  lastRun: { status: ScanStatus; isComplete: boolean; kind: string; errorCode?: string | null; error?: string | null; nextAttemptAt?: Date | null } | null;
   /** A collection run is queued or running right now. */
   collecting: boolean;
   /** The website's terms of use forbid automated access and no written permission is recorded. */
@@ -76,6 +76,9 @@ export function deriveSiteStatus(i: SiteStatusInput): SiteStatus {
   const ageMs = i.newestObservationAt ? i.now.getTime() - i.newestObservationAt.getTime() : Infinity;
   if (ageMs > i.staleAfterHours * 3_600_000) {
     return make('stale', 'warn', `The newest price on file is older than ${i.staleAfterHours} hours, so it is shown with its original observation time and not as current.`, 'Collect again');
+  }
+  if (i.lastRun?.status === 'partial' && i.lastRun.nextAttemptAt) {
+    return make('partial', 'warn', 'The collection is paused because the website asked Shelfwatch to slow down (or was briefly unavailable). What was read is saved, and Shelfwatch continues by itself. Comparisons use what is available and say so.', 'Continue now');
   }
   if (!i.lastRun || i.lastRun.status === 'partial' || i.lastRun.status === 'failed' || (!i.lastRun.isComplete && i.lastRun.kind !== 'refresh')) {
     return make('partial', 'warn', 'Only part of the catalogue has been collected so far. Comparisons use what is available and say so.', 'Collect again');

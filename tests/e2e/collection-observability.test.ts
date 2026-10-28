@@ -59,7 +59,7 @@ describe('every collection run explains itself', () => {
     expect(d.run.isComplete).toBe(false);
     expect(d.explanation.reason).toBeTruthy();
     expect(d.explanation.nextStep).toBeTruthy();
-    if (d.run.productsSaved > 0) expect(d.explanation.summary).toMatch(/Partly collected|saved before the failure/);
+    if (d.run.productsSaved > 0) expect(d.explanation.summary).toMatch(/Paused|Partly collected|saved before the failure/);
   });
 
   it('a website that forbids automated access is "nothing collected" with its reason — not an empty catalogue', async () => {

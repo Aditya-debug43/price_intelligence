@@ -45,6 +45,24 @@ export const FIXTURE_PUBLIC_ADDRESS = '93.184.216.34';
 
 export type FixtureMode = 'ok' | 'http500' | 'http403';
 
+export interface RateLimit {
+  allowance: number;
+  blockMs: number;
+  retryAfterSeconds: number | null;
+  /** Which request paths count and are refused (robots.txt and the terms page never are). */
+  paths: RegExp;
+  /** When given, only requests whose query string matches count (e.g. the 250-product pages of a feed, not the profile's small probe). */
+  search?: RegExp;
+  /** The limit lifts by itself this long (ms of the test clock) after the first request it applied to; null/absent = it stays until the test removes it. */
+  liftAfterMs?: number;
+  since?: number | null;
+  /** Requests served in the current window and the time (ms) until which every matching request is refused. Set by the server. */
+  served: number;
+  blockedUntil: number | null;
+  /** How many requests were refused, for assertions. */
+  refused: number;
+}
+
 export interface FixtureSiteHandle {
   key: string;
   spec: SiteSpec;
@@ -58,6 +76,13 @@ export interface FixtureSiteHandle {
   mode: FixtureMode;
   /** Shopify-style feed returns HTTP 503 from this page number onward (null = healthy). */
   failFeedFromPage: number | null;
+  /**
+   * Simulates a website that asks to slow down: after `allowance` requests to the matching paths it answers 429 (with Retry-After, when given) until
+   * `blockMs` of the test clock have passed, then allows `allowance` more. Null = no limit.
+   */
+  rateLimit: RateLimit | null;
+  /** The product feed ignores its page number: every page answers with the first page. */
+  feedIgnoresPaging: boolean;
   requests: { method: string; path: string; status: number }[];
   setPrice(itemId: number, price: number, compareAt?: number | null): void;
   setAvailability(itemId: number, available: boolean): void;
@@ -139,6 +164,8 @@ export async function startFixtureServer(opts: { now?: () => Date } = {}): Promi
       products: [...buildCatalogue(spec), ...(spec.kind === 'flaky' ? fillerProducts(spec, 560) : [])],
       mode: 'ok',
       failFeedFromPage: spec.kind === 'flaky' ? 3 : null,
+      rateLimit: null,
+      feedIgnoresPaging: false,
       requests: [],
       setPrice(itemId, price, compareAt) {
         const p = this.find(itemId);
@@ -247,6 +274,27 @@ async function route(h: FixtureSiteHandle, req: http.IncomingMessage, res: Res, 
   if (s.kind === 'failing' || h.mode === 'http500') return send(h, req, res, 500, 'Internal Server Error', 'text/plain');
   if (h.mode === 'http403') return send(h, req, res, 403, 'Forbidden', 'text/plain');
 
+  const rl = h.rateLimit;
+  if (rl && rl.paths.test(path) && (!rl.search || rl.search.test(url.search))) {
+    const at = now().getTime();
+    if (rl.liftAfterMs !== undefined) rl.since ??= at;
+    const lifted = rl.liftAfterMs !== undefined && rl.since !== null && rl.since !== undefined && at - rl.since >= rl.liftAfterMs;
+    if (lifted) {
+      /* the website no longer limits us */
+    } else {
+    if (rl.blockedUntil !== null && at >= rl.blockedUntil) {
+      rl.blockedUntil = null;
+      rl.served = 0;
+    }
+    if (rl.blockedUntil === null && rl.served >= rl.allowance) rl.blockedUntil = at + rl.blockMs;
+    if (rl.blockedUntil !== null) {
+      rl.refused++;
+      return send(h, req, res, 429, 'Too Many Requests', 'text/plain', rl.retryAfterSeconds !== null ? { 'retry-after': String(rl.retryAfterSeconds) } : {});
+    }
+    rl.served++;
+    }
+  }
+
   if (path === '/robots.txt') {
     if (s.kind === 'blocked') return send(h, req, res, 200, 'User-agent: *\nDisallow: /\n', 'text/plain');
     if (s.kind === 'catblocked') return send(h, req, res, 200, 'User-agent: *\nDisallow: /shop/\n', 'text/plain');
@@ -323,7 +371,7 @@ async function shopifyRoutes(h: FixtureSiteHandle, req: http.IncomingMessage, re
   }
   if (path === '/products.json') {
     const limit = Math.min(250, Number(url.searchParams.get('limit') ?? 30));
-    const page = Math.max(1, Number(url.searchParams.get('page') ?? 1));
+    const page = h.feedIgnoresPaging ? 1 : Math.max(1, Number(url.searchParams.get('page') ?? 1));
     if (h.failFeedFromPage !== null && page >= h.failFeedFromPage) return send(h, req, res, 503, 'Service Unavailable', 'text/plain', { 'retry-after': '0' });
     // a feed that ends early: only the first N products are ever returned (page 1 is then a short page, page 2 is empty)
     const visible = s.feedTruncatedAt ? live(h).slice(0, s.feedTruncatedAt) : live(h);

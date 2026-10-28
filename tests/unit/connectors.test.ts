@@ -152,7 +152,7 @@ describe('Shopify products.json connector', () => {
     expect(p1.cursor).toEqual({ page: 2 });
     const p2 = await shopifyConnector.fetchPage(ctx, p1.cursor);
     expect(p2.products).toHaveLength(250);
-    await expect(shopifyConnector.fetchPage(ctx, p2.cursor)).rejects.toMatchObject({ code: 'http_error' });
+    await expect(shopifyConnector.fetchPage(ctx, p2.cursor)).rejects.toMatchObject({ code: 'temporarily_unavailable', status: 503 });
     // site recovers; resuming from the saved cursor finishes the catalogue
     fx.sites.flaky!.failFeedFromPage = null;
     const p3 = await shopifyConnector.fetchPage(ctx, p2.cursor);

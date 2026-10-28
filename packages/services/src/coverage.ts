@@ -64,7 +64,7 @@ export async function loadCoverage(db: DbLike, orgId: string, now: Date, staleAf
       capability: s.capabilityStatus,
       hasUsableMethod: prof ? prof.data.strategy.primary !== null : null,
       productCount: known,
-      lastRun: finished ? { status: finished.status, isComplete: finished.isComplete, kind: finished.kind, errorCode: finished.errorCode, error: finished.error } : null,
+      lastRun: finished ? { status: finished.status, isComplete: finished.isComplete, kind: finished.kind, errorCode: finished.errorCode, error: finished.error, nextAttemptAt: finished.nextAttemptAt } : null,
       collecting: !!running,
       termsForbid,
       noProducts,

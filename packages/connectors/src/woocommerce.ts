@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { canonicalizeUrl, fromMinorUnits } from '@ci/core';
 import type { Availability, SiteProfileData } from '@ci/shared';
+import { httpFailure } from './feed-errors.ts';
 import { buildQuality } from './extract.ts';
 import type { ConnectorBatch, ConnectorContext, EvidenceDoc, ExtractedProduct, ExtractedVariant, FeedConnector } from './types.ts';
 
@@ -156,7 +157,7 @@ export const woocommerceConnector: FeedConnector = {
     if (res.status === 404 || res.status === 401 || res.status === 403) {
       throw Object.assign(new Error(`The WooCommerce Store API returned HTTP ${res.status}`), { code: 'feed_unavailable' });
     }
-    if (res.status < 200 || res.status >= 300) throw Object.assign(new Error(`WooCommerce Store API returned HTTP ${res.status}`), { code: 'http_error' });
+    if (res.status < 200 || res.status >= 300) throw httpFailure(res, 'The WooCommerce Store API');
     let list: WooProduct[];
     try {
       list = res.json<WooProduct[]>();

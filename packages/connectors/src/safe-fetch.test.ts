@@ -153,10 +153,10 @@ describe('SafeFetcher behaviour (scripted transport, no network)', () => {
     expect(verdict.allowed).toBe(false);
     expect(verdict.rule).toMatch(/trailing slash/);
   });
-  it('treats an unreadable robots.txt (5xx) as closed, and 403 as closed', async () => {
-    for (const status of [500, 403]) {
+  it('treats a 403 robots.txt as closed (an access gate), and an unreadable one (5xx) as "not now" — nothing is fetched either way', async () => {
+    for (const [status, code] of [[500, 'temporarily_unavailable'], [403, 'robots']] as const) {
       const { fetcher, requested } = scripted({ 'https://shop.example.com/robots.txt': resp(status, 'x'), 'https://shop.example.com/': resp(200, 'ok') });
-      await expect(fetcher.fetch('https://shop.example.com/', { kind: 'html' })).rejects.toMatchObject({ code: 'robots' });
+      await expect(fetcher.fetch('https://shop.example.com/', { kind: 'html' })).rejects.toMatchObject({ code });
       expect(requested).not.toContain('https://shop.example.com/');
     }
   });

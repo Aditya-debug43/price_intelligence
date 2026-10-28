@@ -286,6 +286,10 @@ export const scanRuns = pgTable(
     heartbeatAt: ts('heartbeat_at'),
     /** How many times recovery has re-queued this run after its worker went silent. Capped, so a run that keeps dying is abandoned. */
     resumeCount: integer('resume_count').notNull().default(0),
+    /** A run that stopped for a temporary reason (the website asked us to slow down, a brief outage) is continued by the scheduler at this time, from its saved cursor. */
+    nextAttemptAt: ts('next_attempt_at'),
+    /** Continuations since this run last made progress: sets the waiting time between attempts and bounds them. Reset whenever a sitting saves something new. */
+    continuations: integer('continuations').notNull().default(0),
   },
   (t) => [index('scan_runs_site_idx').on(t.siteId, t.createdAt), index('scan_runs_org_idx').on(t.orgId, t.createdAt)],
 );

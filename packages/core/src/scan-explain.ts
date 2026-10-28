@@ -11,6 +11,10 @@ export interface ScanRunFacts {
   urlsDiscovered: number;
   urlsFetched: number;
   errorsCount: number;
+  /** When Shelfwatch will continue a collection that paused for a temporary reason (null: it will not by itself). */
+  nextAttemptAt?: Date | string | null;
+  /** Sittings in a row that saved nothing new. */
+  continuations?: number;
 }
 
 export interface ScanExplanation {
@@ -27,6 +31,8 @@ export interface ScanExplanation {
    * nothing was collected.
    */
   scopeNote: string | null;
+  /** ISO time at which the paused collection continues by itself, when it will. */
+  resumeAt?: string | null;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -36,7 +42,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * reason and the next step. It never claims completeness the run did not establish.
  */
 export function explainScanRun(r: ScanRunFacts, queue: Record<string, number> = {}): ScanExplanation {
-  return { ...explainCore(r, queue), scopeNote: scopeNoteOf(r) };
+  const resumeAt = r.status === 'partial' && r.nextAttemptAt ? new Date(r.nextAttemptAt).toISOString() : null;
+  return { ...explainCore(r, queue), scopeNote: scopeNoteOf(r), ...(resumeAt ? { resumeAt } : {}) };
 }
 
 /** What a collected number covers — said every time, so a store admin's larger total is never a mystery. */
@@ -99,6 +106,19 @@ function explainCore(r: ScanRunFacts, queue: Record<string, number>): Omit<ScanE
   }
   let reason: string;
   let next: string | null = 'Run the collection again to continue where it stopped.';
+  // A temporary stop at the website: say what it said, that nothing was lost, and whether Shelfwatch will continue by itself.
+  const temporary = ['rate_limited', 'temporarily_unavailable', 'timeout', 'network', 'invalid_response'].includes(r.errorCode ?? '') || (r.errorCode === 'http_error' && /HTTP (429|5\d\d)\b/.test(r.error ?? ''));
+  if (temporary && r.kind !== 'sample') {
+    const will = !!r.nextAttemptAt;
+    return {
+      summary: `${will ? 'Paused' : 'Partly collected'}: ${saved}${of} saved${will ? '. The collection continues by itself' : ''}.`,
+      completeness: 'partial',
+      reason: `${r.error ?? 'The website was temporarily unavailable'}. That is a temporary limit of the website, not a refusal; what was read is saved and nothing was read twice.`,
+      nextStep: will
+        ? 'Nothing to do: Shelfwatch waits, then continues from where it stopped. You can also click Collect catalogue to continue now.'
+        : `Shelfwatch tried again several times and has stopped trying by itself. Click Collect catalogue to continue from where it stopped, or try again later.`,
+    };
+  }
   switch (r.errorCode) {
     case 'request_budget':
       reason = `The request budget for one run${r.requestBudget ? ` (${r.requestBudget} requests)` : ''} was used up. The rest is collected on the next run.`;

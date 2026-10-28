@@ -1,4 +1,5 @@
 export * from './safe-fetch.ts';
+export * from './feed-errors.ts';
 export * from './types.ts';
 export * from './extract.ts';
 export * from './listing.ts';

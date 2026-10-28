@@ -85,6 +85,13 @@
       "when": 1792724867644,
       "tag": "0011_written_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793203265620,
+      "tag": "0012_scan_continuation",
+      "breakpoints": true
     }
   ]
 }

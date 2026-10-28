@@ -661,3 +661,53 @@ Verbatim: `docs/original-prompt/13_DIRECTIVE_FIX_COLLECTION_FAILURE_AFTER_URL_CH
 * Commit `8bb4f09` pushed; the backend was updated on EC2 (automatic backup first, `…T150326Z.dump`, f082b7f → 8bb4f09, no migration, readiness `ready`). The change is entirely in the backend; the website (Vercel) needs no update.
 * The owner's real data was untouched: the "Aditya" workspace still has 7,660 products / 7,959 variants; the `adi` workspace's lasfit.com has **0 products because nobody has collected it since the fix** — the failed attempts saved nothing. The owner must click "Collect catalogue" once more.
 * The two failed runs stay in that website's history with their old long error text (history is not rewritten).
+
+---
+
+## 2026-10-28 — Directive 14: "auxito.com stopped at 750 of 1,483 (HTTP 429) — and fix collection reliability in general"
+
+Verbatim: `docs/original-prompt/14_DIRECTIVE_COLLECTION_RELIABILITY_AUXITO_2026-10-28.md` (two screenshots of the website page and its history).
+
+### The incident (production database and the live website)
+
+* auxito.com (a Shopify store; the owner recorded the website's written permission) was collected from the feed: pages 1–3 of 6 (3 × 250 = **750 products, 1,039 variants**, all stored, no duplicates), then page 4 answered **HTTP 429** three times in a row (the original request and two retries after 2 s and 4 s). The run ended `partial`, `error_code http_error`, cursor `{"page": 4}`, 7 requests, 39 s. The website's rate limit is temporary: one request for the same page from the server's address ten minutes later was answered normally (HTTP 200).
+* **The same thing had already happened to shop.lingandsons.com that morning** (the 12:30 scheduled run: "partial, 750 of 1,850, Shopify feed returned HTTP 429"): also three pages, then 429.
+* "Progress was saved and the run can resume" / "Run the collection again to continue where it stopped" were **not true** for feed collections: starting a collection always created a NEW run with no cursor, i.e. it began at page 1 again and would meet the same limit at the same place. The cursor was only used to resume a run whose worker had died.
+* Production record before the fixes (full-catalogue "discovery" runs): see the verification report.
+
+### Systemic weaknesses found by reading the whole pipeline (each proved by a test that failed on the old code)
+
+1. A paused collection could not be continued (above); the website's "slow down" was retried twice within about 6 seconds and then the run ended; nothing tried again by itself.
+2. A "slow down" (429) was counted as an access **denial**: three in a row flagged the host as blocked in the limiter that the **whole worker process shares**, with no way back, so every later collection of that website — in every workspace, the capability check included — failed as "blocked" until the worker was restarted.
+3. A 429 or 5xx on robots.txt was read as "robots.txt forbids everything" (cached for the run), so a website that was merely busy became "blocked", and the capability check recorded a verdict it had no basis for ("the store has disabled it or restricted it") for a feed that had only answered 429/5xx.
+4. A first-page 429 sent the run to the next, more request-hungry method (sitemap and every product page) instead of waiting.
+5. A throttled or briefly unavailable **product page** returned an empty result that the crawl counted as "read"; a throttled **sitemap** file was skipped without making the page list "incomplete". Both could end as a "complete" catalogue that was missing products.
+6. A feed that ignores its page number would be read page after page until the request budget was spent.
+7. The number of "products saved" was a tally per page: a listing crawl meets the same product on several pages and reported 65 for a 28-product website (the database held 28).
+8. (Already fixed in directive 13) one impossible value failed a whole batch; the database's reason was hidden.
+
+### Changes
+
+* **Pause and continue** (`packages/services/src/scan.ts`, migration `0012_scan_continuation`: two new columns on `scan_runs`, no data touched): a run that stops because the website asked us to slow down, was briefly unavailable, timed out or answered something that was not its feed keeps everything it saved, ends `partial` with `nextAttemptAt`, and is continued **by the scheduler's recovery pass (every minute) as the same run, from its saved page/queue**: after 2, 4, 8, 16, 32, then 60 minutes while nothing new is saved (never sooner than the website's own Retry-After, never later than an hour), starting over whenever a sitting saved something. After 6 idle attempts it stops trying by itself, keeps what it saved, says so, and a click on Collect catalogue continues it (24 hours; after that a new collection starts afresh). "Collect catalogue" after a pause continues the same run too. Runs saved before this existed (recorded as `http_error` with HTTP 429/5xx and a page) are recognised and continued.
+* **Politeness** (`packages/connectors/src/safe-fetch.ts`): "slow down" is waited out only when it names a wait of 30 s or less (a long one ends the sitting instead of holding a worker), widens the spacing of that host's later requests (doubling to 20 s, easing as requests succeed), is never a "denial", and a refusal (401/403) now stops **only the run that met it**.
+* **Classification** (`feed-errors.ts`, Shopify/WooCommerce/page/sitemap connectors, robots.txt, the capability check): 429 → `rate_limited`, 5xx/408 → `temporarily_unavailable`; a robots.txt that cannot be read is a pause (never cached, never "forbidden"); a website that was limiting us while it was checked is not judged — the run pauses and checks again; a throttled page stays in the queue unread; a throttled or unreadable sitemap makes the page list incomplete.
+* **No hidden escalation**: a temporary stop never switches to a method that needs more requests.
+* **Honest numbers and wording**: "saved" is the number of distinct products the run saved as the database holds them; a feed that does not advance ends `feed_not_paging`; the capability report says that a large catalogue may be paused and continued; the run explanation says "Paused … continues by itself" and when; the website's status says so.
+
+### Tests (60 new; 1,061 in 69 files) and the measurement
+
+* `tests/e2e/collection-resilience.test.ts` (13): pause → continue → complete as ONE run with nothing read twice (600 observations, not 1,100); the waiting ladder and its end; Retry-After; a brief 503; manual continue; a run recorded the way auxito.com's is; limits at the first page, while the website is being checked, in sitemaps and product pages; a feed that does not advance.
+* `tests/unit/fetch-resilience.test.ts` (14): the fetcher, robots.txt, error classification and the schedule. `tests/e2e/collection-reliability.test.ts` (33): the measurement below.
+* Updated tests that encoded the old behaviour: a 5xx on a feed is `temporarily_unavailable` (not `http_error`); an unreadable robots.txt (5xx) is "not now" (not "forbidden"); a paused run's summary reads "Paused"; the test harness disarms paused runs when a file ends.
+
+### Reliability measurement (fictional websites through the real pipeline; nothing clicked)
+
+24 eligible scenarios (13 healthy kinds, 9 rate-limit/outage situations, 1 brief outage, 1 dead worker) and 8 websites that must not be collected. Success = last run succeeded and complete, exactly the published products, no duplicates after a second collection.
+
+* **Before** (the same scenarios against the code of the previous commit): **14 of 24 = 58.3%**; the 10 failures: 5 ended partial after a 429/503 (the auxito.com situation), 1 ended "blocked" (throttled product pages), 3 ended "failed"/unsupported because the website was limiting us while it was checked (capability check, robots.txt, sitemap), and the listing storefront reported 65 products for a 28-product website.
+* **After**: **24 of 24 = 100%**; the 8 non-collectable websites end in their honest state (blocked ×4, failed ×2 after the waiting ladder or as "catalogue elsewhere", partial ×2 for a feed that cannot be paged and a website limiting us for a month).
+* Limits of this number: the websites are fictional (written from the behaviour of the real ones), so it measures the software against known situations, not the world; the list was written by the developer and was fixed before the fixes were measured, but it cannot contain situations nobody has met. Real evidence follows.
+
+### Real collections
+
+* The owner's own websites with the new code (temporary database, real requests, polite pace): **groceriestogoaruba.com** complete, 2,381 products / 2,385 variants, 11 requests, 0 differences from the website's own feed, 8 of 8 real pages agree, a second collection adds nothing; **lasfit.com** complete, 1,129 products / 9,199 variants, 6 requests, 0 differences, 8 of 8 pages agree, no duplicates. (The safeguard that refuses a competitor whose terms forbid automation without recorded permission also fired once when the harness tried to add lasfit.com as a competitor: correct behaviour.)

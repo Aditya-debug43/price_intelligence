@@ -14,6 +14,7 @@ import type {
   TermsReview,
 } from '@ci/shared';
 import { AccessDeniedError, FetchError, sameSiteHost, type SafeFetcher } from './safe-fetch.ts';
+import { isTransientCode } from './feed-errors.ts';
 import { detectChallenge, detectLoginWall } from './challenge.ts';
 import { extractFromHtml, looksJavaScriptRendered, titleOf } from './extract.ts';
 import { discoverFromSitemaps } from './sitemap.ts';
@@ -292,6 +293,21 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
     limit('unreachable', 'blocking', `The site could not be reached: ${(e as Error).message}`);
     return finishWith(profile, 'failed', 'The website could not be reached. This is a technical problem, not an empty catalogue — try again later.', started, fetcher, reqStart);
   }
+  if (robots.temporary) {
+    // Not the website's "no": its rules could not be read right now. Say so, and let the collection wait and check again.
+    const slowDown = robots.httpStatus === 429;
+    limit(slowDown ? 'rate_limited' : 'robots_unavailable', 'blocking', robots.note ?? 'robots.txt could not be read right now.');
+    return finishWith(
+      profile,
+      'failed',
+      slowDown
+        ? 'The website asked Shelfwatch to slow down while its rules (robots.txt) were being read. This is temporary, not a refusal: Shelfwatch waits and tries again.'
+        : 'The website’s server is not responding properly right now (robots.txt could not be read). This is a temporary technical problem, not an empty catalogue — try again later.',
+      started,
+      fetcher,
+      reqStart,
+    );
+  }
   const home = await fetcher.isAllowed(`${site.origin}/`);
   profile.access.robots = {
     fetched: robots.fetched,
@@ -463,6 +479,9 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
             category: ps.some((p) => p.product_type),
           };
         } else probe.notes = 'The feed did not return a product list.';
+      } else if (r.status === 429 || r.status === 408 || r.status >= 500) {
+        probe.notes = `The product feed ${r.status === 429 ? 'asked us to slow down' : 'was temporarily unavailable'} (HTTP ${r.status}), so it could not be checked right now.`;
+        limit('rate_limited', 'warning', `The website was ${r.status === 429 ? 'asking us to slow down' : 'briefly unavailable'} while its product feed was checked, so what it offers could not be confirmed. Shelfwatch checks again before collecting.`);
       } else probe.notes = `The product feed returned HTTP ${r.status}; the store has disabled it or restricted it.`;
     } catch (e) {
       probe.notes = `Product feed could not be read: ${(e as Error).message}`;
@@ -496,6 +515,9 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
             stockClaim: list.some((p) => 'low_stock_remaining' in p),
           };
         }
+      } else if (r.status === 429 || r.status === 408 || r.status >= 500) {
+        probe.notes = `The Store API ${r.status === 429 ? 'asked us to slow down' : 'was temporarily unavailable'} (HTTP ${r.status}), so it could not be checked right now.`;
+        limit('rate_limited', 'warning', `The website was ${r.status === 429 ? 'asking us to slow down' : 'briefly unavailable'} while its Store API was checked, so what it offers could not be confirmed. Shelfwatch checks again before collecting.`);
       } else probe.notes = `The Store API returned HTTP ${r.status}; it is disabled or restricted on this site.`;
     } catch (e) {
       probe.notes = `The Store API could not be read: ${(e as Error).message}`;
@@ -537,7 +559,8 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
       limit('access_denied', 'blocking', e.message);
       return finishWith(profile, 'blocked', 'The website denied access during analysis.', started, fetcher, reqStart);
     }
-    limit('no_sitemap', 'info', `Sitemaps could not be read: ${(e as Error).message}`);
+    if (isTransientCode((e as { code?: unknown }).code)) limit('rate_limited', 'warning', `The website was busy or asking us to slow down while its sitemaps were read, so its catalogue could not be sized now. Shelfwatch checks again before collecting.`);
+    else limit('no_sitemap', 'info', `Sitemaps could not be read: ${(e as Error).message}`);
   }
   if (apiTotal !== null) {
     profile.catalogue.estimatedProducts = apiTotal;
@@ -814,7 +837,7 @@ export async function profileSite(inputUrl: string, opts: ProfilerOptions): Prom
     const pageSize = apiUsable.kind === 'shopify_products_json' ? 250 : 100;
     const total = profile.catalogue.estimatedProducts;
     profile.effort.requestsEstimate = total ? Math.ceil(total / pageSize) + 2 : null;
-    profile.effort.notes = 'A machine-readable feed lets the whole catalogue be refreshed in a handful of requests.';
+    profile.effort.notes = 'A machine-readable feed lets the whole catalogue be refreshed in a handful of requests. If the website asks Shelfwatch to slow down while a large catalogue is read, the collection pauses, keeps what it saved and continues by itself, so a large catalogue can take longer than this estimate.';
   } else if (profile.catalogue.estimatedProducts) {
     profile.effort.requestsEstimate = profile.catalogue.estimatedProducts + profile.catalogue.sitemaps.length;
     profile.effort.notes = 'Each product page is one request; large catalogues are refreshed on a rolling basis within the request budget.';

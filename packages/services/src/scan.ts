@@ -1,9 +1,11 @@
-import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import {
   AccessDeniedError,
   FetchError,
   getConnector,
+  isTransientCode,
   rankConnectors,
+  retryAfterOf,
   type AnyConnector,
   type ConnectorContext,
   type FeedConnector,
@@ -53,6 +55,15 @@ export async function startScan(svc: Services, db: DbLike, orgId: string, siteId
     .orderBy(desc(scanRuns.createdAt))
     .limit(1);
   if (running) return { run: running, created: false };
+  // A collection that stopped for a temporary reason (the website asked us to slow down, a brief outage) continues from where it stopped, instead of starting again
+  // from the first page and meeting the same limit at the same place. A scheduled run belongs to its own daily report and always starts its own run.
+  if (opts.kind !== 'sample' && !opts.dailyRunId) {
+    const [last] = await db.select().from(scanRuns).where(eq(scanRuns.siteId, siteId)).orderBy(desc(scanRuns.createdAt)).limit(1);
+    if (last && isContinuablePause(last, svc.clock()) && (await reopenPausedRun(svc, db, last, 'by request', true))) {
+      const [again] = await db.select().from(scanRuns).where(eq(scanRuns.id, last.id));
+      return { run: again!, created: true };
+    }
+  }
   const [run] = await db
     .insert(scanRuns)
     .values({
@@ -76,6 +87,8 @@ interface Outcome {
   /** Move on to the next connector candidate (this one produced nothing usable). */
   tryNext?: boolean;
   estimatedTotal?: number | null;
+  /** The run stopped because the website was busy or asked us to slow down: keep what was saved and continue later, from the saved place. */
+  pause?: { retryAfterMs: number | null };
 }
 
 interface RunEnv {
@@ -87,25 +100,89 @@ interface RunEnv {
   fetcher: SafeFetcher;
   profile: SiteProfileData;
   deadline: Date | null;
+  /** Requests made by this run so far, across all of its sittings (a continued run keeps counting). */
+  requests: () => number;
 }
 
 const heartbeat = (svc: Services, id: string, patch: Partial<typeof scanRuns.$inferInsert> = {}) =>
   svc.db.update(scanRuns).set({ heartbeatAt: svc.clock(), ...patch }).where(eq(scanRuns.id, id));
 
-function classify(e: unknown): { state: State; code: string; message: string; terminal: boolean } {
+function classify(e: unknown): { state: State; code: string; message: string; terminal: boolean; transient?: boolean; retryAfterMs?: number | null } {
   if (e instanceof AccessDeniedError) return { state: 'blocked', code: 'access_denied', message: e.message, terminal: true };
   if (e instanceof FetchError) {
     if (e.code === 'robots') return { state: 'blocked', code: 'robots', message: e.message, terminal: true };
     if (e.code === 'ssrf') return { state: 'blocked', code: 'unsafe_address', message: e.message, terminal: true };
     if (e.code === 'budget') return { state: 'partial', code: 'request_budget', message: 'The request budget for this run was used up; the rest is collected on the next run.', terminal: true };
-    return { state: 'failed', code: e.code, message: e.message, terminal: false };
+    return { state: 'failed', code: e.code, message: e.message, terminal: false, transient: isTransientCode(e.code), retryAfterMs: null };
   }
   // A database refusal: say what the database said, never the SQL statement and the shop's values that the query layer puts in its message.
   const db = describeDatabaseError(e);
   if (db) return { state: 'failed', code: 'database_error', message: db.message, terminal: false };
   const code = (e as { code?: string }).code ?? 'error';
-  return { state: 'failed', code, message: (e as Error).message ?? String(e), terminal: false };
+  return { state: 'failed', code, message: (e as Error).message ?? String(e), terminal: false, transient: isTransientCode(code), retryAfterMs: retryAfterOf(e) };
 }
+
+// ───────────────────────────────────────────────────────────── pausing and continuing
+
+/** Sittings in a row that saved nothing new, after which an interrupted collection stops trying by itself (it can still be continued by hand). */
+export const MAX_IDLE_CONTINUATIONS = 6;
+/** How long a paused collection stays continuable: after this, the saved place may no longer match the website's catalogue and a new collection starts afresh. */
+export const CONTINUATION_WINDOW_MS = 24 * 3_600_000;
+const CONTINUATION_LADDER_MS = [2, 4, 8, 16, 32, 60].map((m) => m * 60_000);
+
+/** How long to wait before continuing: 2, 4, 8, 16, 32, then 60 minutes while nothing new is saved; never less than the website's own Retry-After, never more than an hour. */
+export function nextAttemptDelayMs(idleSittings: number, retryAfterMs: number | null): number {
+  const base = CONTINUATION_LADDER_MS[Math.min(Math.max(idleSittings, 0), CONTINUATION_LADDER_MS.length - 1)]!;
+  return Math.min(Math.max(base, retryAfterMs ?? 0), 60 * 60_000);
+}
+
+/** After a sitting that ended in a pause: when to continue (null = stop trying by itself) and how many idle sittings that makes. */
+export function planContinuation(o: { now: Date; savedBefore: number; savedAfter: number; idleBefore: number; retryAfterMs: number | null }): { idle: number; nextAttemptAt: Date | null } {
+  const idle = o.savedAfter > o.savedBefore ? 0 : o.idleBefore + 1;
+  if (idle > MAX_IDLE_CONTINUATIONS) return { idle, nextAttemptAt: null };
+  return { idle, nextAttemptAt: new Date(o.now.getTime() + nextAttemptDelayMs(idle, o.retryAfterMs)) };
+}
+
+/** Error codes of a run that stopped because of a temporary condition at the website. */
+const PAUSE_CODES = new Set(['rate_limited', 'temporarily_unavailable', 'timeout', 'network', 'invalid_response']);
+/** Before pausing existed, a website that said "slow down" or was briefly unavailable was recorded as a generic "http_error" with the status in its message. */
+const isLegacyPause = (r: { errorCode: string | null; error: string | null }) => r.errorCode === 'http_error' && /HTTP (429|5\d\d)\b/.test(r.error ?? '');
+
+/** A run that stopped for a temporary reason, recently enough that its saved place still means something. */
+export function isContinuablePause(r: Pick<typeof scanRuns.$inferSelect, 'status' | 'kind' | 'finishedAt' | 'errorCode' | 'error'>, now: Date): boolean {
+  return (
+    r.status === 'partial' &&
+    r.kind !== 'sample' &&
+    !!r.finishedAt &&
+    now.getTime() - r.finishedAt.getTime() < CONTINUATION_WINDOW_MS &&
+    (PAUSE_CODES.has(r.errorCode ?? '') || isLegacyPause(r))
+  );
+}
+
+/** Puts a paused run back on the queue: the SAME run continues from its saved place, so nothing is read twice and "complete" still means one whole enumeration. */
+async function reopenPausedRun(svc: Services, db: DbLike, run: typeof scanRuns.$inferSelect, how: 'automatically' | 'by request', resetIdle: boolean): Promise<boolean> {
+  const at = svc.clock();
+  const claimed = await db
+    .update(scanRuns)
+    .set({
+      status: 'queued',
+      finishedAt: null,
+      nextAttemptAt: null,
+      // A scheduled run's deadline belonged to its daily report; the collection itself is worth finishing.
+      deadlineAt: null,
+      error: null,
+      errorCode: null,
+      heartbeatAt: at,
+      ...(resetIdle ? { continuations: 0 } : {}),
+      notes: sql`${scanRuns.notes} || to_jsonb(${`Continued ${how} at ${at.toISOString().slice(11, 16)} UTC from where it stopped (${run.productsSaved} products were already saved).`}::text)`,
+    })
+    .where(and(eq(scanRuns.id, run.id), eq(scanRuns.status, 'partial'), run.nextAttemptAt ? eq(scanRuns.nextAttemptAt, run.nextAttemptAt) : isNull(scanRuns.nextAttemptAt)))
+    .returning({ id: scanRuns.id });
+  if (!claimed.length) return false;
+  await svc.queue.enqueue('scan-site', { orgId: run.orgId, scanRunId: run.id }, { singletonKey: `scan:${run.id}:continue:${at.getTime()}` });
+  return true;
+}
+
 
 /** What the run tells the owner about values in the website's own data that were left out instead of stored (the products themselves were saved). */
 function leftOutNotes(list: LeftOutValue[]): string[] {
@@ -148,6 +225,7 @@ async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> 
   let saved = run.productsSaved;
   const notes: string[] = [];
   let estimated: number | null = null;
+  let lastSignature: string | null = null;
   for (let page = 0; page < 5000; page++) {
     if (env.deadline && svc.clock() >= env.deadline) return { state: 'partial', saved, notes: [...notes, 'Stopped at the time limit; the run can be resumed.'], errorCode: 'deadline', estimatedTotal: estimated };
     if (env.ctx.signal?.aborted) return { state: 'partial', saved, notes: [...notes, 'Cancelled'], errorCode: 'cancelled' };
@@ -157,10 +235,29 @@ async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> 
       batch = await connector.fetchPage(ctx, cursor);
     } catch (e) {
       const c = classify(e);
+      // The website is busy or asked us to slow down (or answered with something that is not its feed after we had already read part of it): that says nothing about the
+      // catalogue. Never switch to a method that needs MORE requests; keep what is saved and continue later from the saved page.
+      if (c.transient || (c.code === 'invalid_response' && saved > 0)) {
+        return {
+          state: 'partial',
+          saved,
+          notes: [...notes, `${c.message}. ${saved} products are saved; the collection pauses and continues from where it stopped.`],
+          errorCode: c.transient ? c.code : 'invalid_response',
+          error: c.message,
+          estimatedTotal: estimated,
+          pause: { retryAfterMs: c.retryAfterMs ?? null },
+        };
+      }
       if ((e as { code?: string }).code === 'feed_unavailable' && saved === 0) return { state: 'failed', saved, notes, errorCode: 'feed_unavailable', error: c.message, tryNext: true };
       if (saved > 0 && c.state === 'failed') return { state: 'partial', saved, notes: [...notes, `Stopped after an error: ${c.message}. Progress was saved and the run can resume.`], errorCode: c.code, error: c.message, estimatedTotal: estimated };
       return { state: c.state, saved, notes, errorCode: c.code, error: c.message, estimatedTotal: estimated };
     }
+    // A feed that ignores its page number answers every request with the same products. That is not a long catalogue: stop, and say so.
+    const signature = batch.products.length ? batch.products.map((p) => p.url).join('|') : null;
+    if (signature !== null && signature === lastSignature) {
+      return { state: 'partial', saved, notes: [...notes, `Page ${page + 1} of the product feed returned exactly the products of the page before it, so the feed does not advance and the rest of the catalogue cannot be read from it.`], errorCode: 'feed_not_paging', estimatedTotal: estimated };
+    }
+    lastSignature = signature;
     const r = await ingestBatch(ic, batch);
     saved += r.products;
     estimated = batch.progress.estimatedTotal ?? estimated;
@@ -172,7 +269,7 @@ async function runFeed(env: RunEnv, connector: FeedConnector): Promise<Outcome> 
       productsSaved: saved,
       variantsSaved: run.variantsSaved + r.variants,
       urlsFetched: run.urlsFetched + 1,
-      requestsMade: env.fetcher.requestsMade,
+      requestsMade: env.requests(),
       urlsDiscovered: Math.max(run.urlsDiscovered, saved),
       estimatedTotal: estimated,
     });
@@ -216,7 +313,7 @@ async function crossCheckFeed(env: RunEnv, connector: FeedConnector, saved: numb
     recovered = ing.products;
     saved += recovered;
     run.variantsSaved += ing.variants;
-    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, requestsMade: env.fetcher.requestsMade, urlsDiscovered: Math.max(run.urlsDiscovered, saved) });
+    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, requestsMade: env.requests(), urlsDiscovered: Math.max(run.urlsDiscovered, saved) });
   }
   notes.push(`The product feed ended early: it listed ${fromFeed} products, but the site's product sitemaps list ${r.listed}. ${recovered} of the ${r.missing} products the feed did not return were read from their own pages and saved.`);
   if (r.unreadable.length) {
@@ -279,6 +376,7 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
         estimated = d.estimatedTotal ?? null;
       } catch (e) {
         const c = classify(e);
+        if (c.transient) return { state: 'partial', saved: run.productsSaved, notes: [...notes, `${c.message}. Nothing is lost; the collection pauses and starts the page list again later.`], errorCode: c.code, error: c.message, pause: { retryAfterMs: c.retryAfterMs ?? null } };
         return { state: c.state, saved: 0, notes, errorCode: c.code, error: c.message };
       }
     } else {
@@ -299,11 +397,12 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
     if (run.kind === 'discovery' || byDiscovery) discoveryComplete = run.kind !== 'sample' && discoveryComplete && !truncated;
     else discoveryComplete = run.kind === 'refresh' && !truncated;
     estimated = discoveredTotal ?? planned.size;
-    await heartbeat(svc, run.id, { urlsDiscovered: urls.length, estimatedTotal: estimated, cursor: { discoveryComplete, droppedDiscovered: dropped }, requestsMade: env.fetcher.requestsMade });
+    await heartbeat(svc, run.id, { urlsDiscovered: urls.length, estimatedTotal: estimated, cursor: { discoveryComplete, droppedDiscovered: dropped }, requestsMade: env.requests() });
   }
 
   let saved = run.productsSaved;
   let failures = 0;
+  let throttled = 0;
   for (;;) {
     if (env.deadline && svc.clock() >= env.deadline) return await pagesOutcome(env, saved, failures, discoveryComplete && dropped === 0, estimated, [...notes, 'Stopped at the time limit; the run can be resumed.'], 'deadline');
     const pending = await db.select().from(crawlQueue).where(and(eq(crawlQueue.scanRunId, run.id), eq(crawlQueue.status, 'pending'))).orderBy(desc(crawlQueue.priority), asc(crawlQueue.url)).limit(10);
@@ -338,8 +437,18 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
           }
         }
         await db.update(crawlQueue).set({ status: 'done', attempts: item.attempts + 1, updatedAt: svc.clock() }).where(eq(crawlQueue.id, item.id));
+        throttled = 0;
       } catch (e) {
         const c = classify(e);
+        if (c.transient) {
+          // Not this page's fault: it stays in the queue without using up an attempt. Three in a row mean the website needs a pause.
+          await db.update(crawlQueue).set({ lastError: c.message.slice(0, 300), updatedAt: svc.clock() }).where(eq(crawlQueue.id, item.id));
+          if (++throttled >= 3) {
+            const o = await pagesOutcome(env, saved, failures, discoveryComplete, estimated, [...notes, `${c.message}; the collection pauses and continues with the pages that are left.`], c.code);
+            return { ...o, state: 'partial', error: c.message, pause: { retryAfterMs: c.retryAfterMs ?? null } };
+          }
+          continue;
+        }
         if (c.terminal) {
           await db.update(crawlQueue).set({ lastError: c.message.slice(0, 300), updatedAt: svc.clock() }).where(eq(crawlQueue.id, item.id));
           if (c.state === 'partial') return await pagesOutcome(env, saved, failures, discoveryComplete, estimated, notes, c.code);
@@ -351,7 +460,7 @@ async function runPages(env: RunEnv, connector: PageConnector): Promise<Outcome>
       }
       if (limit && saved >= limit) return await pagesOutcome(env, saved, failures, false, estimated, [...notes, `Small live refresh: stopped after ${saved} products by design.`], undefined);
     }
-    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, urlsFetched: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id} and status <> 'pending')` as unknown as number, urlsDiscovered: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id})` as unknown as number, requestsMade: env.fetcher.requestsMade, errorsCount: failures, cursor: { discoveryComplete, droppedDiscovered: dropped } });
+    await heartbeat(svc, run.id, { productsSaved: saved, variantsSaved: run.variantsSaved, urlsFetched: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id} and status <> 'pending')` as unknown as number, urlsDiscovered: sql`(select count(*) from crawl_queue where scan_run_id = ${run.id})` as unknown as number, requestsMade: env.requests(), errorsCount: failures, cursor: { discoveryComplete, droppedDiscovered: dropped } });
   }
   return await pagesOutcome(env, saved, failures, discoveryComplete && dropped === 0, estimated, notes, undefined);
 }
@@ -416,6 +525,9 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
   if (!run0) throw new Error(`Scan ${scanRunId} not found`);
   if (!['queued', 'running'].includes(run0.status)) return { scanRunId, status: run0.status, productsSaved: run0.productsSaved, isComplete: run0.isComplete, connector: run0.connector };
   const run = run0;
+  const savedBefore = run0.productsSaved;
+  const priorRequests = run0.requestsMade;
+  const priorNotes = [...(run0.notes ?? [])];
   const [site] = await svc.db.select().from(sites).where(eq(sites.id, run.siteId));
   if (!site || !site.active || site.consentStatus !== 'confirmed') {
     await svc.db.update(scanRuns).set({ status: 'cancelled', finishedAt: svc.clock(), error: 'Cancelled: website removed, switched off, or collection rules not confirmed' }).where(eq(scanRuns.id, run.id));
@@ -432,13 +544,17 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
       .where(eq(crawlQueue.scanRunId, run.id));
     return q && q.total > 0 ? { urlsDiscovered: q.total, urlsFetched: q.read } : {};
   };
-  const finish = async (status: ScanStatus, o: { productsSaved: number; errorCode?: string; error?: string; notes: string[]; complete: boolean; connector: string | null; connectorVersion?: string | null; estimatedTotal?: number | null; requests?: number; errors?: number }) => {
+  const finish = async (status: ScanStatus, o: { productsSaved: number; errorCode?: string; error?: string; notes: string[]; complete: boolean; connector: string | null; connectorVersion?: string | null; estimatedTotal?: number | null; requests?: number; errors?: number; nextAttemptAt?: Date | null; continuations?: number }) => {
     const frontier = await frontierCounts();
+    // "Saved" counts distinct products this run saved, as the database holds them: a crawl of listing pages meets the same product on several pages,
+    // and the page-by-page tally would then claim more products than the website has.
+    const [held] = await svc.db.select({ products: sql<number>`count(*)::int`, variants: sql<number>`coalesce(sum((select count(*) from variants v where v.product_id = ${products.id})), 0)::int` }).from(products).where(and(eq(products.siteId, run.siteId), eq(products.lastScanRunId, run.id)));
+    const savedProducts = held && held.products > 0 ? held.products : o.productsSaved;
     await svc.db
       .update(scanRuns)
-      .set({ ...frontier, status, finishedAt: svc.clock(), productsSaved: o.productsSaved, isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}), ...(o.errors !== undefined ? { errorsCount: o.errors } : {}) })
+      .set({ ...frontier, status, finishedAt: svc.clock(), productsSaved: savedProducts, ...(held && held.products > 0 ? { variantsSaved: held.variants } : {}), isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}), ...(o.errors !== undefined ? { errorsCount: o.errors } : {}), nextAttemptAt: o.nextAttemptAt ?? null, ...(o.continuations !== undefined ? { continuations: o.continuations } : {}) })
       .where(eq(scanRuns.id, run.id));
-    return { scanRunId: run.id, status, productsSaved: o.productsSaved, isComplete: o.complete, connector: o.connector } as ScanResult;
+    return { scanRunId: run.id, status, productsSaved: savedProducts, isComplete: o.complete, connector: o.connector } as ScanResult;
   };
 
   const alertIds: string[] = [];
@@ -450,13 +566,25 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     const age = prof ? now.getTime() - prof.createdAt.getTime() : Infinity;
     // A profile made before the terms-of-use review existed, or before the customer recorded (or withdrew) written permission, is out of date.
     const termsStale = !!prof && (!prof.data.terms || prof.data.terms.permissionRecorded !== site.writtenPermission);
-    if (!prof || termsStale || age > PROFILE_MAX_AGE_MS || ((prof.status === 'failed' || prof.status === 'blocked') && age > FAILED_PROFILE_RETRY_MS)) {
+    // A profile made while the website was asking us to slow down judged nothing: it is made again, never reused.
+    const profileThrottled = !!prof && prof.data.limitations.some((l) => l.code === 'rate_limited');
+    if (!prof || termsStale || profileThrottled || age > PROFILE_MAX_AGE_MS || ((prof.status === 'failed' || prof.status === 'blocked') && age > FAILED_PROFILE_RETRY_MS)) {
       await runProfile(svc, site.orgId, site.id);
       [prof] = await svc.db.select().from(siteProfiles).where(eq(siteProfiles.siteId, site.id)).orderBy(desc(siteProfiles.createdAt)).limit(1);
       const [fresh] = await svc.db.select().from(sites).where(eq(sites.id, site.id));
       if (fresh) siteRef.currency = fresh.currency;
     }
     const profile = prof!.data;
+    if (profile.limitations.some((l) => l.code === 'rate_limited')) {
+      // The website was busy or asking us to slow down while it was being checked (or its robots.txt could not be read): that is not a verdict on what it allows.
+      // Collecting from a guess could pick a method that needs far more requests, so nothing is collected now: pause and check again later.
+      const plan = planContinuation({ now: svc.clock(), savedBefore, savedAfter: run.productsSaved, idleBefore: run.continuations, retryAfterMs: null });
+      const msg = profile.limitations.find((l) => l.code === 'rate_limited')!.message;
+      const notes = [...new Set([...priorNotes.slice(0, 6), msg, plan.nextAttemptAt ? `Shelfwatch will check the website again by itself at about ${plan.nextAttemptAt.toISOString().slice(11, 16)} UTC.` : `The website was still limiting us after ${MAX_IDLE_CONTINUATIONS} further attempts, so Shelfwatch has stopped trying by itself. Click Collect catalogue to try again later.`])];
+      const res = await finish(run.productsSaved > 0 || plan.nextAttemptAt ? 'partial' : 'failed', { productsSaved: run.productsSaved, errorCode: 'rate_limited', error: msg, notes, complete: false, connector: run.connector, nextAttemptAt: plan.nextAttemptAt, continuations: plan.idle, requests: priorRequests + fetcher.requestsMade });
+      await afterScan(svc, run, siteRef, res, msg, alertIds);
+      return res;
+    }
     if (profile.status === 'blocked') {
       const res = await finish('blocked', { productsSaved: 0, errorCode: 'blocked', error: profile.summary, notes: profile.limitations.filter((l) => l.severity === 'blocking').map((l) => l.message), complete: false, connector: null });
       await afterScan(svc, run, siteRef, res, profile.summary, alertIds);
@@ -503,7 +631,7 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
       browser: svc.browser,
       llm: svc.llm.available ? svc.llm : null,
     };
-    const env: RunEnv = { svc, run, site, ic, ctx, fetcher, profile, deadline: run.deadlineAt };
+    const env: RunEnv = { svc, run, site, ic, ctx, fetcher, profile, deadline: run.deadlineAt, requests: () => priorRequests + fetcher.requestsMade };
 
     let outcome: Outcome | null = null;
     let used: AnyConnector | null = null;
@@ -558,15 +686,31 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
       }
     }
 
+    // ── a temporary stop: say when the collection continues by itself, or that it has stopped trying
+    let nextAttemptAt: Date | null = null;
+    let continuations = run.continuations;
+    if (outcome.pause) {
+      const plan = planContinuation({ now: svc.clock(), savedBefore, savedAfter: outcome.saved, idleBefore: run.continuations, retryAfterMs: outcome.pause.retryAfterMs });
+      continuations = plan.idle;
+      nextAttemptAt = plan.nextAttemptAt;
+      if (nextAttemptAt) {
+        outcome.notes.push(`Shelfwatch will continue this collection by itself at about ${nextAttemptAt.toISOString().slice(11, 16)} UTC (attempt ${plan.idle + 1}; the website is not asked again before then).`);
+      } else {
+        outcome.notes.push(`The website still asked us to slow down after ${MAX_IDLE_CONTINUATIONS} further attempts that saved nothing new, so Shelfwatch has stopped trying by itself. What was saved is kept; click Collect catalogue to continue later.`);
+        if (outcome.saved === 0) outcome.state = 'failed';
+      }
+    }
+    outcome.notes = [...new Set([...priorNotes.slice(0, 6), ...outcome.notes])];
+
     const status: ScanStatus = outcome.state === 'complete' ? (run.kind === 'sample' ? 'partial' : 'succeeded') : outcome.state === 'blocked' ? 'blocked' : outcome.state === 'failed' ? 'failed' : 'partial';
-    const res = await finish(status, { productsSaved: outcome.saved, errorCode: outcome.errorCode, error: outcome.error, notes: outcome.notes, complete, connector: used.id, connectorVersion: used.version, estimatedTotal: outcome.estimatedTotal, requests: fetcher.requestsMade, ...(skipped.length ? { errors: skipped.length } : {}) });
+    const res = await finish(status, { productsSaved: outcome.saved, errorCode: outcome.errorCode, error: outcome.error, notes: outcome.notes, complete, connector: used.id, connectorVersion: used.version, estimatedTotal: outcome.estimatedTotal, requests: env.requests(), ...(skipped.length ? { errors: skipped.length } : {}), nextAttemptAt, continuations });
     await afterScan(svc, run, siteRef, res, outcome.error ?? null, alertIds);
     return res;
   } catch (e) {
     const c = classify(e);
     const dbFailure = describeDatabaseError(e);
     svc.log.error('scan crashed', { scanRunId, error: c.message, ...(dbFailure ? { databaseCode: dbFailure.code, table: dbFailure.table ?? null, column: dbFailure.column ?? null } : {}) });
-    const res = await finish(c.state === 'blocked' ? 'blocked' : 'failed', { productsSaved: run.productsSaved, errorCode: c.code, error: c.message, notes: [], complete: false, connector: run.connector, requests: fetcher.requestsMade });
+    const res = await finish(c.state === 'blocked' ? 'blocked' : 'failed', { productsSaved: run.productsSaved, errorCode: c.code, error: c.message, notes: [], complete: false, connector: run.connector, requests: priorRequests + fetcher.requestsMade });
     await afterScan(svc, run, siteRef, res, c.message, alertIds);
     return res;
   } finally {
@@ -640,6 +784,24 @@ export async function recoverScans(svc: Services, o: { staleAfterMs?: number; or
     if (!claimed.length) continue;
     await svc.queue.enqueue('scan-site', { orgId: r.orgId, scanRunId: r.id }, { singletonKey: r.status === 'queued' ? `scan:${r.id}` : `scan:${r.id}:resume:${r.resumeCount + 1}` });
     out.resumed.push(r.id);
+  }
+  // ── collections paused for a temporary reason whose waiting time is over (and ones paused before pausing existed: they have no time set, so they wait the shortest interval)
+  const paused = await svc.db
+    .select()
+    .from(scanRuns)
+    .where(and(eq(scanRuns.status, 'partial'), ne(scanRuns.kind, 'sample'), gt(scanRuns.finishedAt, new Date(now.getTime() - CONTINUATION_WINDOW_MS))));
+  for (const r of paused) {
+    if (!isContinuablePause(r, now)) continue;
+    const due = r.nextAttemptAt ? r.nextAttemptAt.getTime() <= now.getTime() : r.continuations <= MAX_IDLE_CONTINUATIONS && r.finishedAt!.getTime() + nextAttemptDelayMs(0, null) <= now.getTime();
+    if (!due) continue;
+    // Only the website's latest run, and only when nothing else is collecting it: a newer collection has superseded this one.
+    const [newer] = await svc.db
+      .select({ id: scanRuns.id })
+      .from(scanRuns)
+      .where(and(eq(scanRuns.siteId, r.siteId), ne(scanRuns.id, r.id), sql`(${scanRuns.createdAt} > ${r.createdAt} or ${scanRuns.status} in ('queued', 'running'))`))
+      .limit(1);
+    if (newer) continue;
+    if (await reopenPausedRun(svc, svc.db, r, 'automatically', false)) out.resumed.push(r.id);
   }
   return out;
 }
