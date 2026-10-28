@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useOrg, useOrgQuery } from '../app-shell';
-import { Age, ArrowIcon, Card, DataState, EmptyState, PageHead } from '../ui';
+import { Age, Card, DataState, EmptyState, PageHead, SourceLink } from '../ui';
 import type { StockResponse } from '../types';
 
 const STATE: Record<string, { label: string; cls: string }> = { out_of_stock: { label: 'Out of stock', cls: 'bad' }, low_stock: { label: 'Low stock', cls: 'warn' }, unknown: { label: 'Unknown', cls: '' }, in_stock: { label: 'In stock', cls: 'good' } };
@@ -41,10 +41,10 @@ export function StockPage() {
                     <tbody>
                       {d.rows.map((s) => (
                         <tr key={s.variantId}>
-                          <td><Link className="title" to={`/o/${orgId}/products/${s.productId}`}>{s.title}</Link><div className="sub">{s.sku ?? 'no SKU'}</div></td>
+                          <td><Link className="title" to={`/o/${orgId}/products/${s.productId}`}>{s.title}</Link><div className="sub">{s.sku ?? 'no SKU'}</div><SourceLink href={s.url} product={s.title} /></td>
                           <td><span className={`pill ${STATE[s.state]?.cls}`}>{STATE[s.state]?.label}</span></td>
                           <td className="r num" style={{ fontSize: 20 }}>{s.quantity ?? <span className="muted" title="Not published — never estimated">?</span>}</td>
-                          <td className="small">{s.conflict && <div style={{ marginBottom: 6 }}><span className="pill warn" style={{ whiteSpace: 'normal' }}>page and inventory disagree</span><div className="sub">{s.note} <a href={s.url} target="_blank" rel="noreferrer noopener">Open the page <ArrowIcon /></a></div></div>}{s.quantitySource === 'authorised_inventory' ? 'Authorised inventory' : s.quantitySource === 'public_claim' ? 'Site says “only N left”' : (s.note ?? 'Public availability')}</td>
+                          <td className="small">{s.conflict && <div style={{ marginBottom: 6 }}><span className="pill warn" style={{ whiteSpace: 'normal' }}>page and inventory disagree</span><div className="sub">{s.note} <SourceLink href={s.url} product={s.title} text="Open the page" /></div></div>}{s.quantitySource === 'authorised_inventory' ? 'Authorised inventory' : s.quantitySource === 'public_claim' ? 'Site says “only N left”' : (s.note ?? 'Public availability')}</td>
                           <td className="r num">{s.threshold}</td>
                           <td className="small">{s.stale && <span className="pill warn">stale </span>} <Age iso={s.observedAt} /></td>
                           <td className="small">{s.lastChangeAt ? <Age iso={s.lastChangeAt} /> : '—'}</td>

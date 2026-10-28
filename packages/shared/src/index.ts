@@ -5,3 +5,4 @@ export * from './schemas.ts';
 export * from './format.ts';
 export * from './limitation-advice.ts';
 export * from './sync-health.ts';
+export * from './source-link.ts';

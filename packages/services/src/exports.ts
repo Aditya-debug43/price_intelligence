@@ -32,7 +32,7 @@ export function comparisonTable(d: ReportData): Table {
         r.title, r.variantTitle ?? '', r.brand ?? '', r.category ?? '', r.sizeLabel ?? '', c.siteName, c.matchClass, c.matchStatus, c.confidence,
         r.sourcePrice.amount, r.sourcePrice.currency ?? '', r.sourcePrice.normalized, c.price.amount, c.price.currency ?? '', c.price.normalized, d.meta.reportingCurrency,
         c.diffAbs, c.diffPct, c.unitDiffPct, c.directlyComparable ? 'yes' : 'no', r.sourceAvailability, c.availability, iso(r.sourcePrice.observedAt), iso(c.price.observedAt), c.price.stale ? 'stale' : 'fresh',
-        c.price.fxRate, c.price.fxSource ?? '', c.offerSummary ?? '', c.url, r.url, c.caveats.join('; '),
+        c.price.fxRate, c.price.fxSource ?? '', c.offerSummary ?? '', c.url ?? '', r.url ?? '', c.caveats.join('; '),
       ]);
     }
   }

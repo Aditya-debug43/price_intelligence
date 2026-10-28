@@ -553,3 +553,35 @@ Verbatim: `docs/original-prompt/10_DIRECTIVE_PRODUCT_COUNT_MISMATCH_2026-10-28.m
 ### Not done
 
 **Production was not touched.** SSH to the EC2 instance stopped working during this work: the AWS security group now drops port 22 from this computer's address (which also changes — the connection moved between three different public addresses), while the API, the database and Vercel were healthy (`ready`, worker heartbeat 0 min). The owner must either allow this address for SSH or run `sudo shelfwatch-update` themselves; the production figures cited are the ones in the owner's screenshot (2,385 variants — the same as the local copy). The Vercel website part deploys on push and is safe against the older backend.
+
+---
+
+## 2026-10-28 — Directive 11: "Add direct links to the original product pages for price verification"
+
+Verbatim: `docs/original-prompt/11_DIRECTIVE_PRODUCT_LINKS_2026-10-28.md` (the owner's professor reviewed the live report's Price tab: each card should open that exact product on its own website).
+
+### What the evidence says (traced origin website → discovery → extraction → database → matching → comparison → report → screen)
+
+* The address of every product already existed. Collection stores the page a product and price were read from in `variants.url` (NOT NULL, refreshed on every collection; Shopify keeps `?variant=<id>`, WooCommerce the permalink without a trailing slash). Identity is `(site, canonical url)`, so a renamed page is a new product (existing behaviour, unchanged). In the owner's local data: 7,959 variants, none empty, none non-http(s), none with credentials, none on another website; 2,053 matched pairs, every pair with two different addresses, each on its own website; every saved report snapshot already held the address of every row and every card.
+* The gap was in the screen: the live Price Comparison showed a small "source ↗"; the report's Prices tab — the screenshot — passed no address to the price card at all. Nothing checked an address before it became a link.
+
+### Changes
+
+* `packages/shared/src/source-link.ts` (new): `safeSourceUrl` / `sourceLink` — an address may become a link only if it is an `http(s)` address, has no user/password, no spaces or control characters, is at most 2,048 characters long and is not a website's front page.
+* `packages/services/src/source-url.ts` (new) and `comparison.ts`: `productPageLink` additionally requires the address to be on the product's own website (same registrable domain as the site record); otherwise the row's/card's `url` — and `PriceView.sourceUrl` — is `null`. Nothing is built or guessed; no other competitor's address is ever used as a substitute. Prices, differences, availability, match classes, ranking and the stored data are untouched (proved by test: damaged addresses change only the link fields).
+* `packages/shared/src/report-types.ts`, `exports.ts`: `ComparisonRow.url` / `ComparisonCell.url` are `string | null`; CSV/Excel write an empty cell.
+* `apps/web/src/ui.tsx`, `styles.css`: `SourceLink` component and a link row on every `PriceTag`: "View on <website> ↗" (opens in a new tab, `rel="noopener noreferrer"`, accessible name "View on shop.lingandsons.com: <product> (opens shop.lingandsons.com in a new tab)", underlined website name, the global focus ring, the website name wraps instead of being cut off), or an italic "No page link" with an explanation instead of a link. The whole card is not a link, so selecting and copying a price still works.
+* `apps/web/src/pages/Prices.tsx`, `Reports.tsx` (Prices tab, stock tab, both assortment lists), `Matches.tsx` (both products in the comparison table and every candidate), `Products.tsx` (list and product header), `Stock.tsx`: the same safe link replaces the ad-hoc anchors.
+* Tests (24 new): `tests/unit/source-link.test.ts` (6: safe/unsafe addresses, own-website rule), `tests/unit/web-source-links.test.ts` (10: the markup a customer gets), `tests/e2e/product-links.test.ts` (8: own product and three competitors in one row each link to a different page on their own website, equal to the fixture shops' own pages and to the stored address; pack-size variants keep their own pages; 11 kinds of damaged or foreign address give `null` while the rest of the comparison is identical; a new collection keeps the links while the price moves; a saved report carries the same links; the export stays valid with a missing link). Red/green: with the safety rule removed the damaged-address test and 6 of the render tests fail; restored, all pass.
+
+### Verified
+
+* typecheck, lint (0 errors), build, **974 of 974 tests in 62 files** (950 before).
+* Real data, real browser (local copy of the owner's data, temporary read-only staff account that was removed afterwards): the live Price Comparison and the saved report's Prices tab show a link on every card (the report: 150 of 150 rows; hosts groceriestogoaruba.com, quickmartaruba.com, foodstore2go.com); the 24 Poland Spring row links to its own shop page (`?variant=40612263559308`) and to Quickmart's own page for the matched product; the link is reachable with the Tab key with a visible focus ring; Match review and Products render their links; no new console errors. The real shop.lingandsons.com link for a matched product opened its product page in the browser.
+* Stored addresses compared with the real pages (bounded, polite, one request per page, 2.5 s apart, robots.txt honoured): 13 matched pairs → 26 pages; 20 reached the right product (HTTP 200, same website, all title words found, price equal to the stored price, `?variant` id present on the page); 6 Quickmart pages could not be reached at all from this computer (the server resets automated connections, even robots.txt; the browser pane could not open it either) — **not verified**, they are the same kind of address as the ones from the same store's API that were checked against live pages on 2026-10-19.
+
+### Not done / limits
+
+* **Production backend not updated.** SSH to EC2 is still dropped by the security group (checked again 2026-10-28); the API answers (`/api/v1/health`). The new website is safe against the old backend (same address strings; the safety rule runs in the browser too), but the server-side "own website" rule only exists after `sudo shelfwatch-update` on the server.
+* No logged-in check of the production website: there is no credential for the owner's account there and no account was created on it.
+* Redirects: an address is shown as stored; if a shop later moves or removes a page, the shop's own redirect or "not found" page appears. Shelfwatch does not claim the page still exists — a re-collection refreshes the address, and a product that disappears from a complete catalogue is marked delisted.

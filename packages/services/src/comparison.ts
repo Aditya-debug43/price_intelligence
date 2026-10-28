@@ -2,6 +2,7 @@ import { and, eq, inArray, ne } from 'drizzle-orm';
 import { buildPriceView, roundMoney, unitPrice, type FxTable } from '@ci/core';
 import { formatMoney, type Availability, type ComparisonCell, type ComparisonRow, type MatchClass, type MatchStatus, type PriceView, type UnitPriceView } from '@ci/shared';
 import { offers, productMatches, products, sites, variants, type DbLike } from '@ci/database';
+import { productPageLink } from './source-url.ts';
 
 export interface ComparisonOptions {
   orgId: string;
@@ -51,6 +52,9 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
   const source = siteRows.find((s) => s.role === 'source');
   if (!source) return [];
   const siteName = new Map(siteRows.map((s) => [s.id, s.name]));
+  const siteHost = new Map(siteRows.map((s) => [s.id, s.hostname]));
+  // The link a customer may click to check this product at its own shop: the page it was collected from, or nothing.
+  const pageLink = (v: VRow): string | null => productPageLink(v.url, siteHost.get(v.siteId));
 
   const matchRows = await db
     .select()
@@ -70,7 +74,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
   for (const m of matchRows) bySource.set(m.sourceVariantId, [...(bySource.get(m.sourceVariantId) ?? []), m]);
 
   const view = (v: VRow): PriceView =>
-    buildPriceView({ amount: v.price, compareAt: v.compareAt, currency: v.currency, observedAt: v.observedAt, sourceUrl: v.url, observationId: v.obsId }, o.reportingCurrency, o.fx, o.now, o.staleAfterHours);
+    buildPriceView({ amount: v.price, compareAt: v.compareAt, currency: v.currency, observedAt: v.observedAt, sourceUrl: pageLink(v), observationId: v.obsId }, o.reportingCurrency, o.fx, o.now, o.staleAfterHours);
 
   const rows: ComparisonRow[] = [];
   for (const [sourceVariantId, ms] of bySource) {
@@ -105,7 +109,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       if (m.matchClass === 'comparable') caveats.push('Different product or brand; compare unit prices only');
       const offer = offerBy.get(cv.id);
       cells.push({
-        siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: cv.url,
+        siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: pageLink(cv),
         matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, confidence: m.confidence, reasons: m.reasons, price, availability: cv.availability, unitPrice: unit,
         diffAbs, diffPct, unitDiffPct, directlyComparable: m.matchClass === 'identical' && confirmed && bothPriced,
         offerSummary: offer ? `On sale: was ${formatMoney(offer.originalPrice, offer.currency)}, now ${formatMoney(offer.salePrice, offer.currency)}${offer.claimedDiscountPct ? ` (claims ${offer.claimedDiscountPct}% off; ${offer.verification === 'verified' ? 'verified by history' : 'not historically verified'})` : ''}` : null,
@@ -123,7 +127,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       position = min === max ? 'tied' : sourcePrice.normalized === min ? 'cheapest' : sourcePrice.normalized === max ? 'highest' : 'middle';
     }
     rows.push({
-      sourceVariantId, sourceProductId: sv.productId, title: sv.title, variantTitle: sv.variantTitle, brand: sv.brand, category: sv.category, sizeLabel: sv.qtyLabel, url: sv.url,
+      sourceVariantId, sourceProductId: sv.productId, title: sv.title, variantTitle: sv.variantTitle, brand: sv.brand, category: sv.category, sizeLabel: sv.qtyLabel, url: pageLink(sv),
       sourcePrice, sourceAvailability: sv.availability, sourceUnitPrice: sourceUnit, cells, position,
     });
   }

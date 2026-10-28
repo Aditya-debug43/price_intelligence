@@ -48,7 +48,8 @@ export interface ComparisonCell {
   productId: string;
   title: string;
   variantTitle: string | null;
-  url: string;
+  /** The page this product was collected from, on its own website; `null` when none is stored or it cannot be verified (never a guess). */
+  url: string | null;
   matchId: string;
   matchClass: MatchClass;
   matchStatus: MatchStatus;
@@ -75,7 +76,8 @@ export interface ComparisonRow {
   brand: string | null;
   category: string | null;
   sizeLabel: string | null;
-  url: string;
+  /** Your own product page (see `ComparisonCell.url`). */
+  url: string | null;
   sourcePrice: PriceView;
   sourceAvailability: Availability;
   sourceUnitPrice: UnitPriceView;

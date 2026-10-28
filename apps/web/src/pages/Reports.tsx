@@ -4,7 +4,7 @@ import { formatDateTime, formatMoney, formatPct, type ReportData } from '@ci/sha
 import { api, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { MarketingSummaryCard } from '../social';
-import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Icon, PageHead, Pct, PriceTag, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
+import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Icon, PageHead, Pct, PriceTag, SourceLink, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
 import type { ReportListItem, ReportRecord } from '../types';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -200,8 +200,8 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
                 <tbody>{data.comparisons.slice(0, 150).map((row) => (
                   <tr key={row.sourceVariantId}>
                     <td><div className="title">{row.title}</div><div className="sub">{[row.brand, row.sizeLabel].filter(Boolean).join(' · ')}</div></td>
-                    <td><PriceTag you site="Your shop" price={row.sourcePrice} unit={row.sourceUnitPrice} reporting={reporting} availability={row.sourceAvailability} /></td>
-                    <td><div className="row" style={{ alignItems: 'flex-start' }}>{row.cells.map((c) => <div key={c.variantId} style={{ width: 170 }}><PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting} matchLabel={`${c.matchClass === 'identical' ? 'same' : c.matchClass === 'different_pack' ? 'pack' : 'similar'} ${Math.round(c.confidence * 100)}%`} availability={c.availability} offer={c.offerSummary} /></div>)}</div></td>
+                    <td><PriceTag you site="Your shop" price={row.sourcePrice} unit={row.sourceUnitPrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
+                    <td><div className="row" style={{ alignItems: 'flex-start' }}>{row.cells.map((c) => <div key={c.variantId} style={{ width: 170 }}><PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting} matchLabel={`${c.matchClass === 'identical' ? 'same' : c.matchClass === 'different_pack' ? 'pack' : 'similar'} ${Math.round(c.confidence * 100)}%`} availability={c.availability} offer={c.offerSummary} href={c.url ?? null} product={c.title} /></div>)}</div></td>
                   </tr>
                 ))}</tbody>
               </table></div>
@@ -234,7 +234,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
               <thead><tr><th>Product</th><th>State</th><th className="r">Quantity</th><th>Last seen</th></tr></thead>
               <tbody>{data.stock.map((s) => (
                 <tr key={s.variantId}>
-                  <td><div className="title">{s.title}</div><div className="sub">{[s.variantTitle, s.sku].filter(Boolean).join(' · ')}</div></td>
+                  <td><div className="title">{s.title}</div><div className="sub">{[s.variantTitle, s.sku].filter(Boolean).join(' · ')}</div><SourceLink href={s.url ?? null} product={s.title} /></td>
                   <td><span className={`pill ${s.state === 'low_stock' ? 'warn' : s.state === 'out_of_stock' ? 'bad' : s.state === 'in_stock' ? 'good' : ''}`}>{s.state.replace(/_/g, ' ')}</span><div className="sub" style={s.conflict ? { color: 'var(--amber)' } : undefined}>{s.note}</div></td>
                   <td className="r num">{s.quantity === null ? <span className="muted" title="Public websites don't reveal exact quantities">not available</span> : <>{s.quantity} <small className="muted">of threshold {s.threshold}</small></>}</td>
                   <td className="small">{s.stale && <span className="pill warn">stale </span>} <Age iso={s.observedAt} /></td>
@@ -258,10 +258,10 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
             <div className={`callout ${data.assortment.basis && (!data.assortment.basis.competitorsComplete || !data.assortment.basis.sourceComplete) ? 'warn' : 'info'}`}>{data.assortment.note}</div>
             <div className="grid2">
               <Card title={`At competitors, no equivalent found at your shop (${data.assortment.competitorOnly.length})`} pad={false}>
-                <table className="table"><tbody>{data.assortment.competitorOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.siteName}{a.category ? ` · ${a.category}` : ''}</div></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
+                <table className="table"><tbody>{data.assortment.competitorOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.siteName}{a.category ? ` · ${a.category}` : ''}</div><SourceLink href={a.url ?? null} product={a.title} /></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
               </Card>
               <Card title={`At your shop, no equivalent found at competitors (${data.assortment.sourceOnly.length})`} pad={false}>
-                <table className="table"><tbody>{data.assortment.sourceOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.category}</div></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
+                <table className="table"><tbody>{data.assortment.sourceOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.category}</div><SourceLink href={a.url ?? null} product={a.title} /></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
               </Card>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type SiteStatusView, CAPABILITY_EXPLANATIONS, CAPABILITY_LABELS, PROVENANCE_HELP, PROVENANCE_LABELS, formatAge, formatDateTime, formatMoney, formatPct, type PriceView, type Provenance, type UnitPriceView } from '@ci/shared';
+import { type SiteStatusView, CAPABILITY_EXPLANATIONS, CAPABILITY_LABELS, PROVENANCE_HELP, PROVENANCE_LABELS, formatAge, formatDateTime, formatMoney, formatPct, sourceLink, type PriceView, type Provenance, type UnitPriceView } from '@ci/shared';
 import { ApiError, errorMessage } from './api';
 
 // ───────────────────────────────────────────────────────────── icons
@@ -316,7 +316,7 @@ export function Pct({ value, invert }: { value: number | null | undefined; inver
  * The shelf-edge price tag: shows the price AS DISPLAYED (original currency), the unit-price strip, how it compares, and when it
  * was last observed. Stale observations get a dashed border and are never styled as fresh.
  */
-export function PriceTag({ site, price, unit, diffPct, unitDiffPct, directlyComparable, you, stale, matchLabel, href, note, availability, offer, reporting }: {
+export function PriceTag({ site, price, unit, diffPct, unitDiffPct, directlyComparable, you, stale, matchLabel, href, product, availability, offer, reporting }: {
   site: string;
   price: PriceView;
   unit?: UnitPriceView;
@@ -326,8 +326,10 @@ export function PriceTag({ site, price, unit, diffPct, unitDiffPct, directlyComp
   you?: boolean;
   stale?: boolean;
   matchLabel?: string;
-  href?: string;
-  note?: string;
+  /** The product's own page at this shop: a string, or `null` when none is known. Leave it out to show no link row at all. */
+  href?: string | null;
+  /** The product's name, used to describe the link to assistive technology. */
+  product?: string;
   availability?: string;
   offer?: string | null;
   reporting: string;
@@ -366,12 +368,8 @@ export function PriceTag({ site, price, unit, diffPct, unitDiffPct, directlyComp
           {isStale && <span className="stale-mark" title="Older than the freshness window — shown with its original observation time">stale · </span>}
           <Age iso={price.observedAt} />
         </span>
-        {href && (
-          <a href={href} target="_blank" rel="noreferrer noopener" title={`Open the source page${note ? ` — ${note}` : ''}`}>
-            source ↗
-          </a>
-        )}
       </div>
+      {href !== undefined && <div className="ptag-link"><SourceLink href={href} product={product} /></div>}
       {offer && <div className="ptag-foot" style={{ background: 'var(--tag-wash)', color: 'var(--ink-2)' }}>{offer}</div>}
     </div>
   );
@@ -395,6 +393,35 @@ export const pct = formatPct;
 export const fmtDate = (iso: string | null | undefined) => formatDateTime(iso);
 
 export const ArrowIcon = () => <span aria-hidden="true">↗</span>;
+
+/**
+ * "Open this product at its own shop", so a price can be checked against the real page. `href` is the page the product was
+ * collected from. A missing, damaged or unsafe address is shown as "No page link", never as a link, so nobody is sent to a page
+ * that does not match the price on the screen. The visible words name the website the link opens, and the link opens in a new tab.
+ */
+export function SourceLink({ href, product, text }: { href: string | null | undefined; product?: string; text?: string }) {
+  const link = sourceLink(href);
+  if (!link) {
+    return (
+      <span className="srclink none" title="Shelfwatch has no verified page address for this product, so it cannot be opened on the shop's website.">
+        No page link
+      </span>
+    );
+  }
+  const visible = text ?? `View on ${link.host}`;
+  return (
+    <a
+      className="srclink"
+      href={link.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${visible}${product ? `: ${product}` : ''} (opens ${link.host} in a new tab)`}
+      title={`Open this product on ${link.host} to check it yourself — ${link.href}`}
+    >
+      <span className="srclink-text">{text ?? <>View on <b>{link.host}</b></>}</span> <ArrowIcon />
+    </a>
+  );
+}
 
 export const COMMON_ZONES = ['America/Aruba', 'America/Curacao', 'America/Bogota', 'America/Panama', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'America/Mexico_City', 'America/Sao_Paulo', 'Europe/Amsterdam', 'Europe/London', 'UTC'];
 export const PLATFORM_LABEL: Record<string, string> = { site: 'Website', facebook: 'Facebook', instagram: 'Instagram', youtube: 'YouTube', shopify: 'Shopify' };

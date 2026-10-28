@@ -4,7 +4,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { formatDateTime, formatMoney } from '@ci/shared';
 import { api, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { Age, ArrowIcon, Card, DataState, EmptyState, PageHead, Pager, ProvenancePill, useToast } from '../ui';
+import { Age, Card, DataState, EmptyState, PageHead, Pager, ProvenancePill, SourceLink, useToast } from '../ui';
 import { UncollectedList, useCollectedCompetitors, useUncollected } from '../uncollected';
 
 interface ProductRow { variantId: string; productId: string; siteId: string; siteName: string; role: string; title: string; variantTitle: string | null; brand: string | null; category: string | null; price: number | null; compareAt: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; sku: string | null; gtin: string | null; sizeLabel: string | null; method: string; firstSeenAt: string; stale: boolean; }
@@ -54,7 +54,7 @@ export function ProductsPage() {
                       <td><span className={`pill ${r.availability === 'in_stock' ? 'good' : r.availability === 'out_of_stock' ? 'bad' : r.availability === 'unknown' ? '' : 'warn'}`}>{r.availability.replace(/_/g, ' ')}</span></td>
                       <td className="small">{r.gtin ?? ''}{r.gtin && r.sku ? ' · ' : ''}{r.sku ?? (r.gtin ? '' : '—')}</td>
                       <td className="small">{r.stale && <span className="pill warn">stale </span>} <Age iso={r.observedAt} /></td>
-                      <td className="small"><a href={r.url} target="_blank" rel="noreferrer noopener">{r.method} <ArrowIcon /></a></td>
+                      <td className="small"><div>{r.method}</div><SourceLink href={r.url} product={r.title} text="Open page" /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -124,7 +124,7 @@ function Body({ d, orgId, isAdmin, thr, setThr, onSave }: { d: Detail; orgId: st
         eyebrow={`${p.role === 'source' ? 'Your product' : 'Competitor product'} · ${p.siteName}`}
         docTitle={p.title}
         title={<>{p.title}</>}
-        subtitle={<><a href={p.canonicalUrl} target="_blank" rel="noreferrer noopener">Open the product page <ArrowIcon /></a>{p.brand ? ` · ${p.brand}` : ''}{p.category ? ` · ${p.category}` : ''}{p.delistedAt && <span className="pill bad" style={{ marginLeft: 8 }}>apparently delisted {formatDateTime(p.delistedAt)}</span>}</>}
+        subtitle={<><SourceLink href={p.canonicalUrl} product={p.title} text="Open the product page" />{p.brand ? ` · ${p.brand}` : ''}{p.category ? ` · ${p.category}` : ''}{p.delistedAt && <span className="pill bad" style={{ marginLeft: 8 }}>apparently delisted {formatDateTime(p.delistedAt)}</span>}</>}
       />
       <div className="stack">
         <Card title="Variants and current prices" pad={false}>

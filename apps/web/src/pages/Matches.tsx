@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { formatDateTime } from '@ci/shared';
 import { api, errorMessage, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { Age, ArrowIcon, Card, DataState, EmptyState, Modal, PageHead, Pager, Tabs, useToast } from '../ui';
+import { Age, Card, DataState, EmptyState, Modal, PageHead, Pager, SourceLink, Tabs, useToast } from '../ui';
 
 interface MatchRow {
   id: string; matchClass: string; confidence: number; status: string; method: string; reasons: string[]; decidedByPerson: boolean;
@@ -163,7 +163,7 @@ function SideBySide({ m }: { m: MatchRow }) {
               const differs = !!a && !!b && a.toLowerCase() !== b.toLowerCase() && !['Price', 'Last observed', 'Availability'].includes(k);
               return <tr key={k}><td className="muted small">{k}</td><td style={differs ? { background: 'var(--amber-wash, #fff4c2)' } : undefined}>{a || <span className="muted">not published</span>}</td><td style={differs ? { background: 'var(--amber-wash, #fff4c2)' } : undefined}>{b || <span className="muted">not published</span>}</td></tr>;
             })}
-            <tr><td className="muted small">Source page</td><td><a href={m.sourceUrl} target="_blank" rel="noreferrer noopener">open <ArrowIcon /></a></td><td><a href={m.competitorUrl} target="_blank" rel="noreferrer noopener">open <ArrowIcon /></a></td></tr>
+            <tr><td className="muted small">Source page</td><td><SourceLink href={m.sourceUrl} product={m.sourceTitle} /></td><td><SourceLink href={m.competitorUrl} product={m.competitorTitle} /></td></tr>
           </tbody>
         </table>
       </div>
@@ -202,7 +202,7 @@ function ChooseProduct({ row, onClose }: { row: MatchRow; onClose: () => void })
                     <tr key={c.variantId}>
                       <td>
                         <div className="title">{c.title}{c.variantTitle ? ` — ${c.variantTitle}` : ''}</div>
-                        <div className="sub">{[c.brand, c.sizeLabel, c.sku].filter(Boolean).join(' · ')} · <b className="num">{money(c.price, c.currency)}</b> · {c.availability.replace(/_/g, ' ')} · <Age iso={c.observedAt} /> · <a href={c.url} target="_blank" rel="noreferrer noopener">page <ArrowIcon /></a></div>
+                        <div className="sub">{[c.brand, c.sizeLabel, c.sku].filter(Boolean).join(' · ')} · <b className="num">{money(c.price, c.currency)}</b> · {c.availability.replace(/_/g, ' ')} · <Age iso={c.observedAt} /> · <SourceLink href={c.url} product={c.title} text="Open page" /></div>
                         {c.suggestion && <div className="small muted">Suggested as {CLASS_LABEL[c.suggestion.matchClass] ?? c.suggestion.matchClass} ({Math.round(c.suggestion.confidence * 100)}%): {c.suggestion.reasons.slice(0, 2).join(' · ')}</div>}
                       </td>
                       <td className="r"><button className="btn btn-sm btn-primary" disabled={choose.isPending || c.variantId === row.competitorVariantId} onClick={() => choose.mutate(c)}>{c.variantId === row.competitorVariantId ? 'Current suggestion' : 'Use this product'}</button></td>

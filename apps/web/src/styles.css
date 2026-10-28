@@ -192,11 +192,19 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .ptag-strip.down { background: var(--palm-wash); color: #14684a; }
 .ptag-strip.na { background: var(--slate-wash); color: var(--mute); }
 .ptag-foot { padding: 3px 7px; border-top: 1px dashed var(--line); display: flex; justify-content: space-between; gap: 6px; color: var(--mute); font-size: 11.5px; }
+.ptag-link { padding: 4px 7px; border-top: 1px dashed var(--line); display: flex; min-width: 0; }
 .ptag.stale { border-style: dashed; border-color: var(--faint); }
 .ptag.stale .ptag-price { color: var(--mute); }
 .ptag.you { border-color: var(--lagoon); box-shadow: 0 0 0 2px var(--lagoon-wash); }
 .ptag.empty { border-style: dashed; border-color: var(--line); color: var(--mute); min-height: 78px; display: grid; place-items: center; text-align: center; padding: 6px; }
 .stale-mark { color: var(--amber); font-weight: 700; }
+
+/* ── link to the product's page at its own shop ──────────── */
+.srclink { display: inline-block; max-width: 100%; min-width: 0; font-size: 12px; font-weight: 600; line-height: 1.25; text-decoration: none; overflow-wrap: anywhere; }
+/* The website's name is the point of the link, so it wraps rather than being cut short. */
+.srclink b { font-weight: 700; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a.srclink:hover b { text-decoration-thickness: 2px; }
+.srclink.none { color: var(--mute); font-weight: 500; font-style: italic; cursor: help; }
 
 /* ── standing bar ────────────────────────────────────────── */
 .standing { display: flex; height: 34px; border-radius: 4px; overflow: hidden; border: 1.5px solid var(--ink); background: #fff; }

@@ -80,7 +80,7 @@ export function PricesPage() {
                         <div className="sub">{[row.brand, row.sizeLabel, row.category].filter(Boolean).join(' · ')}</div>
                         {row.position !== 'no_data' && <span className={`pill ${row.position === 'cheapest' ? 'good' : row.position === 'highest' ? 'bad' : ''}`} style={{ marginTop: 4 }}>{row.position === 'cheapest' ? 'Cheapest' : row.position === 'highest' ? 'Most expensive' : row.position === 'tied' ? 'Tied' : 'In the middle'}</span>}
                       </td>
-                      <td><PriceTag you site="Your shop" price={row.sourcePrice} unit={row.sourceUnitPrice} reporting={reporting} availability={row.sourceAvailability} href={row.url} /></td>
+                      <td><PriceTag you site="Your shop" price={row.sourcePrice} unit={row.sourceUnitPrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
                       {shownSites.map((s) => {
                         const c = row.cells.find((x) => x.siteId === s.id);
                         if (!c) {
@@ -93,7 +93,7 @@ export function PricesPage() {
                         return (
                           <td key={s.id}>
                             <PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
-                              matchLabel={`${c.matchClass === 'identical' ? 'same' : c.matchClass === 'different_pack' ? 'pack' : 'similar'} ${Math.round(c.confidence * 100)}%`} href={c.url} availability={c.availability} offer={c.offerSummary} note={c.title} />
+                              matchLabel={`${c.matchClass === 'identical' ? 'same' : c.matchClass === 'different_pack' ? 'pack' : 'similar'} ${Math.round(c.confidence * 100)}%`} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
                             {(c.caveats.length > 0 || c.reasons.length > 0) && (
                               <details className="ev">
                                 <summary>{c.matchStatus === 'needs_review' ? 'Unconfirmed match — why?' : 'Why this match?'}</summary>

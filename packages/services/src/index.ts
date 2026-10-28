@@ -16,6 +16,7 @@ export * from './stock.ts';
 export * from './ingest.ts';
 export * from './scan.ts';
 export * from './matching.ts';
+export * from './source-url.ts';
 export * from './comparison.ts';
 export * from './coverage.ts';
 export * from './report.ts';

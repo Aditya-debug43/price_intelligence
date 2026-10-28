@@ -16,6 +16,18 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
+# Update 11 — directive of 2026-10-28: every price card links to the product's own page at its own website (CURRENT STATE — read with Updates 5–10)
+
+Verbatim directive: `docs/original-prompt/11_DIRECTIVE_PRODUCT_LINKS_2026-10-28.md` (the owner's professor: "customers should be able to click a product or its price card and open that exact product on the original website"). Details: `docs/verification-report.md` ("Product page links"), `docs/WORK_LOG.md` (directive 11).
+
+- **Where the addresses come from (already true before this change):** collection stores the page each product and price was read from in `variants.url` (one per variant; Shopify `…/products/<handle>?variant=<id>`, WooCommerce the product permalink without a trailing slash, other sites the page itself); `products.canonical_url` is the identity `(site, canonical url)`. Every collection refreshes `variants.url`. Matching joins variants, so a matched pair always carries its own two addresses; saved reports are immutable snapshots that already held every row's and card's `url`. In the owner's local data all 7,959 variants have a valid on-site `http(s)` address and the 2,053 matched pairs have distinct addresses on their own websites. The Price Comparison page showed a vague "source ↗" and the report's Prices tab (the owner's screenshot) showed nothing.
+- **Changed:** `packages/shared/src/source-link.ts` (`safeSourceUrl`/`sourceLink`: web addresses only, no credentials, no spaces or control characters, ≤ 2,048 characters, never a front page); `packages/services/src/source-url.ts` + `loadComparison` (a row's/card's `url` is the stored address only if it is safe **and on the product's own website**, otherwise `null`; `PriceView.sourceUrl` follows; prices, differences, matching and ranking are untouched); `ComparisonRow.url`/`ComparisonCell.url` are now `string | null` and the CSV/Excel export writes an empty cell for `null`; the web `SourceLink` component and a link row on every `PriceTag` ("View on quickmartaruba.com ↗": opens in a new tab with `rel="noopener noreferrer"`, names the website and the product for assistive technology, visible focus ring) on the live Price Comparison and the report's Prices tab; the same safe link replaces the ad-hoc anchors in Match review (both sides and candidates), Products, My Stock and the report's stock and assortment lists. A missing, damaged or foreign address shows **"No page link"**, never a link, never another shop's page.
+- **Compatibility:** the new website works with the older backend (the addresses are the same strings; the website applies the safety rule itself) and an old report snapshot without an address shows "No page link". The server-side "own website" check only exists once the backend is updated.
+- **Verified:** typecheck, lint (0 errors), build, the full suite; red/green proofs; real-data browser check; a bounded, polite comparison of 26 stored addresses with the real pages (20 reached and correct, 6 Quickmart pages unreachable from this computer). Numbers and honest limits in the verification report.
+- **Not claimed:** the backend on EC2 is not updated (SSH still blocked — see Update 10); no logged-in check of the production website was possible (no credentials for the owner's account).
+
+---
+
 # Update 10 — directive of 2026-10-28: why 2,385 in Shelfwatch against 3,116 in the Shopify admin (CURRENT STATE — read with Updates 5–9)
 
 Verbatim directive: `docs/original-prompt/10_DIRECTIVE_PRODUCT_COUNT_MISMATCH_2026-10-28.md`. Details: `docs/verification-report.md` ("Product count reconciliation"), `docs/WORK_LOG.md` (directive 10).
