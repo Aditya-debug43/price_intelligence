@@ -1,8 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { detectUniformCompareAt, parseQuantity, reinterpretOzForBeverage, sizeHintOf, type UniformCompareAt } from '@ci/core';
+import { detectUniformCompareAt, isStorableCount, isStorableMoney, parseQuantity, reinterpretOzForBeverage, sizeHintOf, type UniformCompareAt } from '@ci/core';
 import type { ConnectorBatch, EvidenceDoc, ExtractedProduct, ExtractedVariant } from '@ci/connectors';
 import { offers, priceObservations, products, stockObservations, variants, type DbLike, type Db } from '@ci/database';
 import type { Services } from './context.ts';
+import { describeDatabaseError } from './db-errors.ts';
 import { recordEvidence } from './evidence.ts';
 import { tagContext } from './matching.ts';
 import { trackSalePrice } from './promotions.ts';
@@ -27,6 +28,23 @@ export interface IngestContext {
   alertIds: string[];
   /** Once one batch of a run shows a standing "regular price" display, the rest of the run is treated the same (a short last batch cannot show the pattern on its own). */
   uniformCompareAt?: UniformCompareAt;
+  /** Values the shop published that cannot be stored and were left out (the product itself was saved). Read by the scan when the run ends. */
+  leftOut?: LeftOutValue[];
+  /** Products the database refused and that were skipped, with its reason. A run with any of these is never reported as complete. */
+  skipped?: SkippedProduct[];
+}
+
+/** An amount or count in the shop's own data that is not a usable number (or too large for the database), left out instead of stored. */
+export interface LeftOutValue {
+  url: string;
+  what: string;
+  value: number;
+}
+
+export interface SkippedProduct {
+  url: string;
+  title: string;
+  reason: string;
 }
 
 export interface IngestResult {
@@ -64,6 +82,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
   const list = dedupe(batch.products);
   // A price of 0 is not a price: it is how a shop lists a gift card whose amount the buyer chooses, or an item that is not for sale. Stored as "no price".
   for (const p of list) for (const v of p.variants) if (v.price !== null && v.price <= 0) { v.price = null; v.compareAtPrice = null; }
+  leaveOutUnstorable(ic, list);
   const uniformCompareAt = detectUniformCompareAt(list.flatMap((p) => p.variants.map((v) => ({ price: v.price, compareAt: v.compareAtPrice })))) ?? ic.uniformCompareAt;
   if (uniformCompareAt) ic.uniformCompareAt = uniformCompareAt;
   const evidenceIds: string[] = [];
@@ -73,8 +92,72 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
     evidenceIds.push(await recordEvidence(svc, svc.db, { orgId: site.orgId, siteId: site.id, doc: doc as EvidenceDoc, method, version: list[0]?.methodVersion ?? null }));
   }
   if (!list.length) return { products: 0, variants: 0, newProducts: 0, evidenceIds };
-  const result = (r: IngestResult): IngestResult => ({ ...r, ...(uniformCompareAt ? { uniformCompareAt } : {}) });
+  const withUniform = (r: IngestResult): IngestResult => ({ ...r, ...(uniformCompareAt ? { uniformCompareAt } : {}) });
 
+  // The whole batch is saved in ONE transaction (fast, and nothing half-saved). If the database refuses the data of some product, that transaction is
+  // rolled back completely and the products are saved one at a time instead, so that only the product the database refuses is skipped (and reported)
+  // rather than the whole catalogue failing. Anything that is not about this data (connection lost, disk full) still stops the run.
+  const alertMark = ic.alertIds.length;
+  try {
+    return withUniform(await saveBatch(ic, list, evidenceIds, uniformCompareAt));
+  } catch (e) {
+    ic.alertIds.length = alertMark; // alerts raised inside the rolled-back transaction do not exist
+    if (!describeDatabaseError(e)?.rowData) throw e;
+  }
+  const total: IngestResult = { products: 0, variants: 0, newProducts: 0, evidenceIds };
+  for (const p of list) {
+    const mark = ic.alertIds.length;
+    try {
+      const r = await saveBatch(ic, [p], evidenceIds, uniformCompareAt);
+      total.products += r.products;
+      total.variants += r.variants;
+      total.newProducts += r.newProducts;
+    } catch (e) {
+      ic.alertIds.length = mark;
+      const failure = describeDatabaseError(e);
+      if (!failure?.rowData) throw e;
+      (ic.skipped ??= []).push({ url: p.url, title: p.title, reason: failure.message });
+      ic.svc.log.warn('product skipped: the database refused its data', { scanRunId: ic.scanRunId, url: p.url, code: failure.code, column: failure.column ?? null });
+    }
+  }
+  return withUniform(total);
+}
+
+/**
+ * Amounts and counts that are not usable numbers, or that no database column can hold, are left out (stored as "unknown", never clamped, rounded or
+ * invented) and remembered so the run can say which value of which product was left out. A price that cannot be stored takes its compare-at price with
+ * it (a "was" price without a price means nothing). The rest of the product is saved normally.
+ */
+function leaveOutUnstorable(ic: IngestContext, list: ExtractedProduct[]): void {
+  for (const p of list) {
+    for (const v of p.variants) {
+      const leave = (what: string, value: number) => (ic.leftOut ??= []).push({ url: v.url, what, value });
+      if (v.price !== null && !isStorableMoney(v.price)) {
+        leave('price', v.price);
+        v.price = null;
+        v.compareAtPrice = null;
+      }
+      if (v.compareAtPrice !== null && !isStorableMoney(v.compareAtPrice)) {
+        leave('compare-at price', v.compareAtPrice);
+        v.compareAtPrice = null;
+      }
+      if (v.shippingCost !== null && !isStorableMoney(v.shippingCost)) {
+        leave('shipping cost', v.shippingCost);
+        v.shippingCost = null;
+      }
+      if (v.quantity !== null && !isStorableCount(v.quantity)) {
+        leave('stock quantity', v.quantity);
+        v.quantity = null;
+        v.quantitySource = null;
+      }
+    }
+  }
+}
+
+/** Writes the given products (with their variants, observations, sale tracking and own-site stock) in a single transaction. */
+async function saveBatch(ic: IngestContext, list: ExtractedProduct[], evidenceIds: string[], uniformCompareAt: UniformCompareAt | undefined): Promise<IngestResult> {
+  const { svc, site } = ic;
+  const result = (r: IngestResult): IngestResult => ({ ...r, ...(uniformCompareAt ? { uniformCompareAt } : {}) });
   return svc.db.transaction(async (tx) => {
     const db = tx as unknown as DbLike;
     let newProducts = 0;
@@ -141,6 +224,7 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
       const evidenceId = evidenceIds[p.evidenceIndex] ?? null;
       for (const v of p.variants) {
         const qty = reinterpretOzForBeverage(parseQuantity(p.title, v.title, sizeHintOf(p.attrs)), `${p.title} ${p.category ?? ''} ${tagContext(p.attrs) ?? ''}`);
+        const qtyStorable = qty.total === null || isStorableMoney(qty.total);
         const ex = existingVariants.get(`${productId}|${v.variantKey}`);
         const currency = v.currency ?? site.currency ?? ex?.currency ?? null;
         const priceChanged = !ex || ex.price !== v.price || ex.currency !== currency;
@@ -149,9 +233,10 @@ export async function ingestBatch(ic: IngestContext, batch: ConnectorBatch): Pro
           gtin: v.gtin ?? ex?.gtin ?? null,
           title: v.title,
           options: v.options,
-          qtyKind: qty.kind === 'unknown' ? null : qty.kind,
-          qtyTotal: qty.total,
-          qtyLabel: qty.label,
+          // A size read from a text that is not a number the database can hold is not a size.
+          qtyKind: qty.kind === 'unknown' || !qtyStorable ? null : qty.kind,
+          qtyTotal: qtyStorable ? qty.total : null,
+          qtyLabel: qtyStorable ? qty.label : null,
           price: v.price,
           compareAtPrice: v.compareAtPrice,
           currency,

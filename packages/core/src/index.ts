@@ -24,3 +24,4 @@ export * from './smtp.ts';
 export * from './assortment.ts';
 export * from './brands.ts';
 export * from './terms.ts';
+export * from './storable.ts';

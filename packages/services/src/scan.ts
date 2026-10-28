@@ -10,12 +10,13 @@ import {
   type PageConnector,
   type SafeFetcher,
 } from '@ci/connectors';
-import { canonicalizeUrl, isPlaceholderBrand, placeholderBrandKeys } from '@ci/core';
+import { MAX_STORABLE_MONEY, canonicalizeUrl, isPlaceholderBrand, placeholderBrandKeys } from '@ci/core';
 import type { ScanKind, ScanStatus, SiteProfileData } from '@ci/shared';
 import { crawlQueue, dailyRuns, orgSettings, products, scanRuns, siteProfiles, sites, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { emailAlertDigest } from './alerts.ts';
-import { ingestBatch, type IngestContext, type IngestSite } from './ingest.ts';
+import { describeDatabaseError } from './db-errors.ts';
+import { ingestBatch, type IngestContext, type IngestSite, type LeftOutValue, type SkippedProduct } from './ingest.ts';
 import { capabilitiesOf, runProfile } from './profiling.ts';
 import { collectFlyers, expireOffers, sweepMissingSaleOffers } from './promotions.ts';
 import { recordCollectionOutcome } from './stock.ts';
@@ -99,8 +100,25 @@ function classify(e: unknown): { state: State; code: string; message: string; te
     if (e.code === 'budget') return { state: 'partial', code: 'request_budget', message: 'The request budget for this run was used up; the rest is collected on the next run.', terminal: true };
     return { state: 'failed', code: e.code, message: e.message, terminal: false };
   }
+  // A database refusal: say what the database said, never the SQL statement and the shop's values that the query layer puts in its message.
+  const db = describeDatabaseError(e);
+  if (db) return { state: 'failed', code: 'database_error', message: db.message, terminal: false };
   const code = (e as { code?: string }).code ?? 'error';
   return { state: 'failed', code, message: (e as Error).message ?? String(e), terminal: false };
+}
+
+/** What the run tells the owner about values in the website's own data that were left out instead of stored (the products themselves were saved). */
+function leftOutNotes(list: LeftOutValue[]): string[] {
+  if (!list.length) return [];
+  const lines = list.slice(0, 5).map((l) => `${l.url}: the ${l.what} ${l.value} is not a usable amount (prices must be numbers below ${MAX_STORABLE_MONEY.toLocaleString('en-US')}), so it was left out; the rest of the product was saved.`);
+  if (list.length > 5) lines.push(`…and ${list.length - 5} more such values.`);
+  return [`${list.length} value${list.length === 1 ? '' : 's'} in the website's own data could not be stored and ${list.length === 1 ? 'was' : 'were'} left out. The website's owner should correct ${list.length === 1 ? 'it' : 'them'} at the source.`, ...lines];
+}
+
+/** Which products the database refused, and why. */
+function skippedMessage(list: SkippedProduct[]): string {
+  const first = list.slice(0, 3).map((s) => `${s.url} (${s.reason})`).join('; ');
+  return `${list.length} product${list.length === 1 ? ' was' : 's were'} not saved because the database refused ${list.length === 1 ? 'its' : 'their'} data: ${first}${list.length > 3 ? `; and ${list.length - 3} more` : ''}. Everything else was saved.`;
 }
 
 /** Says once per run that a catalogue-wide "regular price" was seen and not counted as sales. */
@@ -414,11 +432,11 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
       .where(eq(crawlQueue.scanRunId, run.id));
     return q && q.total > 0 ? { urlsDiscovered: q.total, urlsFetched: q.read } : {};
   };
-  const finish = async (status: ScanStatus, o: { productsSaved: number; errorCode?: string; error?: string; notes: string[]; complete: boolean; connector: string | null; connectorVersion?: string | null; estimatedTotal?: number | null; requests?: number }) => {
+  const finish = async (status: ScanStatus, o: { productsSaved: number; errorCode?: string; error?: string; notes: string[]; complete: boolean; connector: string | null; connectorVersion?: string | null; estimatedTotal?: number | null; requests?: number; errors?: number }) => {
     const frontier = await frontierCounts();
     await svc.db
       .update(scanRuns)
-      .set({ ...frontier, status, finishedAt: svc.clock(), productsSaved: o.productsSaved, isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}) })
+      .set({ ...frontier, status, finishedAt: svc.clock(), productsSaved: o.productsSaved, isComplete: o.complete, errorCode: o.errorCode ?? null, error: o.error ?? null, notes: o.notes.slice(0, 20), connector: o.connector, connectorVersion: o.connectorVersion ?? null, estimatedTotal: o.estimatedTotal ?? run.estimatedTotal, ...(o.requests !== undefined ? { requestsMade: o.requests } : {}), ...(o.errors !== undefined ? { errorsCount: o.errors } : {}) })
       .where(eq(scanRuns.id, run.id));
     return { scanRunId: run.id, status, productsSaved: o.productsSaved, isComplete: o.complete, connector: o.connector } as ScanResult;
   };
@@ -508,6 +526,18 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     if (!outcome || !used) throw new Error('no connector ran');
     if (attempted.length > 1) outcome.notes.unshift(`Methods tried: ${attempted.join(' → ')}`);
 
+    // ── what the saving step had to leave out or skip (never hidden, and never counted as a complete catalogue)
+    const skipped = ic.skipped ?? [];
+    outcome.notes.unshift(...leftOutNotes(ic.leftOut ?? []));
+    if (skipped.length) {
+      outcome.notes.unshift(skippedMessage(skipped));
+      if (outcome.saved === 0 || !outcome.errorCode) {
+        outcome.errorCode = 'products_skipped';
+        outcome.error = skippedMessage(skipped);
+      }
+      if (outcome.state === 'complete') outcome.state = 'partial';
+    }
+
     // ── post-processing
     // Only a full enumeration may be used to infer that unseen products are gone.
     // A listing crawl re-reads every listing on a refresh, so a completed refresh is as full an enumeration as a discovery run.
@@ -529,13 +559,14 @@ async function executeScanInner(svc: Services, scanRunId: string): Promise<ScanR
     }
 
     const status: ScanStatus = outcome.state === 'complete' ? (run.kind === 'sample' ? 'partial' : 'succeeded') : outcome.state === 'blocked' ? 'blocked' : outcome.state === 'failed' ? 'failed' : 'partial';
-    const res = await finish(status, { productsSaved: outcome.saved, errorCode: outcome.errorCode, error: outcome.error, notes: outcome.notes, complete, connector: used.id, connectorVersion: used.version, estimatedTotal: outcome.estimatedTotal, requests: fetcher.requestsMade });
+    const res = await finish(status, { productsSaved: outcome.saved, errorCode: outcome.errorCode, error: outcome.error, notes: outcome.notes, complete, connector: used.id, connectorVersion: used.version, estimatedTotal: outcome.estimatedTotal, requests: fetcher.requestsMade, ...(skipped.length ? { errors: skipped.length } : {}) });
     await afterScan(svc, run, siteRef, res, outcome.error ?? null, alertIds);
     return res;
   } catch (e) {
     const c = classify(e);
-    svc.log.error('scan crashed', { scanRunId, error: (e as Error).message });
-    const res = await finish(c.state === 'blocked' ? 'blocked' : 'failed', { productsSaved: run.productsSaved, errorCode: c.code, error: c.message, notes: [], complete: false, connector: run.connector });
+    const dbFailure = describeDatabaseError(e);
+    svc.log.error('scan crashed', { scanRunId, error: c.message, ...(dbFailure ? { databaseCode: dbFailure.code, table: dbFailure.table ?? null, column: dbFailure.column ?? null } : {}) });
+    const res = await finish(c.state === 'blocked' ? 'blocked' : 'failed', { productsSaved: run.productsSaved, errorCode: c.code, error: c.message, notes: [], complete: false, connector: run.connector, requests: fetcher.requestsMade });
     await afterScan(svc, run, siteRef, res, c.message, alertIds);
     return res;
   } finally {

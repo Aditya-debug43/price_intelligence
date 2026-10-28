@@ -13,6 +13,7 @@ export * from './promotions.ts';
 export * from './profiling.ts';
 export * from './alerts.ts';
 export * from './stock.ts';
+export * from './db-errors.ts';
 export * from './ingest.ts';
 export * from './scan.ts';
 export * from './matching.ts';

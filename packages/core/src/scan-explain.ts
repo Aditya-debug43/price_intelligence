@@ -78,6 +78,8 @@ function explainCore(r: ScanRunFacts, queue: Record<string, number>): Omit<ScanE
       no_products_extracted: ['Pages were fetched but no product data could be read from them.', 'The pages may need JavaScript rendering, or the layout is not supported yet.'],
       all_pages_failed: ['None of the product pages could be read.', 'Check the details below for the errors, then try again.'],
       feed_unavailable: ['The product feed was unavailable.', 'Try again later.'],
+      products_skipped: ['The database refused the data of every product this run tried to save, so none were saved (the notes say which products and why).', 'This is about the data the website publishes, not about access. Fix the products named in the notes at the source, or ask the developer, then collect again.'],
+      database_error: [r.error ?? 'The database could not save the collected data.', 'Try again. If it keeps failing, the reason is in the notes and the server log.'],
       worker_lost: ['The collection stopped responding several times in a row and was abandoned. Everything collected before that is kept.', 'Try again. If it keeps happening, the website may be too large or too slow to read in one run.'],
     };
     const [reason, next] = byCode[r.errorCode ?? ''] ?? [r.error ?? 'The collection failed.', 'Try again; if it keeps failing, see the errors below.'];
@@ -106,6 +108,10 @@ function explainCore(r: ScanRunFacts, queue: Record<string, number>): Omit<ScanE
       break;
     case 'page_limit':
       reason = 'The run stopped at its page limit.';
+      break;
+    case 'products_skipped':
+      reason = 'The database refused the data of a few products, which were skipped; everything else was saved. The notes say which products and why.';
+      next = 'Fix those products at the source if their data is wrong, then collect again.';
       break;
     case 'feed_shorter_than_catalogue':
       reason = 'The product feed ended before the website’s own product sitemaps did, and the products it did not return could not all be read from their own pages (the notes say how many and which).';

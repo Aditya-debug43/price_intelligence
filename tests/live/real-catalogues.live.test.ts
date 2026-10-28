@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import fs from 'node:fs';
 import path from 'node:path';
 import { and, eq, isNull, sql } from 'drizzle-orm';
+import { isStorableMoney } from '@ci/core';
 import { evidence, exchangeRates, offers, priceObservations, products, scanRuns, variants } from '@ci/database';
 import { addSite, bulkAcceptMatches, ensureFxRates, exportReport, generateReport, loadAssortment, loadComparison, loadCoverage, loadFxTable, loadSiteMaps, runMatching, runProfile, setConsent, startScan } from '@ci/services';
 import type { ReportData } from '@ci/shared';
@@ -151,6 +152,8 @@ describe.skipIf(!SOURCE)('your websites, exhaustively', () => {
       const mismatches: string[] = [];
       let feedVariants = 0;
       let feedProducts = 0;
+      const zeroPriced: string[] = [];
+      const unstorable: string[] = []; // amounts in the website's own feed that no database column can hold: expected to be stored as unknown, and reported
       let kind = 'none';
       if (apis.includes('shopify_products_json')) {
         kind = 'shopify_products_json';
@@ -165,9 +168,16 @@ describe.skipIf(!SOURCE)('your websites, exhaustively', () => {
               feedVariants++;
               const row = dbByKey.get(String(v.id));
               if (!row) { mismatches.push(`variant ${v.id} of "${p.title}" is in the feed but not stored`); continue; }
-              const price = Number(v.price);
-              const cmp = v.compare_at_price !== null && Number(v.compare_at_price) > price ? Number(v.compare_at_price) : null;
-              if (row.price === null || Math.abs(row.price - price) > 0.005) mismatches.push(`price ${row.title}: stored ${row.price} feed ${price}`);
+              const feedPrice = Number(v.price);
+              // A price of 0 is not a price (a free gift line, or an amount the buyer chooses): stored as no price, with its compare-at price (existing rule).
+              const priceOk = isStorableMoney(feedPrice) && feedPrice > 0;
+              if (!priceOk && !(feedPrice <= 0 && feedPrice >= 0)) unstorable.push(`price ${feedPrice} on ${origin}/products/${p.handle}?variant=${v.id}`);
+              if (!priceOk && feedPrice === 0) zeroPriced.push(`${p.title}`);
+              const price = priceOk ? feedPrice : NaN;
+              const cmpRaw = priceOk && v.compare_at_price !== null && Number(v.compare_at_price) > price ? Number(v.compare_at_price) : null;
+              if (cmpRaw !== null && !isStorableMoney(cmpRaw)) unstorable.push(`compare-at price ${cmpRaw} on ${origin}/products/${p.handle}?variant=${v.id}`);
+              const cmp = cmpRaw !== null && isStorableMoney(cmpRaw) ? cmpRaw : null;
+              if (!priceOk ? row.price !== null : row.price === null || Math.abs(row.price - price) > 0.005) mismatches.push(`price ${row.title}: stored ${row.price} feed ${v.price}`);
               if ((row.compareAt === null) !== (cmp === null) || (row.compareAt !== null && cmp !== null && Math.abs(row.compareAt - cmp) > 0.005)) mismatches.push(`compare-at ${row.title}: stored ${row.compareAt} feed ${cmp}`);
               if (row.availability !== (v.available ? 'in_stock' : 'out_of_stock')) mismatches.push(`availability ${row.title}: stored ${row.availability} feed ${v.available}`);
               if (row.title !== p.title) mismatches.push(`title: stored "${row.title}" feed "${p.title}"`);
@@ -205,7 +215,7 @@ describe.skipIf(!SOURCE)('your websites, exhaustively', () => {
         info['wooFeedTotalHeader'] = total;
       }
       const stored = db.filter((r) => !r.delisted);
-      Object.assign(info, { feedCheck: { kind, feedProducts, feedVariants, storedProducts: new Set(stored.map((r) => r.url)).size, storedVariants: stored.length, mismatchCount: mismatches.length, examples: mismatches.slice(0, 25) } });
+      Object.assign(info, { feedCheck: { kind, feedProducts, feedVariants, unstorableInFeed: unstorable, zeroPricedInFeed: zeroPriced, storedProducts: new Set(stored.map((r) => r.url)).size, storedVariants: stored.length, mismatchCount: mismatches.length, examples: mismatches.slice(0, 25) } });
       if (kind !== 'none') {
         expect(mismatches.slice(0, 10), `${url}: stored catalogue differs from the website's own feed`).toEqual([]);
         expect(stored.length, `${url}: stored variants vs feed variants`).toBeGreaterThanOrEqual(feedVariants);
