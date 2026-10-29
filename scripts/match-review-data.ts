@@ -28,7 +28,7 @@ interface Pair { id: string; domain: string; sourceProductId: string; competitor
 const evalSet = JSON.parse(fs.readFileSync(path.join(root, 'fixtures/matching/eval-v1/eval-set.json'), 'utf8')) as { pairs: Pair[] };
 const mapping = JSON.parse(fs.readFileSync(path.join(root, 'fixtures/matching/eval-v1/second-review/mapping.json'), 'utf8')) as { pairs: { reviewId: string; id: string }[] };
 const byId = new Map(evalSet.pairs.map((p) => [p.id, p]));
-const SOURCE_SITE: Record<string, string> = { automotive: 'lasfit.com', grocery: 'groceriestogoaruba.com' };
+const SOURCE_SITE: Record<string, string> = { automotive: 'www.lasfit.com', grocery: 'groceriestogoaruba.com' };
 
 /** The two products of every pair in the sheet: id (production), website, title. */
 const wanted = new Map<string, { productId: string; site: string; title: string }>();
@@ -44,14 +44,14 @@ const SQL = `
 select coalesce(json_agg(r order by r."site", r."title"), '[]'::json) as records from (
   select p.id as "productId", w.product_id as "askedFor", s.hostname as "site", s.role as "role", p.title as "title", p.canonical_url as "url",
          p.brand as "brand", p.manufacturer as "manufacturer", p.model as "model", p.mpn as "mpn", p.category as "category", left(p.description, 700) as "description",
-         p.attrs as "attrs", p.last_seen_at as "lastSeenAt",
+         p.attrs as "attrs", p.last_seen_at as "lastSeenAt", p.delisted_at as "delistedAt",
          (select count(*)::int from variants v where v.product_id = p.id) as "variantCount",
          (select coalesce(json_agg(x), '[]'::json) from (
             select v.title as "title", v.sku as "sku", v.gtin as "gtin", v.options as "options", v.qty_label as "qtyLabel", v.qty_kind as "qtyKind", v.qty_total::float as "qtyTotal", v.url as "url"
             from variants v where v.product_id = p.id order by v.title limit 12) x) as "variants"
   from json_to_recordset($1::json) as w(product_id text, site text, title text)
   join sites s on s.hostname = w.site
-  join products p on p.site_id = s.id and p.delisted_at is null and (($2 = 'id' and p.id::text = w.product_id) or ($2 = 'title' and p.title = w.title))
+  join products p on p.site_id = s.id and (p.delisted_at is null or $2 = 'id') and (($2 = 'id' and p.id::text = w.product_id) or ($2 = 'title' and p.title = w.title))
   join organizations o on o.id = p.org_id
   where ($3 = '' or o.name = $3)
 ) r`;

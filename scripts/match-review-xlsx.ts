@@ -28,14 +28,14 @@ if (!rel.startsWith('..') && !path.isAbsolute(rel)) { console.error(`refusing to
 
 // ── input
 interface Variant { title: string | null; sku: string | null; gtin: string | null; options: Record<string, string> | null; qtyLabel: string | null; qtyKind: string | null; qtyTotal: number | null; url: string | null }
-interface Rec { productId: string; askedFor: string; site: string; title: string; url: string | null; brand: string | null; manufacturer: string | null; model: string | null; mpn: string | null; category: string | null; description: string | null; attrs: { tags?: string[] } | null; lastSeenAt: string | null; variantCount: number; variants: Variant[] }
+interface Rec { productId: string; askedFor: string; site: string; title: string; url: string | null; brand: string | null; manufacturer: string | null; model: string | null; mpn: string | null; category: string | null; description: string | null; attrs: { tags?: string[] } | null; lastSeenAt: string | null; delistedAt?: string | null; variantCount: number; variants: Variant[] }
 interface Pair { id: string; domain: 'automotive' | 'grocery'; sourceTitle: string; competitorTitle: string; competitorSite: string }
 const evalSet = JSON.parse(fs.readFileSync(path.join(root, 'fixtures/matching/eval-v1/eval-set.json'), 'utf8')) as { pairs: Pair[] };
 const mapping = JSON.parse(fs.readFileSync(path.join(root, 'fixtures/matching/eval-v1/second-review/mapping.json'), 'utf8')) as { pairs: { reviewId: string; id: string }[] };
 const pairById = new Map(evalSet.pairs.map((p) => [p.id, p]));
 const evalFull = evalSet.pairs as unknown as { id: string; sourceProductId: string; competitorProductId: string }[];
 const idsOf = new Map(evalFull.map((p) => [p.id, p]));
-const SOURCE_SITE = { automotive: 'lasfit.com', grocery: 'groceriestogoaruba.com' } as const;
+const SOURCE_SITE = { automotive: 'www.lasfit.com', grocery: 'groceriestogoaruba.com' } as const;
 
 const byAsked = new Map<string, { recs: Rec[]; source: string }>();
 for (const f of recordFiles) {
@@ -250,7 +250,10 @@ for (const m of mapping.pairs) {
 
   // what to check
   const todo: string[] = [];
-  for (const [side, who] of [[S, 'source'], [C, 'competitor']] as const) if (!side.link) todo.push(`no stored page link for the ${who} product: search its name on ${side.site}`);
+  for (const [side, who] of [[S, 'source'], [C, 'competitor']] as const) {
+    if (!side.link) todo.push(`no stored page link for the ${who} product: search its name on ${side.site}`);
+    if (side.rec?.delistedAt) todo.push(`the ${who} product was no longer listed on its website when last collected (${side.rec.delistedAt.slice(0, 10)}): its page may be gone`);
+  }
   const name = (n: string) => findAttr(attrs, n);
   if (S.status !== 'found' && C.status !== 'found') todo.push(p.domain === 'automotive' ? 'no stored details in this copy: read the brand, bulb code, vehicle years and pack from the two pages' : 'no stored details in this copy: read the brand, size and variety from the two pages');
   else if (name('Brand')?.result === 'Missing' && name('Barcode')?.result === 'Missing') todo.push(p.domain === 'automotive' ? 'brand and barcode are not stored: compare brand, bulb code and vehicle on the two pages' : 'brand and barcode are not stored: compare brand, flavour / variety and size on the two pages');
