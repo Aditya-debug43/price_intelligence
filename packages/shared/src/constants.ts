@@ -71,6 +71,65 @@ export type MatchClass = (typeof MATCH_CLASSES)[number];
 export const MATCH_STATUSES = ['auto', 'needs_review', 'accepted', 'rejected'] as const;
 export type MatchStatus = (typeof MATCH_STATUSES)[number];
 
+/**
+ * What two products are to each other (matching engine v2). These are kept apart on purpose: they are never folded into one similarity score.
+ *  exact        the same underlying product from different sellers
+ *  variant      the same product with a meaningful difference in pack quantity, size, colour or another variant attribute
+ *  substitute   a different product that can stand in for the other, with the important differences stated
+ *  related      associated (an adapter for a bulb, a lid for a pot) but not interchangeable
+ *  non_match    genuinely different, or decisively incompatible
+ *  insufficient the information available does not support a reliable conclusion
+ */
+export const MATCH_RELATIONSHIPS = ['exact', 'variant', 'substitute', 'related', 'non_match', 'insufficient'] as const;
+export type MatchRelationship = (typeof MATCH_RELATIONSHIPS)[number];
+
+/** How much independent evidence stands behind a suggestion. Deliberately not a percentage: no number is shown until scores are calibrated on reviewed pairs. */
+export const EVIDENCE_TIERS = ['strong', 'medium', 'insufficient'] as const;
+export type EvidenceTier = (typeof EVIDENCE_TIERS)[number];
+
+export const EVIDENCE_KINDS = ['identifier', 'brand', 'identity_code', 'fitment', 'product_type', 'size', 'pack', 'colour', 'spec', 'name', 'exclusion', 'bundle', 'variant'] as const;
+export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
+
+/** One fact behind a suggestion, in the order a reviewer reads it. `conflicts` is a decisive incompatibility; `differs` is a difference that matters but does not decide. */
+export interface EvidenceItem {
+  kind: EvidenceKind;
+  effect: 'supports' | 'conflicts' | 'differs' | 'missing';
+  strength: 'strong' | 'moderate' | 'weak';
+  text: string;
+  /** The two values, as written in each product, when there are values to show. */
+  a?: string | null;
+  b?: string | null;
+}
+
+export interface MatchEvidence {
+  items: EvidenceItem[];
+  /** One plain sentence: why this was suggested and what weakens it. */
+  summary: string;
+  /** Independent agreeing signals (identifiers, identity codes, fitment, specs, product type, name). */
+  signals: number;
+}
+
+/** The relationships a person can state when they decide (the machine never states "non_match" as a suggestion; a rejection records it). */
+export const DECIDABLE_RELATIONSHIPS = ['exact', 'variant', 'substitute', 'related'] as const;
+export type DecidableRelationship = (typeof DECIDABLE_RELATIONSHIPS)[number];
+
+/** Rows written before engine v2 carry only a class: this is what each class meant. */
+export function relationshipOfClass(c: MatchClass): MatchRelationship {
+  return c === 'identical' ? 'exact' : c === 'different_pack' ? 'variant' : c === 'comparable' ? 'substitute' : 'non_match';
+}
+
+/** The class older readers understand. A relationship they have no place for ("related", "insufficient") is stored as not_comparable, so it can never be shown as a comparison. */
+export function classOfRelationship(r: MatchRelationship): MatchClass {
+  return r === 'exact' ? 'identical' : r === 'variant' ? 'different_pack' : r === 'substitute' ? 'comparable' : 'not_comparable';
+}
+
+/** Which relationships feed the default Price Comparison (only after a person confirms them) and which feed the separate substitute view. */
+export const PRICE_COMPARISON_RELATIONSHIPS: readonly MatchRelationship[] = ['exact', 'variant'];
+export const SUBSTITUTE_RELATIONSHIPS: readonly MatchRelationship[] = ['substitute'];
+
+export const MATCHING_ENGINES = ['v1', 'v2_shadow', 'v2'] as const;
+export type MatchingEngine = (typeof MATCHING_ENGINES)[number];
+
 export const SCAN_STATUSES = ['queued', 'running', 'succeeded', 'partial', 'failed', 'blocked', 'cancelled'] as const;
 export type ScanStatus = (typeof SCAN_STATUSES)[number];
 

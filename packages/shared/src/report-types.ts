@@ -5,7 +5,9 @@ import type {
   MarketingClassification,
   MarketingKind,
   MarketingPlatform,
+  EvidenceTier,
   MatchClass,
+  MatchRelationship,
   MatchStatus,
   OfferKind,
   OfferReviewStatus,
@@ -53,8 +55,17 @@ export interface ComparisonCell {
   matchId: string;
   matchClass: MatchClass;
   matchStatus: MatchStatus;
+  /** What a person confirmed these two products to be (exact / variant / substitute). */
+  relationship: MatchRelationship;
+  /** The strength of the evidence when it was suggested; null for a pair chosen by hand or confirmed before evidence was recorded. */
+  tier: EvidenceTier | null;
+  /** Not a percentage: a stored ranking number kept for ordering older records only. */
   confidence: number;
   reasons: string[];
+  /** What differs between the two products, in plain words, to read before relying on the comparison. */
+  differences: string[];
+  /** A product changed since the person confirmed this pair; the confirmation stands but is worth a second look. */
+  needsReevaluation: boolean;
   price: PriceView;
   availability: Availability;
   unitPrice: UnitPriceView;

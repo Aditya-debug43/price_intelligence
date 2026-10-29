@@ -264,6 +264,7 @@ describe('intelligence endpoints', () => {
     expect((await owner.post(`${base()}/matches/run`)).status).toBe(202);
     await h.queue.drain();
     const all = (await owner.get(`${base()}/matches?pageSize=500`)).body;
+    expect(all.rows.every((r: { status: string }) => r.status !== 'accepted')).toBe(true); // a run accepts nothing
     expect(all.total).toBeGreaterThan(40);
     expect(all.rows[0]).toMatchObject({ confidence: expect.any(Number), reasons: expect.any(Array) });
     const review = (await owner.get(`${base()}/matches?status=needs_review&pageSize=5`)).body;
@@ -273,6 +274,10 @@ describe('intelligence endpoints', () => {
     expect(accepted.body.match).toMatchObject({ status: 'accepted', decidedBy: expect.any(String) });
     expect((await owner.post(`${base()}/matches/${m.id}/decision`, { decision: 'reclassify' })).status).toBe(400);
     expect((await owner.get(`${base()}/matches?minConfidence=0.9&class=identical`)).body.rows.every((r: { confidence: number }) => r.confidence >= 0.9)).toBe(true);
+    // the price comparison holds only what a person confirmed: before they do, it is empty, however many pairs are suggested
+    expect((await owner.get(`${base()}/comparison?pageSize=100`)).body.total).toBeLessThanOrEqual(1);
+    // the customer looks at the suggestions and confirms the groups they trust (same product, and same product in another pack)
+    for (const matchClass of ['identical', 'different_pack']) expect((await owner.post(`${base()}/matches/bulk`, { matchClass, minConfidence: 0.5 })).status).toBe(200);
   });
 
   it('serves the comparison matrix with server-side filtering and sorting', async () => {

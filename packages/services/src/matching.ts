@@ -8,20 +8,23 @@ import {
   isPlaceholderBrand,
   placeholderBrandKeys,
   prepareVariant,
-  scorePair,
   sizeHintOf,
   wrapUntrusted,
   type Adjudication,
+  analyseCatalogue,
+  evaluatePair,
+  type Corpus,
+  type DossierInput,
   type LlmProvider,
   type MatchAdjudicator,
   type MatchCandidate,
-  type MatchableVariant,
   type PreparedVariant,
   AUTO_ACCEPT_THRESHOLD,
 } from '@ci/core';
-import { MATCH_CLASSES, type MatchClass } from '@ci/shared';
+import { MATCH_CLASSES, classOfRelationship, relationshipOfClass, type DecidableRelationship, type MatchClass, type MatchRelationship } from '@ci/shared';
 import { orgSettings, productMatches, products, sites, variants, auditEvents, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
+import { recordMatchEvents, runEngineOnInputs } from './matching-v2.ts';
 
 const verdictSchema = z.object({ verdict: z.enum(MATCH_CLASSES), confidence: z.number().min(0).max(1), rationale: z.string().max(400) });
 
@@ -62,7 +65,7 @@ async function loadMatchable(db: DbLike, orgId: string) {
   const rows = await db
     .select({
       variantId: variants.id, productId: products.id, siteId: products.siteId, role: sites.role, title: products.title, variantTitle: variants.title, brand: products.brand, category: products.category,
-      gtin: variants.gtin, sku: variants.sku, mpn: products.mpn, model: products.model, qtyLabel: variants.qtyLabel, attrs: products.attrs, price: variants.price, currency: variants.currency,
+      gtin: variants.gtin, sku: variants.sku, mpn: products.mpn, model: products.model, qtyLabel: variants.qtyLabel, attrs: products.attrs, price: variants.price, currency: variants.currency, options: variants.options,
     })
     .from(variants)
     .innerJoin(products, eq(products.id, variants.productId))
@@ -74,15 +77,32 @@ async function loadMatchable(db: DbLike, orgId: string) {
 /** The shop's own tags ("Beer", "Soft Drinks") as plain words: used only to tell fluid ounces from weight ounces. */
 export const tagContext = (attrs: Record<string, unknown> | null | undefined): string | null => (Array.isArray(attrs?.['tags']) ? (attrs!['tags'] as unknown[]).filter((t): t is string => typeof t === 'string').join(' ') : null);
 
+const tagList = (attrs: Record<string, unknown> | null | undefined): string[] => (Array.isArray(attrs?.['tags']) ? (attrs!['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : []);
+
 export async function runMatching(svc: Services, db: DbLike, orgId: string): Promise<MatchRunResult> {
   const rows = await loadMatchable(db, orgId);
   const [settings] = await db.select().from(orgSettings).where(eq(orgSettings.orgId, orgId));
   // A vendor field that holds the shop's own name, the country or a platform default is not a brand (see core/brands.ts): matching uses none.
   const placeholders = placeholderBrandKeys(rows.map((r) => ({ siteId: r.siteId, brand: r.brand, title: r.title })));
-  const matchables: (MatchableVariant & { role: 'source' | 'competitor' })[] = rows.map((r) => ({
+  const matchables: (DossierInput & { role: 'source' | 'competitor' })[] = rows.map((r) => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, role: r.role, title: r.title, variantTitle: r.variantTitle, brand: isPlaceholderBrand(placeholders, r.siteId, r.brand) ? null : r.brand, category: r.category, gtin: r.gtin, sku: r.sku,
-    mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs),
+    mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs), options: r.options, tags: tagList(r.attrs),
   }));
+
+  // Engine v2 (and its shadow mode) is chosen per workspace. Shadow computes and records the run and changes nothing a person can see.
+  const engine = settings?.matchingEngine ?? 'v1';
+  if (engine === 'v2' || engine === 'v2_shadow') {
+    const now = svc.clock();
+    const { summary, result } = await runEngineOnInputs(db, orgId, engine, matchables.filter((m) => m.role === 'source'), matchables.filter((m) => m.role === 'competitor'), now);
+    const p = summary.persisted;
+    const rel = summary.byRelationship;
+    return {
+      sources: summary.sources, competitors: summary.competitors, candidates: summary.suggestions, created: p?.created ?? 0, updated: (p?.changed ?? 0) + (p?.reinstated ?? 0), removed: p?.superseded ?? 0, preservedManual: p?.protectedDecisions ?? 0,
+      adjudicated: 0, byClass: { identical: rel.exact, different_pack: rel.variant, comparable: rel.substitute, not_comparable: rel.related + rel.insufficient },
+      needsReview: result.suggestions.filter((s) => s.relationship === 'exact' || s.relationship === 'variant' || s.relationship === 'substitute').length,
+    };
+  }
+
   const brands = collectKnownBrands(matchables);
   const prepared = matchables.map((m) => ({ role: m.role, p: prepareVariant(m, brands) }));
   const sources = prepared.filter((x) => x.role === 'source').map((x) => x.p);
@@ -129,8 +149,9 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
       continue;
     }
     result.byClass[c.matchClass]++;
-    if (c.status === 'needs_review') result.needsReview++;
-    const values = { matchClass: c.matchClass, confidence: c.confidence, status: c.status, method: c.method, reasons: c.reasons, components: c.components as unknown as Record<string, unknown>, updatedAt: now };
+    // Nothing a run proposes is accepted by the run: a person confirms every pair (what the earlier engine called "auto" waits for review too).
+    result.needsReview++;
+    const values = { matchClass: c.matchClass, confidence: c.confidence, status: 'needs_review' as const, method: c.method, reasons: c.reasons, components: c.components as unknown as Record<string, unknown>, supersededAt: null, updatedAt: now };
     if (ex) {
       await db.update(productMatches).set(values).where(eq(productMatches.id, ex.id));
       result.updated++;
@@ -139,16 +160,21 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
       result.created++;
     }
   }
-  const stale = existing.filter((m) => !seen.has(`${m.sourceVariantId}|${m.competitorVariantId}`) && (m.status === 'auto' || m.status === 'needs_review'));
+  // Suggestions that are no longer proposed are set aside (kept, with their history), not deleted.
+  const stale = existing.filter((m) => !seen.has(`${m.sourceVariantId}|${m.competitorVariantId}`) && (m.status === 'auto' || m.status === 'needs_review') && m.supersededAt === null);
   if (stale.length) {
-    await db.delete(productMatches).where(inArray(productMatches.id, stale.map((m) => m.id)));
+    for (let i = 0; i < stale.length; i += 500) {
+      await db.update(productMatches).set({ supersededAt: now, updatedAt: now }).where(and(inArray(productMatches.id, stale.slice(i, i + 500).map((m) => m.id)), eq(productMatches.orgId, orgId)));
+    }
+    await recordMatchEvents(db, orgId, stale.map((m) => m.id), 'superseded', { note: 'The matcher no longer proposes this pair.' });
     result.removed = stale.length;
   }
   return result;
 }
 
 export interface BulkAcceptInput {
-  matchClass: 'identical' | 'different_pack' | 'comparable';
+  /** Only "the same product" groups can be accepted together. A stand-in always needs its own look: the differences are the point. */
+  matchClass: 'identical' | 'different_pack';
   minConfidence: number;
   siteId?: string;
   dryRun?: boolean;
@@ -170,11 +196,13 @@ const BULK_LIMIT = 5000;
  * the whole action with its filter and count.
  */
 export async function bulkAcceptMatches(db: DbLike, orgId: string, userId: string, p: BulkAcceptInput, now: Date): Promise<BulkAcceptResult> {
+  // waiting pairs of one class: an earlier-engine pair by its score; an engine-v2 pair only when its evidence is in the strong tier
   const where = and(
     eq(productMatches.orgId, orgId),
-    eq(productMatches.status, 'needs_review'),
+    inArray(productMatches.status, ['needs_review', 'auto']),
+    isNull(productMatches.supersededAt),
     eq(productMatches.matchClass, p.matchClass),
-    gte(productMatches.confidence, p.minConfidence),
+    or(and(isNull(productMatches.relationship), gte(productMatches.confidence, p.minConfidence)), eq(productMatches.tier, 'strong')),
     ...(p.siteId ? [eq(productMatches.competitorSiteId, p.siteId)] : []),
   );
   const ids = (await db.select({ id: productMatches.id }).from(productMatches).where(where).orderBy(productMatches.id).limit(BULK_LIMIT)).map((r) => r.id);
@@ -191,9 +219,10 @@ export async function bulkAcceptMatches(db: DbLike, orgId: string, userId: strin
   for (let i = 0; i < ids.length; i += 500) {
     await db
       .update(productMatches)
-      .set({ status: 'accepted', decidedBy: userId, decidedAt: now, decisionNote: p.note ?? 'Accepted together with other proposals of the same kind', updatedAt: now })
-      .where(and(inArray(productMatches.id, ids.slice(i, i + 500)), eq(productMatches.orgId, orgId), eq(productMatches.status, 'needs_review')));
+      .set({ status: 'accepted', decidedBy: userId, decidedAt: now, decisionNote: p.note ?? 'Accepted together with other proposals of the same kind', needsReevaluation: false, updatedAt: now })
+      .where(and(inArray(productMatches.id, ids.slice(i, i + 500)), eq(productMatches.orgId, orgId), inArray(productMatches.status, ['needs_review', 'auto'])));
   }
+  await recordMatchEvents(db, orgId, ids, 'decided', { actorId: userId, decision: 'bulk', note: p.note ?? null });
   await db.insert(auditEvents).values({ orgId, userId, action: 'match.bulk_accept', target: orgId, meta: { matchClass: p.matchClass, minConfidence: p.minConfidence, siteId: p.siteId ?? null, count: ids.length } });
   return { count: ids.length, accepted: true, examples };
 }
@@ -209,23 +238,33 @@ export async function decideMatch(
   orgId: string,
   matchId: string,
   userId: string,
-  d: { decision: 'accept' | 'reject' | 'reclassify'; matchClass?: MatchClass; note?: string },
+  d: { decision: 'accept' | 'reject' | 'reclassify'; matchClass?: MatchClass; relationship?: DecidableRelationship; note?: string },
   now: Date,
 ) {
   const [m] = await db.select().from(productMatches).where(and(eq(productMatches.id, matchId), eq(productMatches.orgId, orgId)));
   if (!m) throw new MatchError('Match not found');
-  const set: Partial<typeof productMatches.$inferInsert> = { decidedBy: userId, decidedAt: now, decisionNote: d.note ?? null, updatedAt: now };
-  if (d.decision === 'accept') set.status = 'accepted';
-  else if (d.decision === 'reject') {
+  const current: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
+  // a person's decision always replaces a pending "look again" flag: they have looked
+  const set: Partial<typeof productMatches.$inferInsert> = { decidedBy: userId, decidedAt: now, decisionNote: d.note ?? null, needsReevaluation: false, updatedAt: now };
+  if (d.decision === 'accept') {
+    // "insufficient" and "non-match" are not something to confirm: say what the products are instead
+    if (current === 'insufficient' || current === 'non_match') throw new MatchError('Choose what these products are: the same product, a substitute or related.', 400);
+    set.status = 'accepted';
+    set.relationship = current;
+  } else if (d.decision === 'reject') {
     set.status = 'rejected';
     set.matchClass = 'not_comparable';
+    set.relationship = 'non_match';
   } else {
-    if (!d.matchClass || d.matchClass === 'not_comparable') throw new MatchError('Choose the correct match class', 400);
+    const rel: MatchRelationship | undefined = d.relationship ?? (d.matchClass && d.matchClass !== 'not_comparable' ? relationshipOfClass(d.matchClass) : undefined);
+    if (!rel || rel === 'non_match' || rel === 'insufficient') throw new MatchError('Choose what these products are', 400);
     set.status = 'accepted';
-    set.matchClass = d.matchClass;
+    set.relationship = rel;
+    set.matchClass = classOfRelationship(rel);
   }
   const [row] = await db.update(productMatches).set(set).where(eq(productMatches.id, matchId)).returning();
-  await db.insert(auditEvents).values({ orgId, userId, action: `match.${d.decision}`, target: matchId, meta: { from: m.matchClass, to: set.matchClass ?? m.matchClass } });
+  await recordMatchEvents(db, orgId, [matchId], 'decided', { actorId: userId, decision: d.decision, note: d.note ?? null });
+  await db.insert(auditEvents).values({ orgId, userId, action: `match.${d.decision}`, target: matchId, meta: { from: m.matchClass, to: set.matchClass ?? m.matchClass, relationship: set.relationship ?? current } });
   return row!;
 }
 
@@ -248,8 +287,8 @@ export interface MatchCandidateRow {
   availability: string;
   observedAt: Date | null;
   url: string;
-  /** What the matcher thinks of this pair — shown as a suggestion with its reasons, never applied automatically. */
-  suggestion: { matchClass: string; confidence: number; reasons: string[] } | null;
+  /** What the matcher thinks of this pair, with the evidence — a suggestion for a person, never applied automatically. */
+  suggestion: { relationship: MatchRelationship; tier: string; summary: string; reasons: string[] } | null;
 }
 
 /**
@@ -260,19 +299,21 @@ export async function searchMatchCandidates(db: DbLike, orgId: string, p: { sour
   const all = await loadMatchable(db, orgId);
   const src = all.find((r) => r.variantId === p.sourceVariantId && r.role === 'source');
   if (!src) throw new MatchError('Product not found');
-  const toMatchable = (r: (typeof all)[number]): MatchableVariant => ({
+  const toMatchable = (r: (typeof all)[number]): DossierInput => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, title: r.title, variantTitle: r.variantTitle, brand: r.brand, category: r.category, gtin: r.gtin, sku: r.sku, mpn: r.mpn, model: r.model,
-    sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs),
+    sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs), options: r.options, tags: tagList(r.attrs),
   });
-  const brands = collectKnownBrands(all.map(toMatchable));
-  const prepSrc = prepareVariant(toMatchable(src), brands);
+  // the same evidence the matcher uses, so a person choosing by hand sees why each product is suggested or not (the catalogue analysis is reused for a few minutes)
+  const corpus = cachedCorpus(orgId, all.map(toMatchable));
+  const srcDossier = corpus.byVariant.get(src.variantId)!;
   const needle = p.q?.trim().toLowerCase();
   const pool = all.filter((r) => r.role === 'competitor' && (!p.siteId || r.siteId === p.siteId));
   const scored = pool
     .filter((r) => !needle || [r.title, r.variantTitle, r.brand, r.sku, r.gtin].some((v) => v?.toLowerCase().includes(needle)))
     .map((r) => {
-      const sc = scorePair(prepSrc, prepareVariant(toMatchable(r), brands));
-      return { r, sc, rank: sc && sc.matchClass !== 'not_comparable' ? sc.confidence : 0 };
+      const e = evaluatePair(srcDossier, corpus.byVariant.get(r.variantId)!, corpus);
+      const usable = e.relationship !== 'non_match';
+      return { r, e, sc: usable ? e : null, rank: usable ? (e.relationship === 'exact' ? 3 : e.relationship === 'variant' ? 2.5 : e.relationship === 'substitute' ? 2 : 1) + e.rank : 0 };
     })
     .sort((a, b) => b.rank - a.rank || a.r.title.localeCompare(b.r.title))
     .slice(0, Math.min(p.limit ?? 20, 50));
@@ -287,8 +328,18 @@ export async function searchMatchCandidates(db: DbLike, orgId: string, p: { sour
   return scored.map(({ r, sc }) => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, siteName: byId.get(r.variantId)?.siteName ?? '', title: r.title, variantTitle: r.variantTitle, brand: r.brand, sizeLabel: r.qtyLabel,
     gtin: r.gtin, sku: r.sku, price: r.price, currency: r.currency, availability: byId.get(r.variantId)?.availability ?? 'unknown', observedAt: byId.get(r.variantId)?.observedAt ?? null, url: byId.get(r.variantId)?.url ?? '',
-    suggestion: sc && sc.matchClass !== 'not_comparable' ? { matchClass: sc.matchClass, confidence: sc.confidence, reasons: sc.reasons } : null,
+    suggestion: sc ? { relationship: sc.relationship, tier: sc.tier, summary: sc.evidence.summary, reasons: sc.evidence.items.filter((i) => i.effect !== 'missing').slice(0, 4).map((i) => i.text) } : null,
   }));
+}
+
+const corpusCache = new Map<string, { at: number; size: number; corpus: Corpus }>();
+function cachedCorpus(orgId: string, inputs: DossierInput[]): Corpus {
+  const hit = corpusCache.get(orgId);
+  if (hit && Date.now() - hit.at < 5 * 60_000 && hit.size === inputs.length) return hit.corpus;
+  const corpus = analyseCatalogue(inputs);
+  corpusCache.set(orgId, { at: Date.now(), size: inputs.length, corpus });
+  if (corpusCache.size > 3) corpusCache.delete(corpusCache.keys().next().value!);
+  return corpus;
 }
 
 /**
@@ -299,9 +350,11 @@ export async function setManualMatch(
   db: DbLike,
   orgId: string,
   userId: string,
-  p: { sourceVariantId: string; competitorVariantId: string; matchClass: 'identical' | 'different_pack' | 'comparable'; replaceMatchId?: string; note?: string },
+  p: { sourceVariantId: string; competitorVariantId: string; matchClass?: 'identical' | 'different_pack' | 'comparable'; relationship?: DecidableRelationship; replaceMatchId?: string; note?: string },
   now: Date,
 ) {
+  const relationship: DecidableRelationship | undefined = p.relationship ?? (p.matchClass ? (relationshipOfClass(p.matchClass) as DecidableRelationship) : undefined);
+  if (!relationship) throw new MatchError('Choose what these products are', 400);
   const rows = await db
     .select({ id: variants.id, siteId: products.siteId, role: sites.role })
     .from(variants)
@@ -313,7 +366,7 @@ export async function setManualMatch(
   if (!src || !comp) throw new MatchError('Product not found');
   if (src.role !== 'source' || comp.role !== 'competitor') throw new MatchError('A match pairs one of your products with a competitor’s product.', 400);
 
-  const values = { matchClass: p.matchClass, confidence: 1, status: 'accepted' as const, method: 'manual', reasons: ['Chosen by a person'], decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null, updatedAt: now };
+  const values = { matchClass: classOfRelationship(relationship), confidence: 1, status: 'accepted' as const, method: 'manual', reasons: ['Chosen by a person'], relationship, supersededAt: null, needsReevaluation: false, decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null, updatedAt: now };
   const [existing] = await db.select().from(productMatches).where(and(eq(productMatches.sourceVariantId, p.sourceVariantId), eq(productMatches.competitorVariantId, p.competitorVariantId)));
   const row = existing
     ? (await db.update(productMatches).set(values).where(eq(productMatches.id, existing.id)).returning())[0]!
@@ -322,7 +375,7 @@ export async function setManualMatch(
   // Other suggestions for the same product at the same website are superseded by the person's choice (accepted ones are left alone).
   const superseded = await db
     .update(productMatches)
-    .set({ status: 'rejected', matchClass: 'not_comparable', decidedBy: userId, decidedAt: now, decisionNote: 'Replaced by a manual choice', updatedAt: now })
+    .set({ status: 'rejected', matchClass: 'not_comparable', relationship: 'non_match', decidedBy: userId, decidedAt: now, decisionNote: 'Replaced by a manual choice', updatedAt: now })
     .where(
       and(
         eq(productMatches.orgId, orgId),
@@ -333,6 +386,8 @@ export async function setManualMatch(
       ),
     )
     .returning({ id: productMatches.id });
-  await db.insert(auditEvents).values({ orgId, userId, action: 'match.manual', target: row.id, meta: { matchClass: p.matchClass, superseded: superseded.length, replaced: p.replaceMatchId ?? null } });
+  await recordMatchEvents(db, orgId, [row.id], 'decided', { actorId: userId, decision: 'manual', note: p.note ?? null });
+  if (superseded.length) await recordMatchEvents(db, orgId, superseded.map((s) => s.id), 'decided', { actorId: userId, decision: 'reject', note: 'Replaced by a manual choice' });
+  await db.insert(auditEvents).values({ orgId, userId, action: 'match.manual', target: row.id, meta: { matchClass: values.matchClass, relationship, superseded: superseded.length, replaced: p.replaceMatchId ?? null } });
   return { match: row, superseded: superseded.length };
 }

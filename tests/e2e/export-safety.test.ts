@@ -4,6 +4,7 @@ import { eq, inArray, and } from 'drizzle-orm';
 import { offers, products, variants } from '@ci/database';
 import { CSV_DATASETS, csvSafe, exportReport, generateReport, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
+import { confirmSuggestions } from '../support/confirm.ts';
 
 /**
  * Every product name, offer text and website name in a report was written by a stranger on somebody else's website. A cell that starts with
@@ -51,6 +52,7 @@ beforeAll(async () => {
   for (const id of [source, woo]) await t.tx((tx) => startScan(h.svc, tx, t.orgId, id, { kind: 'discovery', trigger: 'manual' }));
   await h.queue.drain();
   await runMatching(h.svc, db(), t.orgId);
+  await confirmSuggestions(db(), t.orgId);
   // the strangers' texts arrive in the product names and the offer texts
   const mine = await db().select({ id: products.id }).from(products).where(eq(products.siteId, source));
   for (let i = 0; i < HOSTILE.length; i++) await db().update(products).set({ title: HOSTILE[i]! }).where(eq(products.id, mine[i]!.id));

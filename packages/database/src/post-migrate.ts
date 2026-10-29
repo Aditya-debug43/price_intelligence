@@ -53,6 +53,18 @@ CREATE TRIGGER price_observations_append_only BEFORE UPDATE ON price_observation
 DROP TRIGGER IF EXISTS stock_observations_append_only ON stock_observations;
 CREATE TRIGGER stock_observations_append_only BEFORE UPDATE ON stock_observations
   FOR EACH ROW EXECUTE FUNCTION ci_forbid_update();
+-- Match history is append-only. The one permitted change is a deleted user being removed from the "who decided" column (ON DELETE SET NULL).
+CREATE OR REPLACE FUNCTION ci_match_events_guard() RETURNS trigger AS $fn$
+BEGIN
+  IF (to_jsonb(NEW) - 'actor_id') IS DISTINCT FROM (to_jsonb(OLD) - 'actor_id') THEN
+    RAISE EXCEPTION 'match_events rows are append-only history and cannot be changed';
+  END IF;
+  RETURN NEW;
+END
+$fn$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS match_events_append_only ON match_events;
+CREATE TRIGGER match_events_append_only BEFORE UPDATE ON match_events
+  FOR EACH ROW EXECUTE FUNCTION ci_match_events_guard();
 
 CREATE OR REPLACE FUNCTION ci_reports_immutable() RETURNS trigger AS $fn$
 BEGIN

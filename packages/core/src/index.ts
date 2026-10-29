@@ -13,6 +13,7 @@ export * from './crypto.ts';
 export * from './redact.ts';
 export * from './config.ts';
 export * from './matching.ts';
+export * from './match/index.ts';
 export * from './llm.ts';
 export * from './storage.ts';
 export * from './insights.ts';

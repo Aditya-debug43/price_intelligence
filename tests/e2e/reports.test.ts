@@ -7,6 +7,7 @@ import { sha256Hex, stableStringify, type LlmProvider } from '@ci/core';
 import type { ReportData } from '@ci/shared';
 import { ExportError, assembleReportData, exportReport, generateReport, getReport, listReports, marketingSummaryTable, renderPdf, runMatching, runRetention, startScan, JOB_HANDLERS } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
+import { confirmSuggestions } from '../support/confirm.ts';
 
 let h: Harness;
 let t: Tenant;
@@ -23,6 +24,7 @@ beforeAll(async () => {
   for (const k of Object.keys(ids)) await t.tx((tx) => startScan(h.svc, tx, t.orgId, ids[k]!, { kind: 'discovery', trigger: 'manual' }));
   await h.queue.drain();
   await runMatching(h.svc, db(), t.orgId);
+  await confirmSuggestions(db(), t.orgId);
   report = await generateReport(h.svc, db(), t.orgId, { kind: 'manual', deadlineAt: null, createdBy: t.userId });
   data = report.data as ReportData;
 }, 120_000);

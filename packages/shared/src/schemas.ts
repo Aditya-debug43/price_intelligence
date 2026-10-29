@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MATCH_CLASSES, MEMBER_ROLES, SITE_ROLES } from './constants.ts';
+import { DECIDABLE_RELATIONSHIPS, MATCH_CLASSES, MATCHING_ENGINES, MEMBER_ROLES, SITE_ROLES } from './constants.ts';
 
 export const isValidTimezone = (tz: string): boolean => {
   try {
@@ -99,11 +99,15 @@ export const settingsSchema = z.object({
     })
     .optional(),
   enabledAiAdjudication: z.boolean().optional(),
+  /** Which matching engine proposes matches: the earlier one, engine v2 in shadow, or engine v2. */
+  matchingEngine: z.enum(MATCHING_ENGINES).optional(),
 });
 
 export const matchDecisionSchema = z.object({
   decision: z.enum(['accept', 'reject', 'reclassify']),
   matchClass: z.enum(MATCH_CLASSES).optional(),
+  /** What the person says these products are (exact / variant / substitute / related). */
+  relationship: z.enum(DECIDABLE_RELATIONSHIPS).optional(),
   note: z.string().max(500).optional(),
 });
 
@@ -113,7 +117,7 @@ export const matchDecisionSchema = z.object({
  * many there are and a sample. `dryRun` only counts and samples.
  */
 export const bulkAcceptSchema = z.object({
-  matchClass: z.enum(['identical', 'different_pack', 'comparable']),
+  matchClass: z.enum(['identical', 'different_pack']),
   minConfidence: z.number().min(0.5).max(1),
   siteId: z.uuid().optional(),
   dryRun: z.boolean().default(false),
@@ -124,7 +128,8 @@ export const bulkAcceptSchema = z.object({
 export const manualMatchSchema = z.object({
   sourceVariantId: z.uuid(),
   competitorVariantId: z.uuid(),
-  matchClass: z.enum(['identical', 'different_pack', 'comparable']),
+  matchClass: z.enum(['identical', 'different_pack', 'comparable']).optional(),
+  relationship: z.enum(DECIDABLE_RELATIONSHIPS).optional(),
   /** The suggestion being corrected; it is rejected so it is not proposed again. */
   replaceMatchId: z.uuid().optional(),
   note: z.string().max(500).optional(),

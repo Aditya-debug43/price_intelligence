@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DEFAULTS, type InsightRow, type ReportData, type ReportKpis, type SiteCoverage } from '@ci/shared';
-import { alerts, orgSettings, productMatches, reports, scanRuns, type DbLike } from '@ci/database';
+import { alerts, orgSettings, reports, scanRuns, type DbLike } from '@ci/database';
+import { countAwaitingReview } from './match-queue.ts';
 import type { Services } from './context.ts';
 import { loadCoverage } from './coverage.ts';
 import { planForOrg } from './scheduler.ts';
@@ -31,7 +32,7 @@ export async function loadDashboard(svc: Services, db: DbLike, orgId: string): P
   const recent = await db.select().from(alerts).where(eq(alerts.orgId, orgId)).orderBy(desc(alerts.createdAt)).limit(10);
   const [{ n: unack } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(alerts).where(and(eq(alerts.orgId, orgId), isNull(alerts.acknowledgedAt), isNull(alerts.resolvedAt)));
   const active = await db.select().from(scanRuns).where(and(eq(scanRuns.orgId, orgId), inArray(scanRuns.status, ['queued', 'running']))).limit(20);
-  const [{ n: review } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(eq(productMatches.orgId, orgId), eq(productMatches.status, 'needs_review')));
+  const review = await countAwaitingReview(db, orgId);
 
   let nextReport: DashboardData['nextReport'] = null;
   if (settings) {

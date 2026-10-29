@@ -1,0 +1,2702 @@
+[
+ {
+  "set": "dev",
+  "n": 1,
+  "source": {
+   "title": "44MM 561 562 569 579 LED Dome Trunk Cargo License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "561 563 567 LED Bulbs Festoon Rigid Loop Interior Lights, 6000K xenon White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 2,
+  "source": {
+   "title": "44MM 561 562 569 579 LED Dome Trunk Cargo License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "T10 168 194 LED Bulbs License Plate, Interior Map Dome Trunk Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 3,
+  "source": {
+   "title": "44MM 561 562 569 579 LED Dome Trunk Cargo License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® T10/194 LED Bulbs Combo: License Plate / Dome/Map/Trunk Light Bulbs White Interior Lights",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 4,
+  "source": {
+   "title": "44MM 561 562 569 579 LED Dome Trunk Cargo License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Aurora T10/194/168/W5W LED License Plate Light Dome/Map/Trunk Light Bulbs 2400LM 6500K White 10PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 5,
+  "source": {
+   "title": "44MM 561 562 569 579 LED Dome Trunk Cargo License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "194 LED Bulbs for Car Interior Dome Map License Plate Light",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 6,
+  "source": {
+   "title": "44MM 561 562 569 579 LED Dome Trunk Cargo License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2006-2012 Ford Fusion Dome/Trunk Light 41MM LED Bulb White",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 7,
+  "source": {
+   "title": "60W H10 9145 9140 9055 LA Plus Series | 6,000LM 6000K LED Fog Light Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H10 9145 9140 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 8,
+  "source": {
+   "title": "60W H10 9145 9140 9055 LA Plus Series | 6,000LM 6000K LED Fog Light Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H10 9145 LED Switchback 9140 Fog Lights Bulbs | White, Yellow, Blue",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 9,
+  "source": {
+   "title": "60W H10 9145 9140 9055 LA Plus Series | 6,000LM 6000K LED Fog Light Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® XF3 H10/9145/9140 LED Fog Light Bulbs 6500K White 60W 12000LM IP68 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 10,
+  "source": {
+   "title": "60W H10 9145 9140 9055 LA Plus Series | 6,000LM 6000K LED Fog Light Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® XF3A H10/9145/9140 LED Fog Light Bulbs 6500K White 30W 10000LM IP68 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 11,
+  "source": {
+   "title": "60W H10 9145 9140 9055 LA Plus Series | 6,000LM 6000K LED Fog Light Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO M6 Series H10 9140 9145 LED Fog Light Bulb",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 12,
+  "source": {
+   "title": "60W H10 9145 9140 9055 LA Plus Series | 6,000LM 6000K LED Fog Light Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "9145 LED Bulb 9140/H10 LED Fog Light Bulb, 3000K Golden Yellow Light, CSP LED Chips",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 13,
+  "source": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen Passat 2012-2015 | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H7 LED Forward Lightings Bulbs for Volkswagen VW Passat Golf GTI Tiguan, Plug-n-Play",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 14,
+  "source": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen Passat 2012-2015 | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H7 LED Adapter Holder Retainer for Honda CR-V, Mazda, VW, BMW 5 Series",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 15,
+  "source": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen Passat 2012-2015 | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 H7 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 16,
+  "source": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen Passat 2012-2015 | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S H7 70W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 17,
+  "source": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen Passat 2012-2015 | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2006-2012 Ford Fusion Headlight High Beam H7 LED Bulb with Adapter",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 18,
+  "source": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen Passat 2012-2015 | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "Y13 Series H7 LED Bulb with Retainer Adapter for Select VW, BMW & Mercedes-Benz Models – 16000LM 6500K",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 19,
+  "source": {
+   "title": "168 194 2825 T10 CANBUS Error Free LED Side Marker Lights Dome Map Bulbs | Amber, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2825 194 168 LED Bulbs License Plate, Interior Map Dome Trunk Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 20,
+  "source": {
+   "title": "168 194 2825 T10 CANBUS Error Free LED Side Marker Lights Dome Map Bulbs | Amber, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "194 168 LED Bulbs 12V Interior Map Dome Trunk Courtesy Lights W5W 2825",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 21,
+  "source": {
+   "title": "168 194 2825 T10 CANBUS Error Free LED Side Marker Lights Dome Map Bulbs | Amber, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® SLJ4 T10/194/168 LED License Plate Dome Map Trunk Door Side Marker Light Bulbs 2000K Amber Yellow 5W 1000LM",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 22,
+  "source": {
+   "title": "168 194 2825 T10 CANBUS Error Free LED Side Marker Lights Dome Map Bulbs | Amber, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Aurora T10/194/168/W5W LED License Plate Light Dome/Map/Trunk Light Bulbs 2400LM 2000K Amber 10PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 23,
+  "source": {
+   "title": "168 194 2825 T10 CANBUS Error Free LED Side Marker Lights Dome Map Bulbs | Amber, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO 194 LED Light Bulb Amber Yellow 168 2825 W5W T10 Wedge 14-SMD LED Replacement Bulbs for Car Dome Map Door Court",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 24,
+  "source": {
+   "title": "168 194 2825 T10 CANBUS Error Free LED Side Marker Lights Dome Map Bulbs | Amber, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO 24H Series 194 LED Bulb Amber, 168 2825 W5W T10 for front/rear side marker light, Pack of 2",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 25,
+  "source": {
+   "title": "40W 9003 H4 HB2 L1 Plus Series | 4,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "FL-BH H4 HB2 LED Forward Lightings Bulbs 9003 Replacement Upgrade",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 26,
+  "source": {
+   "title": "40W 9003 H4 HB2 L1 Plus Series | 4,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "D-CR H4 HB2 9003 LED Forward Lightings Bulbs Replacement, 6000K Xenon White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 27,
+  "source": {
+   "title": "40W 9003 H4 HB2 L1 Plus Series | 4,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® L1 H4/9003/HB2 60W 6500K White IP67 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 28,
+  "source": {
+   "title": "40W 9003 H4 HB2 L1 Plus Series | 4,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S H4/9003/HB2 70W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 29,
+  "source": {
+   "title": "40W 9003 H4 HB2 L1 Plus Series | 4,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H4 HB2 9003 LED Headlight Bulb 12000LM CANBUS Ready 6000K White",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 30,
+  "source": {
+   "title": "40W 9003 H4 HB2 L1 Plus Series | 4,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO H4/HB2/9003 LED Headlight Bulb with Fan, 100W 20000LM 6000K White, 2022 Upgraded",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 31,
+  "source": {
+   "title": "42MM 211-2 578 212-2 LED Dome Map Trunk License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "41mm 211-2 578 LED Festoon Bulbs Interior Lights Replacement 212-2",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 32,
+  "source": {
+   "title": "42MM 211-2 578 212-2 LED Dome Map Trunk License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "CANBUS 211-2 578 LED Bulbs Festoon Interior Lights, 6000K xenon White 212-2",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 33,
+  "source": {
+   "title": "42MM 211-2 578 212-2 LED Dome Map Trunk License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® XL02 41MM/578/211-2 Festoon LED License Plate/Dome/Map/Trunk Light Bulbs 5W 600LM 6500K White 4Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 34,
+  "source": {
+   "title": "42MM 211-2 578 212-2 LED Dome Map Trunk License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® T10/194 LED Bulbs Combo: License Plate / Dome/Map/Trunk Light Bulbs White Interior Lights",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 35,
+  "source": {
+   "title": "42MM 211-2 578 212-2 LED Dome Map Trunk License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "578 LED Bulb 41mm 42mm 212-2 211-2 Festoon Dome Map Door Courtesy License Plate Lights",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 36,
+  "source": {
+   "title": "42MM 211-2 578 212-2 LED Dome Map Trunk License Plate Light Bulb, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "578 LED Bulb 211-2 Error Free 212-2 41MM 42MM Festoon LED Bulbs for Dome Light Interior Car License Plate Map Door Cou",
+   "brand": "Auxito",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 37,
+  "source": {
+   "title": "Fit for Toyota Tundra 2014-2021 H4 9003 Custom-Fit LED Bulbs w/Dust Cover",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "FL-BH H4 HB2 LED Forward Lightings Bulbs 9003 Replacement Upgrade",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 38,
+  "source": {
+   "title": "Fit for Toyota Tundra 2014-2021 H4 9003 Custom-Fit LED Bulbs w/Dust Cover",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "D-CR H4 HB2 9003 LED Forward Lightings Bulbs Replacement, 6000K Xenon White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 39,
+  "source": {
+   "title": "Fit for Toyota Tundra 2014-2021 H4 9003 Custom-Fit LED Bulbs w/Dust Cover",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 9003/H4 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 40,
+  "source": {
+   "title": "Fit for Toyota Tundra 2014-2021 H4 9003 Custom-Fit LED Bulbs w/Dust Cover",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S7S 9003/H4 130W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 41,
+  "source": {
+   "title": "Fit for Toyota Tundra 2014-2021 H4 9003 Custom-Fit LED Bulbs w/Dust Cover",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2001-2015 Toyota Tacoma Headlight High and Low Beam H4/9003 LED Bulb Wireless",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 42,
+  "source": {
+   "title": "Fit for Toyota Tundra 2014-2021 H4 9003 Custom-Fit LED Bulbs w/Dust Cover",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO M6 Series H4/9003 LED Headlight Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 43,
+  "source": {
+   "title": "Amber 3157 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "4157 3157 LED Switchback Turn Signal Lights Bulbs, 6000K White/Amber Yellow",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 44,
+  "source": {
+   "title": "Amber 3157 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "21W 3157 3156 LED Turn Signal Lights Bulbs Blinker Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 45,
+  "source": {
+   "title": "Amber 3157 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Brightest 3157 LED Bulbs Combo: White Backup Brake & Amber Turn Signals (2-Pairs)",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 46,
+  "source": {
+   "title": "Amber 3157 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Premium 3157 LED Bulbs Combo: White Backup Brake & Amber Turn Signals (2-Pairs)",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 47,
+  "source": {
+   "title": "Amber 3157 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2003-2005 Toyota 4Runner Front Turn Signal Light 3157 LED Bulb",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 48,
+  "source": {
+   "title": "Amber 3157 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2001-2015 Toyota Tacoma Front Turn Signal Light 3157 LED Bulb Amber Yellow/White",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 49,
+  "source": {
+   "title": "Fit for 2016-2019 Mercedes Benz GLA250 Custom H7 LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H7 LED Forward Lightings Bulbs for Mercedes Benz, Volkswagen Tiguan w/ Retainer Clip",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 50,
+  "source": {
+   "title": "Fit for 2016-2019 Mercedes Benz GLA250 Custom H7 LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "D-CR H7 LED Forward Lightings Bulbs Replacement Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 51,
+  "source": {
+   "title": "Fit for 2016-2019 Mercedes Benz GLA250 Custom H7 LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 H7 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 52,
+  "source": {
+   "title": "Fit for 2016-2019 Mercedes Benz GLA250 Custom H7 LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S H7 70W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 53,
+  "source": {
+   "title": "Fit for 2016-2019 Mercedes Benz GLA250 Custom H7 LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "Smoke Dynamic Sequential LED Side Mirror Turn Signal Light for Mercedes Benz",
+   "brand": "Auxito",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 54,
+  "source": {
+   "title": "Fit for 2016-2019 Mercedes Benz GLA250 Custom H7 LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO X5 Series H7 LED Headlight Bulbs, 32000LM 170W",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 55,
+  "source": {
+   "title": "Fit for 2021-2026 Toyota Sienna LED Exterior Lights Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "9005 HB3 Relay Resistor Kits Fix Toyota, Lexus DRL Off (No Light on)",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 56,
+  "source": {
+   "title": "Fit for 2021-2026 Toyota Sienna LED Exterior Lights Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 57,
+  "source": {
+   "title": "Fit for 2021-2026 Toyota Sienna LED Exterior Lights Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2017 Toyota Camry LED Bulbs Exterior Multiple Position | Weatherproof & Verified",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 58,
+  "source": {
+   "title": "Fit for 2021-2026 Toyota Sienna LED Exterior Lights Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2006-2012 Toyota RAV4 LED Bulbs Exterior Multiple Position | Weatherproof & Verified",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 59,
+  "source": {
+   "title": "Fit for 2021-2026 Toyota Sienna LED Exterior Lights Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2011-2014 Toyota Sienna LED Light Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 60,
+  "source": {
+   "title": "Fit for 2021-2026 Toyota Sienna LED Exterior Lights Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2015-2021 Toyota Sienna LED Light Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 61,
+  "source": {
+   "title": "Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 62,
+  "source": {
+   "title": "Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 63,
+  "source": {
+   "title": "Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2016-2018 Ram 1500 LED Bulbs Exterior Multiple Position | Weatherproof & Verified",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 64,
+  "source": {
+   "title": "Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2016-2018 Ram 1500 Reflector Headlights LED Bulbs 9005 H11 Headlight Combo with Horizontal Fog Lights",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 65,
+  "source": {
+   "title": "Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2019 2020 Ram 1500 (Classic) LED Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 66,
+  "source": {
+   "title": "Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2021 2022 Ram 1500 LED Bulbs (Not For Classic)",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 67,
+  "source": {
+   "title": "Fit for 2020-2024 Nissan Titan LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H7 LED Adapter Holder Retainer for BMW E60 E61 Audi A3 VW Jetta Nissan",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 68,
+  "source": {
+   "title": "Fit for 2020-2024 Nissan Titan LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 69,
+  "source": {
+   "title": "Fit for 2020-2024 Nissan Titan LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2009-2012 Ford F-150 LED Bulbs Exterior Multiple Position | Weatherproof & Verified",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 70,
+  "source": {
+   "title": "Fit for 2020-2024 Nissan Titan LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs Exterior Multiple Position | Weatherproof & Verified",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 71,
+  "source": {
+   "title": "Fit for 2020-2024 Nissan Titan LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "LED Third 3rd Brake Light for Nissan 04-15 Titan and 05-16 Frontier",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 72,
+  "source": {
+   "title": "Fit for 2020-2024 Nissan Titan LED Bulbs Upgrade | Tested and Verified",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2010-2012 Nissan Altima LED Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 73,
+  "source": {
+   "title": "Fit For 2018-2021 Chevrolet Traverse LED Bulbs Upgrade",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 74,
+  "source": {
+   "title": "Fit For 2018-2021 Chevrolet Traverse LED Bulbs Upgrade",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 75,
+  "source": {
+   "title": "Fit For 2018-2021 Chevrolet Traverse LED Bulbs Upgrade",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2017-2018 Chevrolet Silverado 1500 Turn Signal Tail Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 76,
+  "source": {
+   "title": "Fit For 2018-2021 Chevrolet Traverse LED Bulbs Upgrade",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2010-2015 Chevrolet Equinox LED Bulbs 9005 H11 Headlight Fog Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 77,
+  "source": {
+   "title": "Fit For 2018-2021 Chevrolet Traverse LED Bulbs Upgrade",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2019-2022 Chevrolet Colorado LED Light Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 78,
+  "source": {
+   "title": "Fit For 2018-2021 Chevrolet Traverse LED Bulbs Upgrade",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2018- 2021 Chevrolet Equinox LED Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 79,
+  "source": {
+   "title": "Fit for 2011-2014 Volkswagen Jetta Custom LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H7 Bulb Adapter Holder Retainer Clip for VW Jetta Golf LED",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 80,
+  "source": {
+   "title": "Fit for 2011-2014 Volkswagen Jetta Custom LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "H7 LED Adapter Holder Retainer for BMW E60 E61 Audi A3 VW Jetta Nissan",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 81,
+  "source": {
+   "title": "Fit for 2011-2014 Volkswagen Jetta Custom LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2004-2008 Ford F-150 Custom Headlight Assembly with DRL",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 82,
+  "source": {
+   "title": "Fit for 2011-2014 Volkswagen Jetta Custom LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2009-2014 Ford F-150 Custom Headlight Assembly with DRL",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 83,
+  "source": {
+   "title": "Fit for 2011-2014 Volkswagen Jetta Custom LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2011-2018 Volkswagen Touareg LED Interior Light Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 84,
+  "source": {
+   "title": "Fit for 2011-2014 Volkswagen Jetta Custom LED Bulbs Exterior Interior Light Plug n Play",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2002-2010 Volkswagen Touareg LED Interior Light Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 85,
+  "source": {
+   "title": "7440 7443 LED Turn Signal Bulbs CanBus-Ready Amber | T3 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "7440 7443 LED Bulbs Brake Stop, Signal, Reverse, Daytime Running Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 86,
+  "source": {
+   "title": "7440 7443 LED Turn Signal Bulbs CanBus-Ready Amber | T3 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "7440 7443 LED Bulbs Super Bright Signal, Reverse, Brake Stop Tail Lights",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 87,
+  "source": {
+   "title": "7440 7443 LED Turn Signal Bulbs CanBus-Ready Amber | T3 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Photon 7443/7440/T20/W21W LED Brake Tail Light Turn Signal Light Bulbs 13.2W 1425LM Amber Yellow 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 88,
+  "source": {
+   "title": "7440 7443 LED Turn Signal Bulbs CanBus-Ready Amber | T3 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Apex 7443/7440/T20/W21W LED Brake Tail Light Turn Signal Light Bulbs 32W 3800LM 2000K Amber Yellow 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 89,
+  "source": {
+   "title": "7440 7443 LED Turn Signal Bulbs CanBus-Ready Amber | T3 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO 7443 7440 LED Bulb for Tail brake Light, Red",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 90,
+  "source": {
+   "title": "7440 7443 LED Turn Signal Bulbs CanBus-Ready Amber | T3 Series",
+   "brand": "Lasfit Auto Lighting"
+  },
+  "candidate": {
+   "title": "2003-2005 Toyota 4Runner Front Turn Signal Light 7440 LED Bulb",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "dev",
+  "n": 91,
+  "source": {
+   "title": "5 Inch LED Pod Off-Road Light Spot Combo 60W",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "Combo 9005 and H11 LED Forward Lightings Bulbs Replacement Upgrade, 6500K White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 92,
+  "source": {
+   "title": "5 Inch LED Pod Off-Road Light Spot Combo 60W",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "Combo 9005 and 9006 LED Forward Lightings Bulbs Replacement Upgrade, 6500K White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 93,
+  "source": {
+   "title": "5 Inch LED Pod Off-Road Light Spot Combo 60W",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 94,
+  "source": {
+   "title": "5 Inch LED Pod Off-Road Light Spot Combo 60W",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Turn Signal Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 95,
+  "source": {
+   "title": "5 Inch LED Pod Off-Road Light Spot Combo 60W",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "AUXITO X-Plore 1 Series |3.5\" Ditch Light Pods Spot/Driving Beam + Amber DRL",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 96,
+  "source": {
+   "title": "5 Inch LED Pod Off-Road Light Spot Combo 60W",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "AUXITO X-Plore 1 Series | 4.5\" Auxiliary Driving Lights Spot/Driving Beam + Amber DRL",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 97,
+  "source": {
+   "title": "LED Pods Wiring Harness with DT Connectors - 2 Leads",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "W2.1x9.5d Base T10 194 Socket Female Wiring Harness Connector 168 W5W",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 98,
+  "source": {
+   "title": "LED Pods Wiring Harness with DT Connectors - 2 Leads",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "9005 (HB3) LED DRL Anti-flickering Wiring Relay Harness",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 99,
+  "source": {
+   "title": "LED Pods Wiring Harness with DT Connectors - 2 Leads",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 9008/H13 LED Bulbs Canbus Decoder/ Resistor Anti Flicker Harness Resistor Kit",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 100,
+  "source": {
+   "title": "LED Pods Wiring Harness with DT Connectors - 2 Leads",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 9003/H4 LED Bulbs Canbus Decoder/ Resistor Anti Flicker Harness",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 101,
+  "source": {
+   "title": "LED Pods Wiring Harness with DT Connectors - 2 Leads",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "Tail Light Wiring Harness For 2016-2019 Chevrolet Silverado GMC Sierra",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 102,
+  "source": {
+   "title": "LED Pods Wiring Harness with DT Connectors - 2 Leads",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "Tail Light Wiring Harness For 2007-2014 Chevrolet Silverado GMC Sierra",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 103,
+  "source": {
+   "title": "12 Inch Off-Road LED Light Bars Combo Flood Spot Single Row - LASFIT",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "Combo 9005 and H11 LED Forward Lightings Bulbs Replacement Upgrade, 6500K White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 104,
+  "source": {
+   "title": "12 Inch Off-Road LED Light Bars Combo Flood Spot Single Row - LASFIT",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "Combo 9005 and 9006 LED Forward Lightings Bulbs Replacement Upgrade, 6500K White",
+   "brand": "Alla Lighting",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 105,
+  "source": {
+   "title": "12 Inch Off-Road LED Light Bars Combo Flood Spot Single Row - LASFIT",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 106,
+  "source": {
+   "title": "12 Inch Off-Road LED Light Bars Combo Flood Spot Single Row - LASFIT",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Turn Signal Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 107,
+  "source": {
+   "title": "12 Inch Off-Road LED Light Bars Combo Flood Spot Single Row - LASFIT",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "60inch/48inch Single Row LED Tailgate Light Bar for Universal Truck",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 108,
+  "source": {
+   "title": "12 Inch Off-Road LED Light Bars Combo Flood Spot Single Row - LASFIT",
+   "brand": "Lasfit Off Road"
+  },
+  "candidate": {
+   "title": "AUXITO X-Plore 1 Series | 20\" LED Light Bar with Dual-Output White Main Beam, White/Amber Dynamic DRL, and 4 Amber Fla",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 109,
+  "source": {
+   "title": "Fit for 2015-2024 Nissan Murano Floor Mats & Cargo Mat",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "H7 LED Adapter Holder Retainer for BMW E60 E61 Audi A3 VW Jetta Nissan",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 110,
+  "source": {
+   "title": "Fit for 2015-2024 Nissan Murano Floor Mats & Cargo Mat",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "Alla Lighting 912 921 LED Bulbs for Back-up Reverse Lights, 6000K Xenon White CAN-BUS 4014 30-SMD T10 T15 906 W16W 921",
+   "brand": "Alla Lighting Automotive LED Bulbs",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 111,
+  "source": {
+   "title": "Fit for 2015-2024 Nissan Murano Floor Mats & Cargo Mat",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "SEALIGHT® F3 5202/5201 LED Fog Light Bulbs 6000K White 20W 6000LM IP67 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 112,
+  "source": {
+   "title": "Fit for 2015-2024 Nissan Murano Floor Mats & Cargo Mat",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "SEALIGHT® F3 H10/9145/9140 LED Fog Light Bulbs 6000K White 20W 6000LM IP67 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 113,
+  "source": {
+   "title": "Fit for 2015-2024 Nissan Murano Floor Mats & Cargo Mat",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "2010-2012 Nissan Altima LED Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 114,
+  "source": {
+   "title": "Fit for 2015-2024 Nissan Murano Floor Mats & Cargo Mat",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "2013-2015 Nissan Altima LED Bulbs",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 115,
+  "source": {
+   "title": "Fit for 2025-2026 Kia K4 Floor Mats or Cargo Mat, Sedan Model Not Fit Second Row Solid Rear Seat (LX trim)",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "H7 LED Adapters Retainer Clips Forward Lightings for KIA Sorento Hyundai Bulb",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 116,
+  "source": {
+   "title": "Fit for 2025-2026 Kia K4 Floor Mats or Cargo Mat, Sedan Model Not Fit Second Row Solid Rear Seat (LX trim)",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "H7 LED Adapter Holder Retainer for Hyundai Tucson KIA Carnival Bulb",
+   "brand": "Alla Lighting Inc",
+   "site": "allalighting"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 117,
+  "source": {
+   "title": "Fit for 2025-2026 Kia K4 Floor Mats or Cargo Mat, Sedan Model Not Fit Second Row Solid Rear Seat (LX trim)",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Photon 7443/7440/T20/W21W LED Brake Tail Light Rear Turn Signal Light Bulbs 13.2W 1425LM Red 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 118,
+  "source": {
+   "title": "Fit for 2025-2026 Kia K4 Floor Mats or Cargo Mat, Sedan Model Not Fit Second Row Solid Rear Seat (LX trim)",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Photon 3157/3156/3057/T25 LED Brake Tail Light Rear Turn Signal Light Bulbs 13.2W 1425LM 1000K Red 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 119,
+  "source": {
+   "title": "Fit for 2025-2026 Kia K4 Floor Mats or Cargo Mat, Sedan Model Not Fit Second Row Solid Rear Seat (LX trim)",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "1999-2005 Honda Civic Rear Turn signal Light Bulb for Sedan",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "dev",
+  "n": 120,
+  "source": {
+   "title": "Fit for 2025-2026 Kia K4 Floor Mats or Cargo Mat, Sedan Model Not Fit Second Row Solid Rear Seat (LX trim)",
+   "brand": "Lasfit Liners"
+  },
+  "candidate": {
+   "title": "2012 Honda Civic Rear Side Marker Light Bulb for Sedan",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 1,
+  "source": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for 2016-2022 Honda HR-V Floor Mats or Cargo Mat",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 2,
+  "source": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for 2017-2027 Ford F-250 F-350 Running Boards Side Steps, Fit Crew Cab ONLY",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 3,
+  "source": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 4,
+  "source": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Turn Signal Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 5,
+  "source": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO 880 LED Bulb 3600LM 6500K Fog Light Bulb, GF Series",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 6,
+  "source": {
+   "title": "9V~18V LED Forward Lightings Bulbs or Daytime Running Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO H3 LED Fog Light Bulbs 6500K White with 8 CSP chips",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 7,
+  "source": {
+   "title": "H7 LED Adapter Retainer Holders Socket Base for Ford Focus SVT Bulb",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for Kia Hyundai H7 LED Bulb Custom Retainer Adapter | Pro-HK7, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 8,
+  "source": {
+   "title": "H7 LED Adapter Retainer Holders Socket Base for Ford Focus SVT Bulb",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "TK115 2x H1 LED Bulb Holder Adapter Retainer Fit for Ford Focus",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 9,
+  "source": {
+   "title": "H7 LED Adapter Retainer Holders Socket Base for Ford Focus SVT Bulb",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 H7 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 10,
+  "source": {
+   "title": "H7 LED Adapter Retainer Holders Socket Base for Ford Focus SVT Bulb",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2013-2016 Ford Fusion LED Bulbs H7 H11 Headliight Fog Backup Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 11,
+  "source": {
+   "title": "H7 LED Adapter Retainer Holders Socket Base for Ford Focus SVT Bulb",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Ford Focus Led Bulbs (2015-2018)",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 12,
+  "source": {
+   "title": "H7 LED Adapter Retainer Holders Socket Base for Ford Focus SVT Bulb",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Ford Focus Led Bulbs (2012-2014)",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 13,
+  "source": {
+   "title": "7443 7444NA Switchback LED Bulbs Turn Signal Lights, White/Amber Yellow",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for 2014-2026 Toyota 4Runner 7443 LED Turn Signal Light | T3 Series",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 14,
+  "source": {
+   "title": "7443 7444NA Switchback LED Bulbs Turn Signal Lights, White/Amber Yellow",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Amber 7443 CanBus-Ready Turn Signal Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 15,
+  "source": {
+   "title": "7443 7444NA Switchback LED Bulbs Turn Signal Lights, White/Amber Yellow",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Nexus 7443/7440/T20/W21W LED Turn Signal Lights Bulbs and DRL Bulbs 20W 2600LM Amber/White Switchback 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 16,
+  "source": {
+   "title": "7443 7444NA Switchback LED Bulbs Turn Signal Lights, White/Amber Yellow",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® SLJ3 7443/7440/T20/W21W LED Turn Signal Lights Bulbs and DRL Bulbs 30W 3200LM Amber/White Switchback 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 17,
+  "source": {
+   "title": "7443 7444NA Switchback LED Bulbs Turn Signal Lights, White/Amber Yellow",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "2012-2022 Toyota Camry Front Turn Signal Light 7443 LED Bulb Yellow and White Switchback",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 18,
+  "source": {
+   "title": "7443 7444NA Switchback LED Bulbs Turn Signal Lights, White/Amber Yellow",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO CANBUS 4KP10 Series 7443 7444NA Switchback LED Bulbs with Built-in Resistor Anti Hyper Flash 7443A 7444NAK T20 Du",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 19,
+  "source": {
+   "title": "912 921 LED Reverse Lights Bulbs Back Up 12V W16W, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "921 912 T15 W16W LED Reverse Backup Trunk Cargo Light Bulbs, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 20,
+  "source": {
+   "title": "912 921 LED Reverse Lights Bulbs Back Up 12V W16W, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "921 912 T15 W16W LED Third Brake Light Bulbs 3rd Brake LED Bulbs, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 21,
+  "source": {
+   "title": "912 921 LED Reverse Lights Bulbs Back Up 12V W16W, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® Aether T15/921/912/W16W LED Backup Reverse Light Dome/Map/Trunk Light Bulbs 8W 2000LM 6000K White 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 22,
+  "source": {
+   "title": "912 921 LED Reverse Lights Bulbs Back Up 12V W16W, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® SLJ2 T15/921/912/W16W LED Backup Reverse Light Dome/Map/Trunk Light Bulbs 8W 1500LM 6000K White 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 23,
+  "source": {
+   "title": "912 921 LED Reverse Lights Bulbs Back Up 12V W16W, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO 921 LED Bulb Reverse Lights, 600% Super Bright 912 T15 led Backup light, CAN-Bus Error Free 906 922 W16W LED Bulb",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 24,
+  "source": {
+   "title": "912 921 LED Reverse Lights Bulbs Back Up 12V W16W, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "2000-2004 Ford F-250 Dome Light T15/912/921 LED Bulb White",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 25,
+  "source": {
+   "title": "1157 7528 LED Bulbs Signal, Brake, Stop, Reverse Lights Replacement",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "1157 2057 2357 7528 LED Brake Tail Stop Parking Light Bulb | Brilliant Red (Don't Work for Trucks), 2 Bulbs | Upgraded L",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 26,
+  "source": {
+   "title": "1157 7528 LED Bulbs Signal, Brake, Stop, Reverse Lights Replacement",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Red 1157 CanBus-Ready Rear Turn Signal Light Brake Light Tail Light LED Bulbs | D2 Series",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 27,
+  "source": {
+   "title": "1157 7528 LED Bulbs Signal, Brake, Stop, Reverse Lights Replacement",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® SLJ4 1157/BA15D/2057 LED Backup Reverse Brake Tail Light or DRL Bulbs 30W 3000LM 6000K White 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 28,
+  "source": {
+   "title": "1157 7528 LED Bulbs Signal, Brake, Stop, Reverse Lights Replacement",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2015-2020 Ford F-150 LED Bulbs 9005+H11 Headlight Turn Signal Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "N",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 29,
+  "source": {
+   "title": "1157 7528 LED Bulbs Signal, Brake, Stop, Reverse Lights Replacement",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "4KP8 Series 1157 LED Bulbs Red with Built-in Resistor 2057 2357 7528 BAY15D Anti Hyper Flash CANBUS Error Free Brake Lig",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 30,
+  "source": {
+   "title": "1157 7528 LED Bulbs Signal, Brake, Stop, Reverse Lights Replacement",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO Upgraded 54H Series 1157 2357 LED Bulb Red for Tail Lights Brake Lights 400% Super Bright 2057 2357 7528 BAY15D L",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 31,
+  "source": {
+   "title": "Xtreme Super Bright LED H7 Bulbs Forward Lightings, Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for 2007-2011 Ford Fusion Custom H7 LED Bulbs Exterior Interior Light Plug and Play",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 32,
+  "source": {
+   "title": "Xtreme Super Bright LED H7 Bulbs Forward Lightings, Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "60W H7 LA Plus Series | 6,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 33,
+  "source": {
+   "title": "Xtreme Super Bright LED H7 Bulbs Forward Lightings, Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 H7 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 34,
+  "source": {
+   "title": "Xtreme Super Bright LED H7 Bulbs Forward Lightings, Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S H7 70W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 35,
+  "source": {
+   "title": "Xtreme Super Bright LED H7 Bulbs Forward Lightings, Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Brightest Y13 Series H7 LED Bulb, 16000LM 6500K Xenon White",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 36,
+  "source": {
+   "title": "Xtreme Super Bright LED H7 Bulbs Forward Lightings, Fog Lights, 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO X5 Series H7 LED Headlight Bulbs, 32000LM 170W",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 37,
+  "source": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for 2015-2017 Ford F-150 Vehicle-Specific LED Headlight Bulbs H11 9005 | High & Low Beam Combo",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 38,
+  "source": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for 2015–2023 Ford F-150 H11 9005 LED Headlight Bulbs for High & Low Beam | LA Plus Series",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 39,
+  "source": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2016-2018 Ram 1500 Projector Headlights LED Bulbs 9005 Hi&Low Beam Headlight Fog Brake Lights with Vertical Fo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 40,
+  "source": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® 2009-2012 Ford F-150 LED Bulbs H13 Headlight Fog Brake Lights Combo",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 41,
+  "source": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "1996-2003 Honda Civic Headlight bulb High and Low Beam",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 42,
+  "source": {
+   "title": "AL-UL LED Forward Lightings Bulbs High, Low Beam, Fog Lights",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "9005 9006 High and Low Beam Forward Lighting Combo 12000LM 6000K White Wireless LED for Low Beam and High Beam Forward L",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "I",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 43,
+  "source": {
+   "title": "H7 LED Adapter Holders Retainer Clip for Bens BMW VW Bulbs",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Fit for Kia Hyundai H7 LED Bulb Custom Retainer Adapter | Pro-HK7, 2 Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 44,
+  "source": {
+   "title": "H7 LED Adapter Holders Retainer Clip for Bens BMW VW Bulbs",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Pro Series H7 LED Bulbs w/Retainer Adapter Fit for Volkswagen BMW Mercedes Benz | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 45,
+  "source": {
+   "title": "H7 LED Adapter Holders Retainer Clip for Bens BMW VW Bulbs",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 H7 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 46,
+  "source": {
+   "title": "H7 LED Adapter Holders Retainer Clip for Bens BMW VW Bulbs",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S H7 70W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 47,
+  "source": {
+   "title": "H7 LED Adapter Holders Retainer Clip for Bens BMW VW Bulbs",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "Y13 Series H7 LED Bulb with Retainer Adapter for Select VW, BMW & Mercedes-Benz Models – 16000LM 6500K",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 48,
+  "source": {
+   "title": "H7 LED Adapter Holders Retainer Clip for Bens BMW VW Bulbs",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "2006-2012 Ford Fusion Headlight High Beam H7 LED Bulb with Adapter",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 49,
+  "source": {
+   "title": "HB4 9006 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "60W 9006 HB4 LA Plus Series | 6,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 50,
+  "source": {
+   "title": "HB4 9006 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "50W 9006 HB4 LC Plus Series | 5,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 51,
+  "source": {
+   "title": "HB4 9006 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S 9006/HB4 LED Fog Light Bulbs 6500K White 30W 12000LM IP68 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 52,
+  "source": {
+   "title": "HB4 9006 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® XF1 9006/HB4 LED Fog Light Bulbs 3000K Yellow 20W 6000LM IP67 2PCS",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 53,
+  "source": {
+   "title": "HB4 9006 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "1998-2000 Ford Ranger Fog Light 9006/HB4 LED Bulb 6500K",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 54,
+  "source": {
+   "title": "HB4 9006 LED Fog Lights Bulbs 12V, 6K White/3K Yellow/Red/8K Blue",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "1999-2000 Ford F-350 Fog Light 9006/HB4 LED Bulb 6500K",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "R",
+  "ambiguous": true
+ },
+ {
+  "set": "heldout",
+  "n": 55,
+  "source": {
+   "title": "C-HR H1 LED Bulbs Forward Lightings, Fog Lights 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "60W H1 LA Air Series | 6,000LM 6000K LED Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 56,
+  "source": {
+   "title": "C-HR H1 LED Bulbs Forward Lightings, Fog Lights 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "L1 Plus H1 LED Bulbs 40W 4000LM 6000K | 2 Bulbs",
+   "brand": "Lasfit Auto Lighting",
+   "site": "www.lasfit"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 57,
+  "source": {
+   "title": "C-HR H1 LED Bulbs Forward Lightings, Fog Lights 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® X5 H1 80W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 58,
+  "source": {
+   "title": "C-HR H1 LED Bulbs Forward Lightings, Fog Lights 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "SEALIGHT® S2S H1 70W 6500K White IP68 LED Headlight Bulbs 2Pcs",
+   "brand": "Sealight",
+   "site": "sealight-led"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 59,
+  "source": {
+   "title": "C-HR H1 LED Bulbs Forward Lightings, Fog Lights 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "AUXITO Best H1 LED Bulb for Headlight 6500K Cool White",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ },
+ {
+  "set": "heldout",
+  "n": 60,
+  "source": {
+   "title": "C-HR H1 LED Bulbs Forward Lightings, Fog Lights 6000K Xenon White",
+   "brand": "Alla Lighting"
+  },
+  "candidate": {
+   "title": "M6S Series H1 LED Headlight Bulbs, 13000LM/Set, AUXITO M6S Series",
+   "brand": "AUXITO",
+   "site": "auxito"
+  },
+  "label": "S",
+  "ambiguous": false
+ }
+]

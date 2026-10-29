@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../apps/api/src/app.ts';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { productMatches } from '@ci/database';
 import { createOrganization, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
@@ -61,13 +61,15 @@ describe('reviewing a proposed match', () => {
   it('can search the competitor’s catalogue for the right product, best suggestion first, with the matcher’s reasons', async () => {
     const r = await owner.get(`${base()}/matches/candidates?sourceVariantId=${target.sourceVariantId}&siteId=${await siteIdOf(target.competitorSite)}&limit=10`);
     expect(r.status).toBe(200);
-    const cands = r.body.candidates as { variantId: string; title: string; siteName: string; url: string; suggestion: { confidence: number; reasons: string[] } | null; observedAt: string | null }[];
+    const cands = r.body.candidates as { variantId: string; title: string; siteName: string; url: string; suggestion: { relationship: string; tier: string; summary: string; reasons: string[] } | null; observedAt: string | null }[];
     expect(cands.length).toBeGreaterThan(1);
     expect(cands.every((c) => c.siteName === target.competitorSite)).toBe(true);
     expect(cands.every((c) => c.url.startsWith('http'))).toBe(true);
-    const ranks = cands.map((c) => c.suggestion?.confidence ?? 0);
-    expect(ranks).toEqual([...ranks].sort((a, b) => b - a)); // best suggestion first
+    // best suggestion first: everything the matcher has an opinion on comes before anything it has none on, and each opinion says what it thinks and why
+    const firstNone = cands.findIndex((c) => c.suggestion === null);
+    expect(firstNone === -1 || cands.slice(firstNone).every((c) => c.suggestion === null)).toBe(true);
     expect(cands.some((c) => (c.suggestion?.reasons.length ?? 0) > 0)).toBe(true);
+    expect(cands.filter((c) => c.suggestion).every((c) => ['exact', 'variant', 'substitute', 'related', 'insufficient'].includes(c.suggestion!.relationship) && c.suggestion!.summary.length > 0)).toBe(true);
 
     const filtered = (await owner.get(`${base()}/matches/candidates?sourceVariantId=${target.sourceVariantId}&q=zzzz-no-such-product`)).body.candidates;
     expect(filtered).toEqual([]);
@@ -93,7 +95,7 @@ describe('reviewing a proposed match', () => {
 
   it('survives the next matching run, and the rejected suggestion is not proposed again', async () => {
     const run = await runMatching(h.svc, h.db.worker, org);
-    expect(run.preservedManual).toBeGreaterThanOrEqual(2);
+    expect(run.preservedManual).toBeGreaterThanOrEqual(1);
     const accepted = await list('accepted');
     expect(accepted.find((m) => m.competitorVariantId === chosenVariant)).toMatchObject({ method: 'manual', confidence: 1 });
     expect((await list('rejected')).some((m) => m.id === target.id)).toBe(true);
@@ -132,10 +134,8 @@ describe('accepting many proposals at once', () => {
   const bulk = async (body: Record<string, unknown>) => owner.post(`${base()}/matches/bulk`, body);
 
   it('a dry run counts and samples the waiting proposals and changes nothing', async () => {
-    // put eight confident pairs back to "waiting", as they sit when the shops publish no barcodes or brands
-    const confident = await h.db.worker.select({ id: productMatches.id }).from(productMatches).where(and(eq(productMatches.orgId, org), eq(productMatches.status, 'auto'), eq(productMatches.matchClass, 'identical'))).limit(8);
-    expect(confident.length).toBeGreaterThanOrEqual(5);
-    await h.db.worker.update(productMatches).set({ status: 'needs_review' }).where(inArray(productMatches.id, confident.map((m) => m.id)));
+    // nothing a run proposes is accepted by the run: confident pairs wait for a person, exactly as when the shops publish no barcodes or brands
+    expect(await h.db.worker.select({ id: productMatches.id }).from(productMatches).where(and(eq(productMatches.orgId, org), eq(productMatches.status, 'auto')))).toHaveLength(0);
     const waiting = (await list('needs_review')).filter((m) => m.matchClass === 'identical');
     expect(waiting.length).toBeGreaterThanOrEqual(5);
     const r = await bulk({ matchClass: 'identical', minConfidence: 0.5, dryRun: true });

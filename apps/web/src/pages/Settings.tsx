@@ -219,10 +219,12 @@ function NotifForm({ s, isAdmin }: { s: Settings; isAdmin: boolean }) {
   const [threshold, setThreshold] = useState(s.lowStockThreshold);
   const [prefs, setPrefs] = useState({ ...s.alertPrefs, recipientsText: s.alertPrefs.recipients.join(', ') });
   const [ai, setAi] = useState(s.aiAdjudication);
+  const savedEngine = s.matchingEngine ?? 'v1';
+  const [engine, setEngine] = useState<'v1' | 'v2_shadow' | 'v2'>(savedEngine);
   const errs = fieldErrors(save.error);
   const recipients = prefs.recipientsText.split(/[\s,;]+/).filter(Boolean);
   return (
-    <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate({ lowStockThreshold: Number(threshold), alertPrefs: { inApp: prefs.inApp, email: prefs.email, dailySummaryEmail: prefs.dailySummaryEmail, recipients }, enabledAiAdjudication: ai }); }}>
+    <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate({ lowStockThreshold: Number(threshold), alertPrefs: { inApp: prefs.inApp, email: prefs.email, dailySummaryEmail: prefs.dailySummaryEmail, recipients }, enabledAiAdjudication: ai, ...(engine !== savedEngine ? { matchingEngine: engine } : {}) }); }}>
       <Card title="Low-stock threshold">
         <Field label="Default threshold (units)" error={errs['lowStockThreshold']} hint="A product at your shop counts as low when its quantity is at or below this number. You can set a different number for one product on its page.">
           {(id) => <input id={id} type="number" min={0} style={{ maxWidth: 140 }} value={threshold} disabled={!isAdmin} onChange={(e) => setThreshold(Number(e.target.value))} />}
@@ -242,6 +244,18 @@ function NotifForm({ s, isAdmin }: { s: Settings; isAdmin: boolean }) {
       <Card title="Optional AI assistance">
         <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={ai} disabled={!isAdmin || meta.data?.aiProvider === 'none'} onChange={(e) => setAi(e.target.checked)} /> Ask an AI for a second opinion on uncertain product matches</label>
         <p className="small muted" style={{ margin: '8px 0 0' }}>{meta.data?.aiProvider === 'none' ? 'No AI provider is configured on this server, so this is unavailable. Everything else works without it.' : `Provider: ${meta.data?.aiProvider}. The AI only suggests; it never confirms a match by itself, and every number in an AI-written summary is checked against the stored records.`}</p>
+      </Card>
+      <Card title="Product matching">
+        <Field label="Which matcher suggests matches" hint="Whatever you choose, nothing is confirmed without you, and your earlier decisions are never changed.">
+          {(id) => (
+            <select id={id} value={engine} disabled={!isAdmin} onChange={(e) => setEngine(e.target.value as typeof engine)}>
+              <option value="v1">The earlier matcher (current)</option>
+              <option value="v2_shadow">Test the new matcher — changes nothing you see</option>
+              <option value="v2">The new, evidence-based matcher</option>
+            </select>
+          )}
+        </Field>
+        <p className="small muted" style={{ margin: '8px 0 0' }}>The new matcher explains every suggestion (what agrees, what differs, what is missing) and tells the same product, a different pack, a substitute and a related product apart. It is being measured before it is recommended: the test option runs it on your data and records the result without adding or removing a single suggestion.</p>
       </Card>
       {isAdmin && <div className="row"><button className="btn btn-primary" type="submit" disabled={save.isPending}>Save changes</button>{save.error && !Object.keys(errs).length && <span className="err" role="alert">{errorMessage(save.error)}</span>}</div>}
     </form>

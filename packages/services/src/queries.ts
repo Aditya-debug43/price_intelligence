@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { isStale } from '@ci/core';
-import { DEFAULTS, type MatchClass, type MatchStatus, type SettingsInput } from '@ci/shared';
+import { DEFAULTS, type EvidenceTier, type MatchClass, type MatchRelationship, type MatchStatus, type SettingsInput } from '@ci/shared';
 import { alertRules, auditEvents, evidence, offers, orgSettings, priceObservations, productMatches, products, scanRuns, sites, stockStates, variants, type DbLike } from '@ci/database';
+import { countAwaitingReview } from './match-queue.ts';
 import { loadCoverage } from './coverage.ts';
 import { DEFAULT_ALERT_TYPES } from './auth.ts';
 
@@ -25,6 +26,7 @@ export async function updateSettings(db: DbLike, orgId: string, userId: string, 
   if (patch.historyRetentionDays !== undefined) set.historyRetentionDays = patch.historyRetentionDays;
   if (patch.alertPrefs) set.alertPrefs = patch.alertPrefs;
   if (patch.enabledAiAdjudication !== undefined) set.aiAdjudication = patch.enabledAiAdjudication;
+  if (patch.matchingEngine) set.matchingEngine = patch.matchingEngine;
   const [row] = await db.update(orgSettings).set(set).where(eq(orgSettings.orgId, orgId)).returning();
   await db.insert(auditEvents).values({ orgId, userId, action: 'settings.update', meta: { fields: Object.keys(patch) } });
   return row!;
@@ -139,9 +141,15 @@ export async function getEvidence(db: DbLike, orgId: string, id: string) {
 
 // ───────────────────────────────────────────────────────────── matches
 
+export type MatchBucket = 'review' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
+
 export interface MatchFilter {
+  /** The tab of Match Review: what is waiting, what is only for reference, what a person decided, what needs a second look. */
+  bucket?: MatchBucket;
   status?: MatchStatus;
   matchClass?: MatchClass;
+  relationship?: MatchRelationship;
+  tier?: EvidenceTier;
   minConfidence?: number;
   maxConfidence?: number;
   siteId?: string;
@@ -149,33 +157,33 @@ export interface MatchFilter {
   pageSize: number;
 }
 
+/** The conditions of each bucket, written once against the table alias `m`. Pairs the matcher has set aside are in no bucket but their own. */
+const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
+  review: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class <> 'not_comparable'`,
+  unclear: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'not_comparable'`,
+  confirmed: sql`m.status = 'accepted'`,
+  rejected: sql`m.status = 'rejected'`,
+  look_again: sql`m.needs_reevaluation`,
+  set_aside: sql`m.superseded_at is not null and m.status in ('needs_review','auto')`,
+};
+
 export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
-  const conds = [eq(productMatches.orgId, orgId)];
   const w = [sql`m.org_id = ${orgId}`];
-  // The same filters are expressed twice: against the table (count query) and against the alias `m` (page query).
-  if (f.status) {
-    conds.push(eq(productMatches.status, f.status));
-    w.push(sql`m.status = ${f.status}`);
-  }
-  if (f.matchClass) {
-    conds.push(eq(productMatches.matchClass, f.matchClass));
-    w.push(sql`m.match_class = ${f.matchClass}`);
-  }
-  if (f.minConfidence !== undefined) {
-    conds.push(sql`${productMatches.confidence} >= ${f.minConfidence}`);
-    w.push(sql`m.confidence >= ${f.minConfidence}`);
-  }
-  if (f.maxConfidence !== undefined) {
-    conds.push(sql`${productMatches.confidence} <= ${f.maxConfidence}`);
-    w.push(sql`m.confidence <= ${f.maxConfidence}`);
-  }
-  if (f.siteId) {
-    conds.push(eq(productMatches.competitorSiteId, f.siteId));
-    w.push(sql`m.competitor_site_id = ${f.siteId}::uuid`);
-  }
+  if (f.bucket) w.push(BUCKET_SQL[f.bucket]);
+  else w.push(sql`(m.superseded_at is null or m.status in ('accepted','rejected'))`);
+  if (f.status) w.push(sql`m.status = ${f.status}`);
+  if (f.matchClass) w.push(sql`m.match_class = ${f.matchClass}`);
+  if (f.relationship) w.push(sql`coalesce(m.relationship, case m.match_class when 'identical' then 'exact' when 'different_pack' then 'variant' when 'comparable' then 'substitute' else 'non_match' end) = ${f.relationship}`);
+  if (f.tier) w.push(sql`m.tier = ${f.tier}`);
+  if (f.minConfidence !== undefined) w.push(sql`m.confidence >= ${f.minConfidence}`);
+  if (f.maxConfidence !== undefined) w.push(sql`m.confidence <= ${f.maxConfidence}`);
+  if (f.siteId) w.push(sql`m.competitor_site_id = ${f.siteId}::uuid`);
+  const where = sql.join(w, sql` and `);
   const { limit, offset } = clampPage(f.page, f.pageSize);
   const rows = await db.execute<Record<string, unknown>>(sql`
     select m.id, m.match_class as "matchClass", m.confidence, m.status, m.method, m.reasons, m.components, m.decided_at as "decidedAt", m.decision_note as "decisionNote",
+           coalesce(m.relationship, case m.match_class when 'identical' then 'exact' when 'different_pack' then 'variant' when 'comparable' then 'substitute' else 'non_match' end) as relationship,
+           m.tier, m.evidence, m.engine_version as "engineVersion", m.needs_reevaluation as "needsReevaluation", m.superseded_at as "supersededAt",
            ps.title as "sourceTitle", vs.title as "sourceVariantTitle", vs.price as "sourcePrice", vs.currency as "sourceCurrency", vs.qty_label as "sourceSize", ps.brand as "sourceBrand", vs.url as "sourceUrl", ps.id as "sourceProductId",
            pc.title as "competitorTitle", vc.title as "competitorVariantTitle", vc.price as "competitorPrice", vc.currency as "competitorCurrency", vc.qty_label as "competitorSize", pc.brand as "competitorBrand", vc.url as "competitorUrl", pc.id as "competitorProductId",
            sc.name as "competitorSite", m.competitor_site_id as "competitorSiteId", m.source_variant_id as "sourceVariantId", m.competitor_variant_id as "competitorVariantId", m.decided_by is not null as "decidedByPerson",
@@ -185,14 +193,14 @@ export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
     join variants vs on vs.id = m.source_variant_id join products ps on ps.id = vs.product_id
     join variants vc on vc.id = m.competitor_variant_id join products pc on pc.id = vc.product_id
     join sites sc on sc.id = m.competitor_site_id
-    where ${sql.join(w, sql` and `)}
-    order by (case m.status when 'needs_review' then 0 else 1 end), m.confidence desc, ps.title
+    where ${where}
+    order by (case when m.status in ('needs_review','auto') then 0 else 1 end), (case m.tier when 'strong' then 0 when 'medium' then 1 else 2 end), m.confidence desc, ps.title
     limit ${limit} offset ${offset}`);
-  const [{ n } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(...conds));
+  const total = await db.execute<{ n: string }>(sql`select count(*)::text as n from product_matches m where ${where}`);
   const counts = await db.select({ status: productMatches.status, matchClass: productMatches.matchClass, n: sql<number>`count(*)::int` }).from(productMatches).where(eq(productMatches.orgId, orgId)).groupBy(productMatches.status, productMatches.matchClass);
   // Raw SQL returns `numeric` as strings; the API contract is numbers (null stays null — never 0).
   const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
-  return { rows: rows.rows.map((r) => ({ ...r, confidence: Number(r.confidence), sourcePrice: num(r.sourcePrice), competitorPrice: num(r.competitorPrice) })), total: n, counts };
+  return { rows: rows.rows.map((r) => ({ ...r, confidence: Number(r.confidence), sourcePrice: num(r.sourcePrice), competitorPrice: num(r.competitorPrice) })), total: Number(total.rows[0]?.n ?? 0), counts };
 }
 
 // ───────────────────────────────────────────────────────────── data quality
@@ -206,7 +214,7 @@ export async function dataQuality(db: DbLike, orgId: string, now: Date) {
       count(*) filter (where exists (select 1 from variants v where v.product_id = p.id and v.currency is null))::text as missing_currency
     from products p where p.org_id = ${orgId} and p.delisted_at is null group by p.site_id, p.extraction_method`);
   const failedScans = await db.select().from(scanRuns).where(and(eq(scanRuns.orgId, orgId), inArray(scanRuns.status, ['failed', 'blocked', 'partial']))).orderBy(desc(scanRuns.createdAt)).limit(20);
-  const reviewQueue = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(eq(productMatches.orgId, orgId), eq(productMatches.status, 'needs_review')));
+  const reviewQueue = [{ n: await countAwaitingReview(db, orgId) }];
   const missingGtin = await db.execute<{ site_id: string; with_gtin: string; total: string }>(sql`select v.site_id, count(*) filter (where v.gtin is not null)::text as with_gtin, count(*)::text as total from variants v join products p on p.id = v.product_id where v.org_id = ${orgId} and p.delisted_at is null group by v.site_id`);
   return {
     coverage,

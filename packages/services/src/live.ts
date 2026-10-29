@@ -116,7 +116,7 @@ export async function loadAssortment(db: DbLike, orgId: string, maps: SiteMaps, 
   const matched = await db
     .select({ s: productMatches.sourceVariantId, c: productMatches.competitorVariantId })
     .from(productMatches)
-    .where(and(eq(productMatches.orgId, orgId), ne(productMatches.status, 'rejected'), ne(productMatches.matchClass, 'not_comparable')));
+    .where(and(eq(productMatches.orgId, orgId), ne(productMatches.status, 'rejected'), ne(productMatches.matchClass, 'not_comparable'), isNull(productMatches.supersededAt)));
   const matchedSource = new Set(matched.map((m) => m.s));
   const matchedComp = new Set(matched.map((m) => m.c));
   const all = await db

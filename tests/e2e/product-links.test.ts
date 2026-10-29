@@ -4,6 +4,7 @@ import { productMatches, sites, variants } from '@ci/database';
 import type { ComparisonRow, ReportData } from '@ci/shared';
 import { comparisonTable, ensureFxRates, generateReport, loadComparison, loadFxTable, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
+import { confirmSuggestions } from '../support/confirm.ts';
 
 /**
  * Directive 11: a customer can click a price card in the Price Comparison and open that exact product on the website it came from.
@@ -41,6 +42,7 @@ beforeAll(async () => {
   for (const k of Object.keys(ids)) await t.tx((tx) => startScan(h.svc, tx, t.orgId, ids[k]!, { kind: 'discovery', trigger: 'manual' }));
   await h.queue.drain();
   await runMatching(h.svc, db(), t.orgId);
+  await confirmSuggestions(db(), t.orgId);
 }, 120_000);
 
 afterAll(async () => {

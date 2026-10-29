@@ -189,6 +189,8 @@ describe('7. matching, review and the comparison', () => {
     expect(all.rows.every((m: { competitorSite: string }) => !/Robots|Down/.test(m.competitorSite))).toBe(true); // nothing is matched against sites that were never collected
     const review = (await owner.get(`${base()}/matches?status=needs_review&pageSize=3`)).body.rows;
     if (review.length) expect((await owner.post(`${base()}/matches/${review[0].id}/decision`, { decision: 'accept', note: 'checked' })).status).toBe(200);
+    // the customer confirms the groups they trust; only confirmed pairs are compared
+    for (const matchClass of ['identical', 'different_pack']) expect((await owner.post(`${base()}/matches/bulk`, { matchClass, minConfidence: 0.5 })).status).toBe(200);
   });
 
   it('the matrix has real prices from collected sites and says "not available — <why>" for the two that could not be collected', async () => {

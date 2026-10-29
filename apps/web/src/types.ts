@@ -25,6 +25,7 @@ export interface Settings {
   historyRetentionDays: number;
   alertPrefs: { inApp: boolean; email: boolean; dailySummaryEmail: boolean; recipients: string[] };
   aiAdjudication: boolean;
+  matchingEngine: 'v1' | 'v2_shadow' | 'v2';
 }
 
 export interface SiteItem {
@@ -163,6 +164,9 @@ export interface ComparisonResponse {
   facets: { categories: string[]; competitors: { id: string; name: string; capability: CapabilityStatus | null; status: SiteStatusView | null }[] };
   fx: { from: string; to: string; rate: number; source: string; fetchedAt: string; isFixed: boolean }[];
   asOf: string;
+  view: 'prices' | 'substitutes';
+  /** What exists behind an empty or partial list: nothing suggested, suggested but unconfirmed, or confirmed. */
+  matching: { state: 'no_competitors' | 'never_run' | 'shadow' | 'no_candidates' | 'none_confirmed' | 'ok'; awaiting: number; confirmedSame: number; confirmedSubstitutes: number; withoutCounterpart: number | null };
 }
 
 export interface StockResponse {

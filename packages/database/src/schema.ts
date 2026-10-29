@@ -25,8 +25,12 @@ import type {
   MarketingClassification,
   MarketingKind,
   MarketingPlatform,
+  EvidenceTier,
   MatchClass,
+  MatchEvidence,
+  MatchRelationship,
   MatchStatus,
+  MatchingEngine,
   MemberRole,
   OfferKind,
   OfferReviewStatus,
@@ -157,6 +161,8 @@ export const orgSettings = pgTable('org_settings', {
     .notNull()
     .default(sql`'{"inApp":true,"email":true,"dailySummaryEmail":true,"recipients":[]}'::jsonb`),
   aiAdjudication: boolean('ai_adjudication').notNull().default(false),
+  /** Which matching engine proposes matches for this workspace: the earlier one, engine v2 in shadow (computes and records, changes nothing a person sees), or engine v2. */
+  matchingEngine: text('matching_engine').$type<MatchingEngine>().notNull().default('v1'),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
 
@@ -596,6 +602,18 @@ export const productMatches = pgTable(
     decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'set null' }),
     decidedAt: ts('decided_at'),
     decisionNote: text('decision_note'),
+    // ── matching engine v2 (migration 0013). All nullable: a row written by the earlier engine has none of them and is read as it always was.
+    /** What the two products are to each other. A person's choice when decided; the engine's suggestion otherwise. Null = written before engine v2 (see `relationshipOfClass`). */
+    relationship: text('relationship').$type<MatchRelationship>(),
+    tier: text('tier').$type<EvidenceTier>(),
+    evidence: jsonb('evidence').$type<MatchEvidence>(),
+    engineVersion: text('engine_version'),
+    /** Fingerprint of what both products said when this was last judged. A change means a human decision on this pair deserves a second look. */
+    pairHash: text('pair_hash'),
+    /** The engine no longer proposes this pair. The row stays (history, and any human decision on it); it just stops being a current suggestion. */
+    supersededAt: ts('superseded_at'),
+    /** A product in a decided pair changed materially since the decision. The decision is untouched; the pair is flagged for a person to look at again. */
+    needsReevaluation: boolean('needs_reevaluation').notNull().default(false),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -603,7 +621,56 @@ export const productMatches = pgTable(
     uniqueIndex('matches_pair_uq').on(t.sourceVariantId, t.competitorVariantId),
     index('matches_org_status_idx').on(t.orgId, t.status, t.matchClass),
     index('matches_competitor_idx').on(t.competitorVariantId),
+    index('matches_org_rel_idx').on(t.orgId, t.relationship, t.status),
   ],
+);
+
+/**
+ * Append-only history of every suggestion and every human decision, with the evidence and a compact snapshot of both products at the time.
+ * It is the labelled-example store (a person's accept / reject / reclassify, with the engine version that made the suggestion) and the answer
+ * to "why did this change or disappear?". Rows are never updated.
+ */
+export const matchEvents = pgTable(
+  'match_events',
+  {
+    id: pk(),
+    orgId: orgId(),
+    /** Kept as plain ids on purpose: the history must outlive a variant that is later removed from a catalogue. */
+    sourceVariantId: uuid('source_variant_id').notNull(),
+    competitorVariantId: uuid('competitor_variant_id').notNull(),
+    matchId: uuid('match_id'),
+    kind: text('kind').$type<'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged'>().notNull(),
+    relationship: text('relationship').$type<MatchRelationship>(),
+    tier: text('tier').$type<EvidenceTier>(),
+    status: text('status').$type<MatchStatus>(),
+    /** For a decision: what the person chose ('accept' | 'reject' | 'reclassify' | 'manual' | 'bulk'). */
+    decision: text('decision'),
+    evidence: jsonb('evidence').$type<MatchEvidence>(),
+    engineVersion: text('engine_version'),
+    pairHash: text('pair_hash'),
+    /** Both products as matching saw them (titles, brand, identifiers, size, options): enough to reuse the example without the live catalogue. */
+    snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    note: text('note'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('match_events_pair_idx').on(t.orgId, t.sourceVariantId, t.competitorVariantId, t.createdAt), index('match_events_kind_idx').on(t.orgId, t.kind, t.createdAt)],
+);
+
+/** One row per matching run: which engine, how long it took, what it found. A shadow run writes only this (nothing a person sees changes). */
+export const matchRuns = pgTable(
+  'match_runs',
+  {
+    id: pk(),
+    orgId: orgId(),
+    engine: text('engine').$type<MatchingEngine>().notNull(),
+    engineVersion: text('engine_version'),
+    startedAt: ts('started_at').notNull().defaultNow(),
+    finishedAt: ts('finished_at'),
+    stats: jsonb('stats').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    error: text('error'),
+  },
+  (t) => [index('match_runs_org_idx').on(t.orgId, t.startedAt)],
 );
 
 export const socialAccounts = pgTable(

@@ -68,10 +68,10 @@ describe('a vendor field that is not a brand does not stop products matching', (
     const identical = rows.filter((r) => r.cls === 'identical');
     expect(identical.length, JSON.stringify(rows.slice(0, 3))).toBeGreaterThanOrEqual(15);
     expect(rows.flatMap((r) => r.reasons).filter((x) => /Different brands/.test(x) && /Aruba/.test(x))).toEqual([]);
-    // identical names, brand (read from the names) and size are accepted on their own; "Horizon Whole Milk" vs "Horizon Chocolate Whole Milk" (similarity 0.8) correctly waits for a person
-    const autoAccepted = identical.filter((r) => r.status === 'auto');
-    expect(autoAccepted.length).toBeGreaterThanOrEqual(14);
-    expect(identical.filter((r) => r.status !== 'auto').every((r) => r.reasons.some((x) => /Name similarity 0.[0-8]/.test(x)))).toBe(true);
+    // nothing is accepted by a run, however identical the names, brand (read from the names) and size: every pair waits for a person
+    expect(rows.every((r) => r.status === 'needs_review')).toBe(true);
+    // "Horizon Whole Milk" vs "Horizon Chocolate Whole Milk" (similarity 0.8) is the one that is only a weak suggestion
+    expect(identical.filter((r) => r.reasons.some((x) => /Name similarity 0.[0-8]/.test(x))).length).toBeLessThanOrEqual(2);
   });
 });
 

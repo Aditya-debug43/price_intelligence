@@ -17,6 +17,8 @@ export * from './db-errors.ts';
 export * from './ingest.ts';
 export * from './scan.ts';
 export * from './matching.ts';
+export * from './matching-v2.ts';
+export * from './match-queue.ts';
 export * from './source-url.ts';
 export * from './comparison.ts';
 export * from './coverage.ts';

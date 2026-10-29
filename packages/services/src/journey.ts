@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DEFAULTS } from '@ci/shared';
 import { productMatches, reports, type DbLike } from '@ci/database';
+import { countAwaitingReview } from './match-queue.ts';
 import type { Services } from './context.ts';
 import { loadCoverage } from './coverage.ts';
 
@@ -42,8 +43,8 @@ export async function loadJourney(svc: Pick<Services, 'config' | 'clock' | 'mail
   const needData = collectable.filter((c) => c.productsKnown === 0);
   const cannot = coverage.filter((c) => c.status?.state === 'access_denied' || c.status?.state === 'unsupported' || c.status?.state === 'failed');
 
-  const [review] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(eq(productMatches.orgId, orgId), eq(productMatches.status, 'needs_review')));
-  const [anyMatch] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(eq(productMatches.orgId, orgId), inArray(productMatches.status, ['auto', 'accepted'])));
+  const review = { n: await countAwaitingReview(db, orgId) };
+  const [anyMatch] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(eq(productMatches.orgId, orgId), inArray(productMatches.status, ['accepted'])));
   const [reportCount] = await db.select({ n: sql<number>`count(*)::int` }).from(reports).where(and(eq(reports.orgId, orgId), inArray(reports.status, ['ready', 'partial'])));
   const needsReview = review?.n ?? 0;
   const hasReport = (reportCount?.n ?? 0) > 0;

@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { DEFAULTS, MATCH_CLASSES, bulkAcceptSchema, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
-import { integrationConnections, reports, sites } from '@ci/database';
+import { DEFAULTS, EVIDENCE_TIERS, MATCH_CLASSES, MATCH_RELATIONSHIPS, bulkAcceptSchema, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
+import { integrationConnections, matchEvents, productMatches, reports, sites } from '@ci/database';
 import {
   bulkAcceptMatches, dataQuality, decideMatch, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
-  loadStock, setVariantThreshold, assertCanMatch, loadReadiness, loadJourney, searchMatchCandidates, setManualMatch, reviewOffer,
+  loadStock, setVariantThreshold, assertCanMatch, loadReadiness, loadJourney, searchMatchCandidates, setManualMatch, reviewOffer, matchSummary,
 } from '@ci/services';
 import { HttpError, parse, requireRole } from '../app.ts';
 
@@ -77,15 +77,32 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get('/matches', async (req) => {
     const q = parse(
       paginationSchema.extend({
+        bucket: z.enum(['review', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside']).optional(),
         status: z.enum(MATCH_STATUSES).optional(),
         class: z.enum(MATCH_CLASSES).optional(),
+        relationship: z.enum(MATCH_RELATIONSHIPS).optional(),
+        tier: z.enum(EVIDENCE_TIERS).optional(),
         minConfidence: z.coerce.number().min(0).max(1).optional(),
         maxConfidence: z.coerce.number().min(0).max(1).optional(),
         siteId: uuid.optional(),
       }),
       req.query,
     );
-    return req.tx((tx) => listMatches(tx, req.orgId!, { status: q.status, matchClass: q.class, minConfidence: q.minConfidence, maxConfidence: q.maxConfidence, siteId: q.siteId, page: q.page, pageSize: q.pageSize }));
+    return req.tx((tx) => listMatches(tx, req.orgId!, { bucket: q.bucket, status: q.status, matchClass: q.class, relationship: q.relationship, tier: q.tier, minConfidence: q.minConfidence, maxConfidence: q.maxConfidence, siteId: q.siteId, page: q.page, pageSize: q.pageSize }));
+  });
+
+  /** What exists, what waits, what is confirmed and what the last run did: the facts the empty states and the tab counts are built from. */
+  app.get('/matches/summary', async (req) => req.tx((tx) => matchSummary(tx, req.orgId!)));
+
+  /** Everything that ever happened to one pair: each suggestion, each change, each decision, with the evidence at the time. */
+  app.get('/matches/:matchId/history', async (req) => {
+    const { matchId } = parse(z.object({ matchId: uuid }), req.params);
+    return req.tx(async (tx) => {
+      const [m] = await tx.select({ id: productMatches.id }).from(productMatches).where(and(eq(productMatches.id, matchId), eq(productMatches.orgId, req.orgId!)));
+      if (!m) throw new HttpError(404, 'not_found', 'Match not found.');
+      const events = await tx.select().from(matchEvents).where(and(eq(matchEvents.matchId, matchId), eq(matchEvents.orgId, req.orgId!))).orderBy(desc(matchEvents.createdAt)).limit(100);
+      return { events: events.map((e) => ({ id: e.id, kind: e.kind, relationship: e.relationship, tier: e.tier, status: e.status, decision: e.decision, evidence: e.evidence, engineVersion: e.engineVersion, note: e.note, actorId: e.actorId, createdAt: e.createdAt })) };
+    });
   });
 
   app.post('/matches/run', async (req, reply) => {
@@ -129,12 +146,11 @@ export async function catalogRoutes(app: FastifyInstance) {
         q: z.string().max(200).optional(),
         category: z.string().max(200).optional(),
         siteId: uuid.optional(),
+        view: z.enum(['prices', 'substitutes']).default('prices'),
         matchClass: z.enum(MATCH_CLASSES).optional(),
-        review: z.enum(['confirmed', 'needs_review', 'any']).default('any'),
-        minConfidence: z.coerce.number().min(0).max(1).optional(),
         freshness: z.enum(['fresh', 'stale', 'any']).default('any'),
         position: z.enum(['cheapest', 'middle', 'highest', 'tied', 'no_data']).optional(),
-        sort: z.enum(['title', 'gap', 'confidence', 'freshness', 'category']).default('title'),
+        sort: z.enum(['title', 'gap', 'freshness', 'category']).default('title'),
         dir: z.enum(['asc', 'desc']).default('asc'),
       }),
       req.query,
@@ -144,10 +160,11 @@ export async function catalogRoutes(app: FastifyInstance) {
       await ensureFxRates({ db: tx as never, clock: app.svc.clock });
       const fx = await loadFxTable(tx, app.svc.clock());
       const now = app.svc.clock();
-      const rows = await loadComparison(tx, { orgId: req.orgId!, reportingCurrency: settings?.reportingCurrency ?? DEFAULTS.reportingCurrency, fx, now, staleAfterHours: DEFAULTS.staleAfterHours });
+      const rows = await loadComparison(tx, { view: q.view, orgId: req.orgId!, reportingCurrency: settings?.reportingCurrency ?? DEFAULTS.reportingCurrency, fx, now, staleAfterHours: DEFAULTS.staleAfterHours });
       const maps = await loadSiteMaps(tx, req.orgId!);
       const coverage = await loadCoverage(tx, req.orgId!, now, DEFAULTS.staleAfterHours);
-      return { rows, settings, fx, maps, coverage };
+      const summary = await matchSummary(tx, req.orgId!);
+      return { rows, settings, fx, maps, coverage, summary };
     });
     const filtered = filterComparison(result.rows, q);
     const total = filtered.length;
@@ -160,6 +177,9 @@ export async function catalogRoutes(app: FastifyInstance) {
         categories: [...new Set(result.rows.map((r) => r.category).filter((c): c is string => !!c))].sort(),
         competitors: result.maps.rows.filter((s) => s.role === 'competitor').map((s) => ({ id: s.id, name: s.name, capability: s.capabilityStatus, status: result.coverage.find((c) => c.siteId === s.id)?.status ?? null })),
       },
+      view: q.view,
+      // the facts the empty states are built from (nothing suggested yet / suggested but nothing confirmed / confirmed)
+      matching: { state: result.summary.state, awaiting: result.summary.counts.awaiting, confirmedSame: result.summary.counts.confirmedSame, confirmedSubstitutes: result.summary.counts.confirmedSubstitutes, withoutCounterpart: result.summary.withoutCounterpart },
       fx: result.fx.usedRates(),
       asOf: app.svc.clock().toISOString(),
     };
@@ -240,11 +260,9 @@ interface CompareFilter {
   category?: string;
   siteId?: string;
   matchClass?: string;
-  review: 'confirmed' | 'needs_review' | 'any';
-  minConfidence?: number;
   freshness: 'fresh' | 'stale' | 'any';
   position?: string;
-  sort: 'title' | 'gap' | 'confidence' | 'freshness' | 'category';
+  sort: 'title' | 'gap' | 'freshness' | 'category';
   dir: 'asc' | 'desc';
 }
 
@@ -258,16 +276,13 @@ export function filterComparison(rows: ComparisonRow[], f: CompareFilter): Compa
         (c) =>
           (!f.siteId || c.siteId === f.siteId) &&
           (!f.matchClass || c.matchClass === f.matchClass) &&
-          (f.review === 'any' || (f.review === 'needs_review' ? c.matchStatus === 'needs_review' : c.matchStatus !== 'needs_review')) &&
-          (f.minConfidence === undefined || c.confidence >= f.minConfidence) &&
           (f.freshness === 'any' || (f.freshness === 'stale' ? c.price.stale : !c.price.stale)),
       ),
     }))
     .filter((r) => r.cells.length > 0);
   const gap = (r: ComparisonRow) => Math.max(...r.cells.map((c) => Math.abs(c.directlyComparable ? (c.diffPct ?? 0) : (c.unitDiffPct ?? 0))));
-  const conf = (r: ComparisonRow) => Math.max(...r.cells.map((c) => c.confidence));
   const oldest = (r: ComparisonRow) => Math.min(...[r.sourcePrice.observedAt, ...r.cells.map((c) => c.price.observedAt)].map((x) => (x ? new Date(x).getTime() : 0)));
-  const key: Record<CompareFilter['sort'], (r: ComparisonRow) => number | string> = { title: (r) => r.title.toLowerCase(), gap, confidence: conf, freshness: oldest, category: (r) => r.category ?? '' };
+  const key: Record<CompareFilter['sort'], (r: ComparisonRow) => number | string> = { title: (r) => r.title.toLowerCase(), gap, freshness: oldest, category: (r) => r.category ?? '' };
   const k = key[f.sort];
   out = out.sort((a, b) => {
     const x = k(a);

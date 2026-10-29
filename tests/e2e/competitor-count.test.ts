@@ -4,6 +4,7 @@ import { sites } from '@ci/database';
 import { SiteError, addSite, ensureFxRates, generateReport, loadComparison, loadFxTable, loadJourney, removeSite, runMatching, startScan } from '@ci/services';
 import type { ReportData } from '@ci/shared';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
+import { confirmSuggestions } from '../support/confirm.ts';
 
 /**
  * Directive 12: Shelfwatch must work from ONE competitor. The minimum of three lived in the shared limits (`DEFAULTS.minCompetitors`, also sent to the
@@ -57,6 +58,7 @@ describe('exactly one competitor', () => {
     await scan(t, ids.source!);
     await scan(t, ids.woo!);
     const match = await runMatching(h.svc, db(), t.orgId);
+    await confirmSuggestions(db(), t.orgId);
     expect(match.byClass.identical).toBeGreaterThan(10);
     const cmp = await compare(t);
     expect(cmp.length).toBeGreaterThan(15);
@@ -149,6 +151,7 @@ describe('workspaces that already have several competitors', () => {
     const others = [await t.addFixtureSite('woo', 'competitor'), await t.addFixtureSite('jsonld', 'competitor'), await t.addFixtureSite('html', 'competitor')];
     for (const id of [source, ...others]) await scan(t, id);
     await runMatching(h.svc, db(), t.orgId);
+    await confirmSuggestions(db(), t.orgId);
     const cmp = await compare(t);
     expect(Math.max(...cmp.map((r) => r.cells.length))).toBe(3);
     expect((await stepOf(t, 'competitors')).state).toBe('done');

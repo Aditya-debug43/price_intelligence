@@ -1,10 +1,18 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { buildPriceView, roundMoney, unitPrice, type FxTable } from '@ci/core';
-import { formatMoney, type Availability, type ComparisonCell, type ComparisonRow, type MatchClass, type MatchStatus, type PriceView, type UnitPriceView } from '@ci/shared';
+import { formatMoney, relationshipOfClass, type Availability, type ComparisonCell, type ComparisonRow, type MatchClass, type MatchRelationship, type MatchStatus, type PriceView, type UnitPriceView } from '@ci/shared';
 import { offers, productMatches, products, sites, variants, type DbLike } from '@ci/database';
 import { productPageLink } from './source-url.ts';
 
+/**
+ * Which confirmed relationships a comparison draws on. The default view holds only the same product (exact) and the same product in another pack,
+ * size or colour (variant), each confirmed by a person. Confirmed substitutes have their own view and are never shown as identical products.
+ * Suggestions that nobody has confirmed, related products, non-matches and pairs without enough evidence appear in neither.
+ */
+export type ComparisonView = 'prices' | 'substitutes';
+
 export interface ComparisonOptions {
+  view?: ComparisonView;
   orgId: string;
   reportingCurrency: string;
   fx: FxTable;
@@ -56,10 +64,20 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
   // The link a customer may click to check this product at its own shop: the page it was collected from, or nothing.
   const pageLink = (v: VRow): string | null => productPageLink(v.url, siteHost.get(v.siteId));
 
+  const which = o.view ?? 'prices';
+  const classes: MatchClass[] = which === 'prices' ? ['identical', 'different_pack'] : ['comparable'];
+  const relationships: MatchRelationship[] = which === 'prices' ? ['exact', 'variant'] : ['substitute'];
   const matchRows = await db
     .select()
     .from(productMatches)
-    .where(and(eq(productMatches.orgId, o.orgId), ne(productMatches.status, 'rejected'), ne(productMatches.matchClass, 'not_comparable')));
+    .where(
+      and(
+        eq(productMatches.orgId, o.orgId),
+        eq(productMatches.status, 'accepted'),
+        inArray(productMatches.matchClass, classes),
+        or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
+      ),
+    );
   if (!matchRows.length) return [];
   const vmap = await loadVariants(db, [...new Set(matchRows.flatMap((m) => [m.sourceVariantId, m.competitorVariantId]))]);
 
@@ -98,20 +116,22 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       const diffAbs = bothPriced ? roundMoney(price.normalized! - sourcePrice.normalized!, 4) : null;
       const diffPct = bothPriced ? roundMoney(((price.normalized! - sourcePrice.normalized!) / sourcePrice.normalized!) * 100, 2) : null;
       const unitDiffPct = unit.value !== null && sourceUnit.value !== null && unit.unit === sourceUnit.unit && sourceUnit.value > 0 ? roundMoney(((unit.value - sourceUnit.value) / sourceUnit.value) * 100, 2) : null;
-      const confirmed = m.status === 'auto' || m.status === 'accepted';
+      const relationship: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
+      // what differs, in the matcher's own words (older records carry only their reasons)
+      const differences = (m.evidence?.items ?? []).filter((i) => i.effect === 'differs' || i.effect === 'conflicts').map((i) => i.text);
       const caveats: string[] = [];
       if (price.amount === null) caveats.push('Competitor price not available');
       else if (price.normalized === null) caveats.push(price.currency ? `No exchange rate for ${price.currency}` : 'Competitor currency unknown, so the price cannot be converted');
       if (sourcePrice.normalized === null && sourcePrice.amount !== null) caveats.push(sourcePrice.currency ? `No exchange rate for ${sourcePrice.currency}` : 'Your currency is unknown');
       if (price.stale) caveats.push('Competitor price is stale');
-      if (!confirmed && m.matchClass === 'identical') caveats.push('Match not yet confirmed');
+      if (m.needsReevaluation) caveats.push('A product changed after you confirmed this pair. Your confirmation stands; check that it still holds.');
       if (m.matchClass === 'different_pack') caveats.push(`Different pack size (${sv.qtyLabel ?? '?'} vs ${cv.qtyLabel ?? '?'}); compare unit prices`);
-      if (m.matchClass === 'comparable') caveats.push('Different product or brand; compare unit prices only');
+      if (m.matchClass === 'comparable') caveats.push('A substitute, not the same product: check the differences below');
       const offer = offerBy.get(cv.id);
       cells.push({
         siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: pageLink(cv),
-        matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, confidence: m.confidence, reasons: m.reasons, price, availability: cv.availability, unitPrice: unit,
-        diffAbs, diffPct, unitDiffPct, directlyComparable: m.matchClass === 'identical' && confirmed && bothPriced,
+        matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, relationship, tier: m.tier, confidence: m.confidence, reasons: m.reasons, differences, needsReevaluation: m.needsReevaluation, price, availability: cv.availability, unitPrice: unit,
+        diffAbs, diffPct, unitDiffPct, directlyComparable: relationship === 'exact' && bothPriced,
         offerSummary: offer ? `On sale: was ${formatMoney(offer.originalPrice, offer.currency)}, now ${formatMoney(offer.salePrice, offer.currency)}${offer.claimedDiscountPct ? ` (claims ${offer.claimedDiscountPct}% off; ${offer.verification === 'verified' ? 'verified by history' : 'not historically verified'})` : ''}` : null,
         caveats,
       });
@@ -121,7 +141,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
     // Position among directly comparable identical prices only.
     const comparable = [sourcePrice.normalized, ...cells.filter((c) => c.directlyComparable).map((c) => c.price.normalized)].filter((x): x is number => x !== null);
     let position: ComparisonRow['position'] = 'no_data';
-    if (sourcePrice.normalized !== null && cells.some((c) => c.directlyComparable)) {
+    if (which === 'prices' && sourcePrice.normalized !== null && cells.some((c) => c.directlyComparable)) {
       const min = Math.min(...comparable);
       const max = Math.max(...comparable);
       position = min === max ? 'tied' : sourcePrice.normalized === min ? 'cheapest' : sourcePrice.normalized === max ? 'highest' : 'middle';

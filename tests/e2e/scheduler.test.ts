@@ -4,6 +4,7 @@ import { alerts, dailyRuns, emailOutbox, orgSettings, reports, scanRuns } from '
 import type { ReportData } from '@ci/shared';
 import { planForOrg, runMatching, schedulerTick, startScan } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
+import { confirmSuggestions } from '../support/confirm.ts';
 
 let h: Harness;
 let t: Tenant;
@@ -23,6 +24,7 @@ beforeAll(async () => {
   for (const k of Object.keys(ids)) await t.tx((tx) => startScan(h.svc, tx, t.orgId, ids[k]!, { kind: 'discovery', trigger: 'manual' }));
   await h.queue.drain();
   await runMatching(h.svc, db(), t.orgId);
+  await confirmSuggestions(db(), t.orgId);
   // give the measured history realistic durations (a frozen test clock would otherwise record 0 ms)
   await db().execute(sql`update scan_runs set started_at = finished_at - interval '60 minutes' where org_id = ${t.orgId} and status = 'succeeded'`);
 }, 120_000);

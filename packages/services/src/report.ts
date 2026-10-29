@@ -26,7 +26,8 @@ import {
   type ReportKpis,
   type StockRow,
 } from '@ci/shared';
-import { insights as insightsTable, integrationConnections, orgSettings, organizations, productMatches, reports, sites, type DbLike } from '@ci/database';
+import { insights as insightsTable, integrationConnections, orgSettings, organizations, reports, sites, type DbLike } from '@ci/database';
+import { countAwaitingReview } from './match-queue.ts';
 import { allSocialStatuses } from '@ci/connectors';
 import type { Services } from './context.ts';
 import { loadFxTable, ensureFxRates } from './fx.ts';
@@ -139,7 +140,7 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
   const unconvertible = comparisons.reduce((a, r) => a + r.cells.filter((c) => c.price.amount !== null && c.price.normalized === null).length, 0);
   if (unconvertible) warnings.push(`${unconvertible} competitor price(s) could not be converted to ${reporting} (missing currency or exchange rate) and are excluded from differences.`);
   const isPartial = !!opts.forcePartial || incomplete.length > 0;
-  const needsReview = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(and(eq(productMatches.orgId, orgId), eq(productMatches.status, 'needs_review')));
+  const needsReview = [{ n: await countAwaitingReview(db, orgId) }];
   if ((needsReview[0]?.n ?? 0) > 0) warnings.push(`${needsReview[0]!.n} product match(es) are waiting for review and are not used for price conclusions.`);
 
   // ── integrations

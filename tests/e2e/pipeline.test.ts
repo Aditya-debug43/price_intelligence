@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { flyers, marketingActivities, offers, priceObservations, productMatches, products, scanRuns, siteProfiles, sites, variants, evidence } from '@ci/database';
 import { ConsentRequiredError, SiteError, addSite, loadComparison, loadFxTable, ensureFxRates, runMatching, runProfile, startScan, decideMatch, getSite } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
+import { confirmSuggestions } from '../support/confirm.ts';
 
 let h: Harness;
 let t: Tenant;
@@ -151,6 +152,7 @@ describe('5. product matching and price comparison', () => {
   let matchResult: Awaited<ReturnType<typeof runMatching>>;
   it('matches products across sites into the four classes with confidence and reasons', async () => {
     matchResult = await runMatching(h.svc, readDb(), t.orgId);
+    await confirmSuggestions(readDb(), t.orgId);
     expect(matchResult.byClass.identical).toBeGreaterThan(20);
     expect(matchResult.byClass.different_pack).toBeGreaterThan(0);
     const rows = await readDb().select().from(productMatches).where(eq(productMatches.orgId, t.orgId));
@@ -213,13 +215,18 @@ describe('5. product matching and price comparison', () => {
   });
 
   it('keeps human decisions across re-matching', async () => {
-    const [m] = await readDb().select().from(productMatches).where(and(eq(productMatches.orgId, t.orgId), eq(productMatches.status, 'auto'), eq(productMatches.matchClass, 'identical'))).limit(1);
-    await t.tx((tx) => decideMatch(tx, t.orgId, m!.id, t.userId, { decision: 'reject' }, h.svc.clock()));
+    const accepted = await readDb().select().from(productMatches).where(and(eq(productMatches.orgId, t.orgId), eq(productMatches.status, 'accepted'), eq(productMatches.matchClass, 'identical')));
+    expect(accepted.length).toBeGreaterThan(10);
+    const m = accepted[0]!;
+    await t.tx((tx) => decideMatch(tx, t.orgId, m.id, t.userId, { decision: 'reject' }, h.svc.clock()));
     await runMatching(h.svc, readDb(), t.orgId);
-    const [after] = await readDb().select().from(productMatches).where(eq(productMatches.id, m!.id));
+    const [after] = await readDb().select().from(productMatches).where(eq(productMatches.id, m.id));
     expect(after).toMatchObject({ status: 'rejected', matchClass: 'not_comparable', decidedBy: t.userId });
+    // every other confirmation is still there after the run
+    const still = await readDb().select().from(productMatches).where(and(eq(productMatches.orgId, t.orgId), eq(productMatches.status, 'accepted')));
+    expect(still.length).toBeGreaterThanOrEqual(accepted.length - 1);
     const other = await h.newTenant('Intruder');
-    await expect(other.tx((tx) => decideMatch(tx, other.orgId, m!.id, other.userId, { decision: 'accept' }, h.svc.clock()))).rejects.toThrow(/not found/i);
+    await expect(other.tx((tx) => decideMatch(tx, other.orgId, m.id, other.userId, { decision: 'accept' }, h.svc.clock()))).rejects.toThrow(/not found/i);
   });
 });
 
