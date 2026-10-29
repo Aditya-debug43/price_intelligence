@@ -729,4 +729,6 @@ Tests: new `engine.test.ts` (37), `metrics.test.ts`, `tests/e2e/match-engine-v2.
 
 What the real grocery catalogue taught (all kept as regression tests): "100%" read as a part code gave a "strong" stand-in of juice for bread; numbers scattered over unrelated kinds; same-brand different-variety pairs; single bottle vs pack; a vintage year as a stated difference. Because the engine was refined while looking at these decisions, the grocery numbers are development data.
 
-Not done / not established: automotive evaluation on production data, held-out labelled set, candidate-recall and no-counterpart measurements, resources on the server, deployment (SSH blocked; the frontend must not be pushed before the backend is updated, because the new pages call new endpoints).
+Later the same day (SSH restored by allowing the laptop's own address): production exports of "adi" and "Aditya" were evaluated offline; reading them exposed more defects (model names, make-vs-model, fog-vs-dome variants, fitment alone as "strong", all variants of a competitor product suggested), fixed and kept as tests; automotive review load is still far over target. Deployed: backup, `sudo shelfwatch-update` to `98bab87` (migration 0013, ready, smoke 30/30), smoke-test account removed, Vercel serving the new frontend. No production data changed; engine switch is `v1` everywhere.
+
+Not established: held-out labelled set, candidate recall, no-counterpart rate, automotive precision, resources on the t3.micro (tight), the review-load target on the automotive catalogue.

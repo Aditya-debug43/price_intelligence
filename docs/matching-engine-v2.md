@@ -1,6 +1,6 @@
 # Matching engine v2 — what was built, how it was measured, what is and is not established
 
-Status: **implemented, tested, NOT switched on anywhere.** Every workspace still runs the earlier engine (`matching_engine = 'v1'`). The new engine can be run in
+Status: **implemented, tested and DEPLOYED (backend `98bab87` on the server, frontend on Vercel, 2026-10-29) — but NOT switched on anywhere.** Every workspace still runs the earlier engine (`matching_engine = 'v1'`). The new engine can be run in
 **shadow** (`v2_shadow`: computes and records, changes nothing a person sees) or switched on (`v2`) per workspace. The release gates in section 6 are not all
 established, so the engine stays off until the evaluation data exists. Design and reasoning: `docs/proposals/universal-matching-design.md` (approved 2026-10-29).
 Verbatim request: `docs/original-prompt/17_DIRECTIVE_IMPLEMENT_UNIVERSAL_MATCHING_2026-10-29.md`.
@@ -141,6 +141,13 @@ Shadow runs record time, memory, counts by relationship and tier, the reasons pa
 `select stats from match_runs order by started_at desc`.
 
 Roll back: set `matching_engine` back to `v1` (suggestions already written stay as history; nothing was deleted). The migration is additive and needs no rollback; the new columns are ignored by the earlier code.
+
+## 7b. Deployment record (2026-10-29)
+
+* Backup first (`shelfwatch-2026-10-29T095800Z.dump`, 16 MB; an earlier one, `…T095734Z.dump`, was read back with `pg_restore -l`). Backend updated with `sudo shelfwatch-update` from `ee463da`/`03aa072` to `98bab87`: migration 0013 applied (14 of 14), readiness `ready`, smoke test 30/30 through nginx. The throw-away smoke-test account was removed again (3 real accounts, 3 workspaces untouched).
+* Nothing in production data changed: 705 accepted + 1,353 waiting pairs exactly as before; no row has a v2 field; every workspace is on engine `v1`; `match_events` and `match_runs` are empty. Because the "Aditya" workspace had no `auto` rows, the confirmed-only comparison rule changes nothing it shows today; "Groceries To Go Aruba" has no products and "adi" has no matches yet.
+* The frontend was pushed to `main` (Vercel) and the backend updated immediately after; the pages tolerate a backend that lacks the new endpoints for the minutes between the two. Vercel serves the new bundle (checked by its text) and proxies `/api/v1/ready` to the new backend. The new pages were not clicked through with a real login on production.
+* Rollback: set an affected workspace's `matching_engine` back to `v1`; to remove the code, `git revert 98bab87 3b3d43d` and `sudo shelfwatch-update` (the migration is additive and the old code ignores the new columns); the backups above restore the data.
 
 ## 8. Limitations (what cannot be determined)
 
