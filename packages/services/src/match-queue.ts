@@ -21,6 +21,8 @@ export interface MatchSummary {
   counts: {
     /** Suggestions waiting for a person (same product, other pack, or substitute). */
     awaiting: number;
+    /** The same waiting suggestions counted as product pairs (your product against one competitor product): a product with many variants is one item to look at. */
+    awaitingProductPairs: number;
     /** Related products and pairs without enough information: kept for reference, never work to do. */
     unclear: number;
     confirmedSame: number;
@@ -60,13 +62,17 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
     from product_matches where org_id = ${orgId}`);
   const row = c.rows[0] ?? {};
   const n = (k: string) => Number(row[k] ?? 0);
+  const pp = await db.execute<{ n: string }>(sql`
+    select count(distinct (vs.product_id, vc.product_id))::text as n from product_matches m
+    join variants vs on vs.id = m.source_variant_id join variants vc on vc.id = m.competitor_variant_id
+    where m.org_id = ${orgId} and m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class <> 'not_comparable'`);
   const cat = await db.execute<Record<string, string>>(sql`
     select count(*) filter (where s.role = 'source')::text as mine, count(*) filter (where s.role = 'competitor')::text as theirs, count(distinct s.id) filter (where s.role = 'competitor')::text as sites
     from variants v join products p on p.id = v.product_id join sites s on s.id = p.site_id
     where v.org_id = ${orgId} and s.active and p.delisted_at is null`);
   const k = cat.rows[0] ?? {};
   const counts = {
-    awaiting: n('awaiting'), unclear: n('unclear'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
+    awaiting: n('awaiting'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
     rejected: n('rejected'), needLookAgain: n('look_again'), setAside: n('set_aside'),
   };
   const catalogue = { yourProducts: Number(k['mine'] ?? 0), competitorProducts: Number(k['theirs'] ?? 0), competitorWebsites: Number(k['sites'] ?? 0) };

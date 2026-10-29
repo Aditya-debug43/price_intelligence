@@ -153,6 +153,11 @@ export interface MatchFilter {
   minConfidence?: number;
   maxConfidence?: number;
   siteId?: string;
+  /** "product": one row per (your product, competitor product) — the best variant pair with the number of variant pairs behind it — so a product with many variants is one review item, not dozens. */
+  group?: 'product';
+  /** Narrow to one product pair (used to open the variant pairs behind a grouped row). */
+  sourceProductId?: string;
+  competitorProductId?: string;
   page: number;
   pageSize: number;
 }
@@ -178,8 +183,21 @@ export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
   if (f.minConfidence !== undefined) w.push(sql`m.confidence >= ${f.minConfidence}`);
   if (f.maxConfidence !== undefined) w.push(sql`m.confidence <= ${f.maxConfidence}`);
   if (f.siteId) w.push(sql`m.competitor_site_id = ${f.siteId}::uuid`);
+  if (f.sourceProductId) w.push(sql`m.source_variant_id in (select id from variants where product_id = ${f.sourceProductId}::uuid)`);
+  if (f.competitorProductId) w.push(sql`m.competitor_variant_id in (select id from variants where product_id = ${f.competitorProductId}::uuid)`);
   const where = sql.join(w, sql` and `);
   const { limit, offset } = clampPage(f.page, f.pageSize);
+  // grouped: keep one row per product pair (strongest tier first, then confidence); `group_size` counts the variant pairs of the group that match the filter
+  const grouped = f.group === 'product';
+  const groupSql = grouped
+    ? sql`join (
+        select g.id, g.group_size from (
+          select m.id, count(*) over (partition by vs2.product_id, vc2.product_id) as group_size,
+                 row_number() over (partition by vs2.product_id, vc2.product_id order by (case m.tier when 'strong' then 0 when 'medium' then 1 else 2 end), m.confidence desc, m.id) as rn
+          from product_matches m join variants vs2 on vs2.id = m.source_variant_id join variants vc2 on vc2.id = m.competitor_variant_id where ${where}
+        ) g where g.rn = 1
+      ) grp on grp.id = m.id`
+    : sql``;
   const rows = await db.execute<Record<string, unknown>>(sql`
     select m.id, m.match_class as "matchClass", m.confidence, m.status, m.method, m.reasons, m.components, m.decided_at as "decidedAt", m.decision_note as "decisionNote",
            coalesce(m.relationship, case m.match_class when 'identical' then 'exact' when 'different_pack' then 'variant' when 'comparable' then 'substitute' else 'non_match' end) as relationship,
@@ -188,15 +206,19 @@ export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
            pc.title as "competitorTitle", vc.title as "competitorVariantTitle", vc.price as "competitorPrice", vc.currency as "competitorCurrency", vc.qty_label as "competitorSize", pc.brand as "competitorBrand", vc.url as "competitorUrl", pc.id as "competitorProductId",
            sc.name as "competitorSite", m.competitor_site_id as "competitorSiteId", m.source_variant_id as "sourceVariantId", m.competitor_variant_id as "competitorVariantId", m.decided_by is not null as "decidedByPerson",
            vs.availability as "sourceAvailability", vs.observed_at as "sourceObservedAt", vs.gtin as "sourceGtin", vs.sku as "sourceSku", ps.category as "sourceCategory",
-           vc.availability as "competitorAvailability", vc.observed_at as "competitorObservedAt", vc.gtin as "competitorGtin", vc.sku as "competitorSku", pc.category as "competitorCategory"
+           vc.availability as "competitorAvailability", vc.observed_at as "competitorObservedAt", vc.gtin as "competitorGtin", vc.sku as "competitorSku", pc.category as "competitorCategory",
+           ${grouped ? sql`grp.group_size::int` : sql`1`} as "groupSize"
     from product_matches m
     join variants vs on vs.id = m.source_variant_id join products ps on ps.id = vs.product_id
     join variants vc on vc.id = m.competitor_variant_id join products pc on pc.id = vc.product_id
     join sites sc on sc.id = m.competitor_site_id
+    ${groupSql}
     where ${where}
     order by (case when m.status in ('needs_review','auto') then 0 else 1 end), (case m.tier when 'strong' then 0 when 'medium' then 1 else 2 end), m.confidence desc, ps.title
     limit ${limit} offset ${offset}`);
-  const total = await db.execute<{ n: string }>(sql`select count(*)::text as n from product_matches m where ${where}`);
+  const total = await db.execute<{ n: string }>(grouped
+    ? sql`select count(distinct (vs.product_id, vc.product_id))::text as n from product_matches m join variants vs on vs.id = m.source_variant_id join variants vc on vc.id = m.competitor_variant_id where ${where}`
+    : sql`select count(*)::text as n from product_matches m where ${where}`);
   const counts = await db.select({ status: productMatches.status, matchClass: productMatches.matchClass, n: sql<number>`count(*)::int` }).from(productMatches).where(eq(productMatches.orgId, orgId)).groupBy(productMatches.status, productMatches.matchClass);
   // Raw SQL returns `numeric` as strings; the API contract is numbers (null stays null — never 0).
   const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));

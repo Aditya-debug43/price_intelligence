@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DEFAULTS, EVIDENCE_TIERS, MATCH_CLASSES, MATCH_RELATIONSHIPS, bulkAcceptSchema, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
 import { integrationConnections, matchEvents, productMatches, reports, sites } from '@ci/database';
 import {
-  bulkAcceptMatches, dataQuality, decideMatch, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
+  bulkAcceptMatches, dataQuality, decideMatch, rejectProductPair, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
   loadStock, setVariantThreshold, assertCanMatch, loadReadiness, loadJourney, searchMatchCandidates, setManualMatch, reviewOffer, matchSummary,
 } from '@ci/services';
 import { HttpError, parse, requireRole } from '../app.ts';
@@ -85,10 +85,19 @@ export async function catalogRoutes(app: FastifyInstance) {
         minConfidence: z.coerce.number().min(0).max(1).optional(),
         maxConfidence: z.coerce.number().min(0).max(1).optional(),
         siteId: uuid.optional(),
+        group: z.enum(['product']).optional(),
+        sourceProductId: uuid.optional(),
+        competitorProductId: uuid.optional(),
       }),
       req.query,
     );
-    return req.tx((tx) => listMatches(tx, req.orgId!, { bucket: q.bucket, status: q.status, matchClass: q.class, relationship: q.relationship, tier: q.tier, minConfidence: q.minConfidence, maxConfidence: q.maxConfidence, siteId: q.siteId, page: q.page, pageSize: q.pageSize }));
+    return req.tx((tx) => listMatches(tx, req.orgId!, { bucket: q.bucket, status: q.status, matchClass: q.class, relationship: q.relationship, tier: q.tier, minConfidence: q.minConfidence, maxConfidence: q.maxConfidence, siteId: q.siteId, group: q.group, sourceProductId: q.sourceProductId, competitorProductId: q.competitorProductId, page: q.page, pageSize: q.pageSize }));
+  });
+
+  /** "These two products are not the same": rejects every variant pair of one product pair that still waits for a person (each as an ordinary, recorded decision). */
+  app.post('/matches/product-pair/reject', async (req) => {
+    const body = parse(z.object({ sourceProductId: uuid, competitorProductId: uuid, note: z.string().max(500).optional() }), req.body);
+    return req.tx((tx) => rejectProductPair(tx, req.orgId!, body.sourceProductId, body.competitorProductId, req.user!.id, body.note, app.svc.clock()));
   });
 
   /** What exists, what waits, what is confirmed and what the last run did: the facts the empty states and the tab counts are built from. */

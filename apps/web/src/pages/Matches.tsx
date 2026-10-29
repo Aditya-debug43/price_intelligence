@@ -14,6 +14,8 @@ interface MatchRow {
   sourceAvailability: string; sourceObservedAt: string | null; sourceGtin: string | null; sourceSku: string | null; sourceCategory: string | null;
   competitorTitle: string; competitorVariantTitle: string | null; competitorPrice: number | null; competitorCurrency: string | null; competitorSize: string | null; competitorBrand: string | null; competitorProductId: string; competitorSite: string; competitorUrl: string;
   competitorAvailability: string; competitorObservedAt: string | null; competitorGtin: string | null; competitorSku: string | null; competitorCategory: string | null;
+  /** In the grouped "To review" list: how many variant pairs of this product pair are waiting (this row is the strongest of them). */
+  groupSize?: number;
 }
 
 interface Candidate {
@@ -55,7 +57,8 @@ export function MatchesPage() {
   const [choosing, setChoosing] = useState<MatchRow | null>(null);
   const toast = useToast();
   const summary = useOrgQuery<MatchSummaryView>(['matches', 'summary'], '/matches/summary');
-  const q = useOrgQuery<{ rows: MatchRow[]; total: number }>(['matches', tab, page], `/matches${qs({ bucket: tab, page, pageSize: 15 })}`, { placeholderData: (p) => p });
+  // "To review" lists one item per product pair (your product against one competitor product), not one per variant pair
+  const q = useOrgQuery<{ rows: MatchRow[]; total: number }>(['matches', tab, page], `/matches${qs({ bucket: tab, page, pageSize: 15, group: tab === 'review' ? 'product' : undefined })}`, { placeholderData: (p) => p });
   const refresh = ['matches', 'comparison', 'dashboard', 'journey'];
   const decide = useOrgMutation(
     (id, v: { id: string; decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => api.post(orgPath(id, `/matches/${v.id}/decision`), { decision: v.decision, relationship: v.relationship }),
@@ -63,8 +66,13 @@ export function MatchesPage() {
     () => toast.push('Decision saved. It is kept every time matching runs again.'),
   );
   const rerun = useOrgMutation((id, _: void) => api.post(orgPath(id, '/matches/run')), refresh, () => toast.push('Matching started. Suggestions appear here when it finishes.'));
+  const rejectGroup = useOrgMutation(
+    (id, v: { sourceProductId: string; competitorProductId: string }) => api.post<{ rejected: number }>(orgPath(id, '/matches/product-pair/reject'), v),
+    refresh,
+    (r) => toast.push(`${r.rejected} suggestion${r.rejected === 1 ? '' : 's'} for these two products marked as not a match. Your decision is kept every time matching runs again.`),
+  );
   const s = summary.data;
-  const count = (b: Bucket) => (s ? ({ review: s.counts.awaiting, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside }[b]) : null);
+  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside }[b]) : null);
   const label = (text: string, b: Bucket) => (count(b) === null ? text : `${text} (${count(b)})`);
   const tabs: { id: Bucket; label: string }[] = [
     { id: 'review', label: label('To review', 'review') },
@@ -84,7 +92,10 @@ export function MatchesPage() {
       />
       {s && s.engine === 'v2_shadow' && <div className="callout info" role="status" style={{ marginBottom: 12 }}>The new matcher is being tested alongside the old one. It records what it would suggest but changes nothing you see here.</div>}
       {isAdmin && tab === 'review' && (q.data?.total ?? 0) > 0 && <BulkAccept />}
-      {(decide.error || rerun.error) && <div className="callout bad" role="alert" style={{ marginBottom: 12 }}>{errorMessage(decide.error ?? rerun.error)}</div>}
+      {(decide.error || rerun.error || rejectGroup.error) && <div className="callout bad" role="alert" style={{ marginBottom: 12 }}>{errorMessage(decide.error ?? rerun.error ?? rejectGroup.error)}</div>}
+      {tab === 'review' && s && s.counts.awaitingProductPairs !== undefined && s.counts.awaitingProductPairs < s.counts.awaiting && (
+        <div className="small muted" style={{ marginBottom: 8 }}>{s.counts.awaitingProductPairs} product pairs to look at, covering {s.counts.awaiting} variant pairs: a product with several variants is one item here; open it to see its variants.</div>
+      )}
       <Tabs value={tab} onChange={(t) => { setTab(t); setPage(1); }} tabs={tabs} />
       <DataState
         q={q}
@@ -100,7 +111,8 @@ export function MatchesPage() {
         {(d) => (
           <Card pad={false}>
             {d.rows.map((m) => (
-              <MatchCard key={m.id} m={m} orgId={orgId} isAdmin={isAdmin} onDecide={(v) => decide.mutate({ id: m.id, ...v })} onChoose={() => setChoosing(m)} />
+              <MatchCard key={m.id} m={m} orgId={orgId} isAdmin={isAdmin} onDecide={(v) => decide.mutate({ id: m.id, ...v })} onChoose={() => setChoosing(m)}
+                group={(m.groupSize ?? 1) > 1 ? { onDecideMember: (id, v) => decide.mutate({ id, ...v }), onChooseMember: setChoosing, onRejectAll: () => rejectGroup.mutate({ sourceProductId: m.sourceProductId, competitorProductId: m.competitorProductId }), busy: rejectGroup.isPending } : undefined} />
             ))}
             <Pager page={page} pageSize={15} total={d.total} onPage={setPage} />
           </Card>
@@ -149,7 +161,34 @@ function EvidenceList({ evidence }: { evidence: MatchEvidence }) {
   );
 }
 
-function MatchCard({ m, orgId, isAdmin, onDecide, onChoose }: { m: MatchRow; orgId: string; isAdmin: boolean; onDecide: (v: { decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => void; onChoose: () => void }) {
+type DecideArgs = { decision: 'accept' | 'reject' | 'reclassify'; relationship?: string };
+interface GroupHandlers { onDecideMember: (id: string, v: DecideArgs) => void; onChooseMember: (m: MatchRow) => void; onRejectAll: () => void; busy: boolean }
+
+/** The other variant pairs of the same two products, opened on request, and the one decision that applies to all of them (not the same product). */
+function GroupBar({ m, orgId, isAdmin, g }: { m: MatchRow; orgId: string; isAdmin: boolean; g: GroupHandlers }) {
+  const [open, setOpen] = useState(false);
+  const n = m.groupSize ?? 1;
+  const members = useOrgQuery<{ rows: MatchRow[] }>(['matches', 'group', m.sourceProductId, m.competitorProductId], `/matches${qs({ bucket: 'review', sourceProductId: m.sourceProductId, competitorProductId: m.competitorProductId, pageSize: 50 })}`, { enabled: open });
+  return (
+    <>
+      <div className="callout info" role="status" style={{ margin: '8px 0' }}>
+        These two products have <b>{n} variant pairs</b> waiting; the strongest is shown. Each variant pair is confirmed on its own, because sizes and options differ between them.
+        <div className="row" style={{ marginTop: 6 }}>
+          <button className="btn btn-sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide the other variant pairs' : `Show the other ${n - 1} variant pair${n - 1 === 1 ? '' : 's'}`}</button>
+          {isAdmin && <button className="btn btn-sm btn-danger" disabled={g.busy} onClick={() => { if (window.confirm(`Mark all ${n} variant pairs of these two products as “not a match”?`)) g.onRejectAll(); }}>These are different products: reject all {n}</button>}
+        </div>
+      </div>
+      {open && members.isPending && <div className="small muted" style={{ padding: '4px 0' }}>Loading the variant pairs…</div>}
+      {open && (members.data?.rows ?? []).filter((r) => r.id !== m.id).map((r) => (
+        <div key={r.id} style={{ borderLeft: '3px solid var(--line-2)', marginLeft: 6 }}>
+          <MatchCard m={r} orgId={orgId} isAdmin={isAdmin} onDecide={(v) => g.onDecideMember(r.id, v)} onChoose={() => g.onChooseMember(r)} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchRow; orgId: string; isAdmin: boolean; onDecide: (v: { decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => void; onChoose: () => void; group?: GroupHandlers }) {
   const decided = m.status === 'accepted' || m.status === 'rejected';
   const earlier = m.engineVersion == null;
   const rel = m.relationship ?? ({ identical: 'exact', different_pack: 'variant', comparable: 'substitute' } as Record<string, string>)[m.matchClass] ?? 'non_match';
@@ -189,6 +228,7 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose }: { m: MatchRow; org
       )}
       <SideBySide m={m} />
       <History id={m.id} />
+      {group && <GroupBar m={m} orgId={orgId} isAdmin={isAdmin} g={group} />}
       {isAdmin && (
         <div className="row" style={{ marginTop: 8 }}>
           {!decided && (rel === 'exact' || rel === 'variant' || rel === 'substitute' || rel === 'related') && (

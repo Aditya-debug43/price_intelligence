@@ -6,7 +6,7 @@
 export interface MatchSummaryView {
   engine: 'v1' | 'v2_shadow' | 'v2';
   lastRun: { id: string; engine: string; engineVersion: string | null; startedAt: string; finishedAt: string | null; error: string | null; stats: Record<string, unknown> } | null;
-  counts: { awaiting: number; unclear: number; confirmedSame: number; confirmedSubstitutes: number; confirmedRelated: number; rejected: number; needLookAgain: number; setAside: number };
+  counts: { awaiting: number; awaitingProductPairs?: number; unclear: number; confirmedSame: number; confirmedSubstitutes: number; confirmedRelated: number; rejected: number; needLookAgain: number; setAside: number };
   catalogue: { yourProducts: number; competitorProducts: number; competitorWebsites: number };
   state: 'no_competitors' | 'never_run' | 'shadow' | 'no_candidates' | 'none_confirmed' | 'ok';
   withoutCounterpart: number | null;

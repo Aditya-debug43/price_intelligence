@@ -18,3 +18,4 @@ deploy.env
 
 # matching evaluation set: competitor product titles and production row ids; the repository is public, so it stays local (docs/matching-validation-2026-10-29.md)
 fixtures/matching/eval-v1/
+fixtures/matching/eval-v2/

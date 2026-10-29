@@ -269,6 +269,21 @@ export async function decideMatch(
 }
 
 
+/**
+ * "These two products are not the same": one decision for every variant pair of the product pair that is still waiting for a person. Each pair gets its own
+ * ordinary "rejected" decision (history and audit entry included); pairs a person already decided, and pairs the matcher set aside, are never touched.
+ * Only a rejection can be applied to a group: confirming needs each variant pair looked at, because the sizes and options differ between them.
+ */
+export async function rejectProductPair(db: DbLike, orgId: string, sourceProductId: string, competitorProductId: string, userId: string, note: string | undefined, now: Date): Promise<{ rejected: number }> {
+  const waiting = await db.execute<{ id: string }>(sql`
+    select m.id from product_matches m
+    join variants vs on vs.id = m.source_variant_id join variants vc on vc.id = m.competitor_variant_id
+    where m.org_id = ${orgId} and vs.product_id = ${sourceProductId}::uuid and vc.product_id = ${competitorProductId}::uuid
+      and m.status in ('needs_review','auto') and m.superseded_at is null`);
+  for (const r of waiting.rows) await decideMatch(db, orgId, r.id, userId, { decision: 'reject', note }, now);
+  return { rejected: waiting.rows.length };
+}
+
 // ───────────────────────────────────────────────────────────── human choice: search for the right product
 
 export interface MatchCandidateRow {

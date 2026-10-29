@@ -148,7 +148,7 @@ report['accuracy'] = {
   dev: accuracy('DEV (all domains)', slice((l) => l.set === 'dev')),
   devAutomotive: accuracy('DEV automotive', slice((l) => l.set === 'dev' && l.domain === 'automotive')),
   devGrocery: accuracy('DEV grocery', slice((l) => l.set === 'dev' && l.domain === 'grocery')),
-  heldout: accuracy('HELD-OUT (website foodstore2go + non-lighting automotive category)', slice((l) => l.set === 'heldout')),
+  heldout: accuracy(arg('heldout-name', 'HELD-OUT (website foodstore2go + non-lighting automotive category)')!, slice((l) => l.set === 'heldout')),
   heldoutGrocerySite: accuracy('HELD-OUT website (foodstore2go.com)', slice((l) => l.set === 'heldout' && l.domain === 'grocery')),
 };
 

@@ -1,5 +1,5 @@
 import { collectKnownBrands, prepareVariant } from '../matching.ts';
-import { buildDossier, plain, seedColours, type Dossier, type DossierInput } from './dossier.ts';
+import { buildDossier, plain, seedColours, yearContexts, type Dossier, type DossierInput } from './dossier.ts';
 
 /**
  * Corpus analysis (matching engine v2): what the whole catalogue says about its own tokens. Nothing here is written by hand for a product kind —
@@ -24,6 +24,8 @@ export interface Corpus {
   codeSites: Map<string, Set<string>>;
   /** Subject words that name a MODEL (they keep company with few other vehicle words), as opposed to a make that goes with many. */
   modelWords: Set<string>;
+  /** The words that start a vehicle name often enough to be a make ("ford", "toyota"): the head model is the first word after them. */
+  makeWords: Set<string>;
   /** Numbers/codes judged to be scattered over unrelated kinds of product (not part codes). Diagnostic. */
   scatteredCodes: Set<string>;
   colourVocab: Set<string>;
@@ -38,6 +40,9 @@ export interface CorpusStats {
   subjectWords: number;
   colourWords: number;
 }
+
+/** Words that name how a light shines (a mode or a colour effect), never which part of a vehicle it goes in. */
+const MODE_WORDS = new Set(['switchback', 'dual', 'colour', 'color', 'strobe', 'flashing', 'mode']);
 
 /** A title that lists several products ("9005 and H11 combo") says nothing about which codes are the same thing. */
 const BUNDLE_OR_LIST = /\b(combo|kit|bundle|and)\b|\+/;
@@ -180,7 +185,8 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const variantWordCount = new Map<string, number>();
   for (const d of dossiers) for (const t of d.variantTokens) if (!/\d/.test(t)) variantWordCount.set(t, (variantWordCount.get(t) ?? 0) + 1);
   const applicationWords = new Set<string>();
-  for (const [w, c] of variantWordCount) if (c >= Math.max(8, Math.floor(0.0005 * n)) && (df.get('w:' + w) ?? 0) <= 0.1 * n && !tailVocab.has(w) && !subjectWords.has('w:' + w)) applicationWords.add(w);
+  // a colour or a colour MODE ("white", "yellow", "switchback") says how a bulb shines, not which part or position it is for
+  for (const [w, c] of variantWordCount) if (c >= Math.max(8, Math.floor(0.0005 * n)) && (df.get('w:' + w) ?? 0) <= 0.1 * n && !tailVocab.has(w) && !subjectWords.has('w:' + w) && !colourVocab.has(w) && !MODE_WORDS.has(w)) applicationWords.add(w);
 
   // resolve every dossier against the corpus
   const siteCodes = new Map<string, Set<string>>();
@@ -222,7 +228,15 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     const brandWords = new Set(d.brand.key ? [d.brand.key, ...(d.brand.name ?? '').toLowerCase().split(/[^a-z0-9]+/)] : []);
     const named = (w: string) => !brandWords.has(w) && !siteVocabulary(d.siteId, w);
     d.subject = [...new Set(d.yearContext.flatMap((c) => [...reach(c.after), ...reach(c.before, 3)]))].filter(named).sort();
-    d.subjectChain = d.yearContext.map((c) => { const after = reach(c.after).filter(named); return after.length ? after : reach(c.before, 3).filter(named).reverse(); }).find((chain) => chain.length) ?? [];
+    // a listing can mention years in several places (its title, a variant's own title): the chain that names a vehicle is the one with the most learned vehicle words
+    // (the vehicle is written before the year ("Hyundai Elantra LED Bulbs (2014-2016)") or after it ("2014-2016 Hyundai Elantra"); a variant's text can put part codes on the other side)
+    const chainsOf = (contexts: { before: string[]; after: string[] }[]) => contexts.flatMap((c) => [reach(c.after).filter(named), reach(c.before, 3).filter(named).reverse()]).filter((chain) => chain.length);
+    // a vehicle is NAMED (alphabetic words) before it is numbered: "hyundai elantra" outweighs "912 921 backup", although the numbers are the rarer words
+    const vehicleWords = (chain: string[]) => chain.filter((w) => /^[a-z]+$/.test(w)).length + 0.5 * chain.filter((w) => subjectWords.has(`w:${w}`) || subjectWords.has(`c:${w}`)).length;
+    const best = (chains: string[][]) => chains.reduce<string[]>((top, chain) => (!top.length || vehicleWords(chain) > vehicleWords(top) ? chain : top), []);
+    d.subjectChain = best(chainsOf(d.yearContext));
+    // the vehicle named by the PRODUCT TITLE alone (a variant's own text can carry part codes next to a year): what the head model is read from
+    d.titleChain = best(chainsOf(yearContexts(d.title)));
     d.kindWords = d.kind.last3.filter((w) => tailVocab.has(w));
     // which part / position this listing is for: the words of its own variant that name an application, else the application words of its title
     const own = d.variantTokens.filter((t) => applicationWords.has(t));
@@ -246,6 +260,10 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     }
     siteCodes.set(d.siteId, set);
   }
+  // makes: the word a vehicle name starts with, in at least 15 listings (or 0.1 % of the catalogue)
+  const startCount = new Map<string, number>();
+  for (const d of dossiers) { const w = d.subjectChain[0]; if (w) startCount.set(w, (startCount.get(w) ?? 0) + 1); }
+  const makeWords = new Set<string>([...startCount].filter(([, c]) => c >= Math.max(15, Math.floor(0.001 * n))).map(([w]) => w));
 
   return {
     dossiers,
@@ -258,6 +276,7 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     siteCodes,
     codeSites,
     modelWords,
+    makeWords,
     scatteredCodes: scattered,
     colourVocab,
     stats: { dossiers: n, withCodes, withFitment, aliasGroups: new Set(alias.values()).size, subjectWords: subjectWords.size, colourWords: colourVocab.size },

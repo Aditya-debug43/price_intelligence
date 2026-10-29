@@ -88,6 +88,8 @@ export interface Dossier {
   subject: string[];
   /** The same words in the order the title writes them ("jeep", "grand", "cherokee"): a qualifier in front of a model name changes the model. */
   subjectChain: string[];
+  /** The vehicle named by the product title alone, in title order. */
+  titleChain: string[];
   /** Years the listing is for, when it is a fitment listing. */
   fitment: { ranges: { from: number; to: number }[]; years: number[] } | null;
   /** Years that are a vintage or an edition, not a fitment ("Sauvignon Blanc 2013"). */
@@ -175,8 +177,22 @@ export function stem(w: string): string {
 
 // ─────────────────────────────────────────────────────────────── extractors (pure, individually tested)
 
+/**
+ * Some websites write the fitment years of a vehicle in two digits inside brackets: "(05-11) Toyota Tacoma", "(12-17) Toyota Camry". Only that bracketed
+ * form is read (a bare "12-24" is a pack size), and only when both numbers can be years of cars on sale (1970-1999 or 2000-2039) and the range is short.
+ */
+export function expandShortYears(text: string): string {
+  const full = (yy: number) => (yy < 40 ? 2000 + yy : 1900 + yy);
+  return text.replace(/\((\d{2})\s*[-–—~]\s*(\d{2})\)/g, (all, a: string, b: string) => {
+    const x = Number(a), y = Number(b);
+    if (!((x < 40 || x >= 70) && (y < 40 || y >= 70))) return all;
+    const from = full(x), to = full(y);
+    return to >= from && to - from <= 30 ? `(${from}-${to})` : all;
+  });
+}
+
 export function parseYears(text: string, source: FactSource): YearMentions {
-  const t = plain(text);
+  const t = plain(expandShortYears(text));
   const ranges: YearMentions['ranges'] = [];
   const consumed: [number, number][] = [];
   for (const m of t.matchAll(YEAR_RANGE)) {
@@ -206,7 +222,7 @@ export function parseYears(text: string, source: FactSource): YearMentions {
  * after: chevrolet, traverse, led, bulb). The corpus decides how far each list reaches (it stops at the first word that is everywhere).
  */
 export function yearContexts(text: string): { before: string[]; after: string[] }[] {
-  const t = plain(text);
+  const t = plain(expandShortYears(text));
   const spans: [number, number][] = [];
   for (const m of t.matchAll(YEAR_RANGE)) {
     const a = Number(m[1]);
@@ -272,7 +288,8 @@ export function parseCodeTokens(text: string, _source?: FactSource): string[] {
       if (CODE_SHAPE.test(c)) out.add(c.replace(/-/g, ''));
     }
   }
-  return [...out];
+  // "7444NA", "194NAK": a seller's suffix on the standard number (NA = non-adaptive, NAK = amber) names the same bulb
+  return [...new Set([...out].map((c) => c.replace(/^(\d{3,5})(?:na|nak)$/, '$1')))];
 }
 
 export function parseExclusions(text: string): string[] {
@@ -440,6 +457,7 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     codes: [],
     subject: [],
     subjectChain: [],
+    titleChain: [],
     fitment: null,
     vintages: [],
     kindWords: [],

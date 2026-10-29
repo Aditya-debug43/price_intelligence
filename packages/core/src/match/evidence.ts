@@ -109,10 +109,13 @@ function compareFitment(a: Dossier, b: Dossier, corpus: Corpus) {
   const modelsB = b.subject.filter((s) => corpus.modelWords.has(s)).map(norm);
   const sharedModel = modelsA.filter((m) => modelsB.includes(m));
   // "F350" agreeing with "350" is only a number; with "Transit" named on the other side it says nothing about the vehicle
-  const rawShared = a.subject.filter((s) => b.subject.includes(s));
-  const nameShared = rawShared.some((s) => corpus.modelWords.has(s) || /\d/.test(s));
-  const unsharedWord = [...a.subject.filter((s) => !b.subject.includes(s)), ...b.subject.filter((s) => !a.subject.includes(s))].some((s) => /^[a-z]+$/.test(s));
-  const numberOnly = !nameShared && sharedSubject.some((s) => /^\d+$/.test(s)) && unsharedWord;
+  // the head model of each listing: the first word of its vehicle name after the make ("Transit" in "Ford Transit-250", "F250" in "Ford F-250 Super Duty").
+  // Two listings that share a number but have different heads ("Transit-250", "F-250"; "ProMaster 1500", "Ram 1500") are not shown to be for the same vehicle.
+  // (only learned vehicle words count: a chain taken from a variant's text can be part codes)
+  const isVehicleWord = (t: string) => corpus.subjectWords.has(`w:${t}`) || corpus.subjectWords.has(`c:${t}`);
+  const headOf = (chain: string[]) => { const t = chain.find((w) => !corpus.makeWords.has(w) && isVehicleWord(w)); return t === undefined ? undefined : norm(t); };
+  const headA = headOf(a.titleChain.length ? a.titleChain : a.subjectChain), headB = headOf(b.titleChain.length ? b.titleChain : b.subjectChain);
+  const numberOnly = !!headA && !!headB && headA !== headB && sharedSubject.length > 0;
   const subjectOverlap: number | null = subA.length && subB.length ? (onlyA.length && onlyB.length ? 0 : sharedSubject.length ? 1 : 0) : null;
   // naming a model on only one side ("Honda" against "Honda Accord") does not show it is the same vehicle
   const modelUnverified = subjectOverlap === 1 && (((modelsA.length > 0 || modelsB.length > 0) && sharedModel.length === 0) || numberOnly);
@@ -171,7 +174,10 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   const conflicts: string[] = [];
   const legacy = scorePair(a.legacy, b.legacy);
   const brand: 'same' | 'different' | 'unknown' = a.brand.key && b.brand.key ? (a.brand.key === b.brand.key ? 'same' : 'different') : 'unknown';
-  const qty = compareQuantities(a.legacy.qty, b.legacy.qty);
+  // "24 oz" of oil is read as a weight by the size parser although it is a volume: when one size is a weight written in ounces and the other a volume, they cannot be compared
+  const ozAsWeight = (q: Dossier['legacy']['qty']) => q.kind === 'mass' && /\boz\b|\bounces?\b/i.test(q.source) && !/\bfl\b|fluid/i.test(q.source);
+  let qty = compareQuantities(a.legacy.qty, b.legacy.qty);
+  if (qty === 'incompatible' && ((ozAsWeight(a.legacy.qty) && b.legacy.qty.kind === 'volume') || (ozAsWeight(b.legacy.qty) && a.legacy.qty.kind === 'volume'))) qty = 'unknown';
   const add = (i: EvidenceItem) => items.push(i);
 
   // ── identifiers
@@ -387,6 +393,12 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     add({ kind: 'colour', effect: 'differs', strength: 'strong', text: 'Different colour temperature, so a different light colour' });
     return finish('related', 'medium', 'identity_code', 0.42);
   }
+  // a colour MODE ("switchback", "dual colour") that only one of the two has is the product's point: a single-colour bulb of the same socket is related, not a stand-in
+  const modeOf = (d: Dossier) => /\b(switchback|dual[\s-]?colou?r|tri[\s-]?colou?r|color[\s-]?changing|colour[\s-]?changing)\b/i.test(plain(d.title));
+  if (modeOf(a) !== modeOf(b) && (codes.state === 'agree' || !!legacy)) {
+    add({ kind: 'variant', effect: 'differs', strength: 'strong', text: `Only ${modeOf(a) ? 'your' : 'the other'} listing is a switchback / dual-colour bulb: a different feature, not a stand-in`, a: null, b: null });
+    return finish('related', 'medium', 'identity_code', 0.41);
+  }
   if (colourRel === 'disjoint' && (codes.state === 'agree' || !!legacy)) {
     return finish('related', 'medium', 'identity_code', 0.42);
   }
@@ -398,7 +410,9 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   if (codes.state === 'agree' || (fit.state === 'agree' && kindState === 'agree') || (legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand')) {
     // vehicle-specific vs generic, adjacent generation, or no type confirmation: never "strong"
     const unresolved = fit.state === 'unverified' || fit.state === 'adjacent' || fit.state === 'partial' || fit.state === 'agree_years' || (fit.state === 'agree' && position === 'one_sided' && codes.state !== 'agree');
-    const strong = signals >= 2 && specific && !unresolved && !differs && kindState === 'agree' && brand !== 'same' && (codes.state === 'agree' || specs.supports.length > 0);
+    // two combos that do not hold the same sockets ("H11 combo" against "9005 + H11 combo") are not the same contents: never strong
+    const sameContents = !(bundleA && bundleB && codes.state === 'agree' && !codes.equal);
+    const strong = signals >= 2 && specific && !unresolved && !differs && kindState === 'agree' && brand !== 'same' && sameContents && (codes.state === 'agree' || specs.supports.length > 0);
     const sameBrandCodes = brand === 'same' && codes.state === 'agree' && codes.equal;
     if (sameBrandCodes && !hasConflict) return finish(packDiffers ? 'variant' : 'exact', 'medium', 'identity_code', 0.65);
     return finish('substitute', strong ? 'strong' : 'medium', codes.state === 'agree' ? 'identity_code' : fit.state === 'agree' ? 'fitment' : 'cross_brand', 0.3 + 0.12 * signals + (specific ? 0.1 : 0) - (unresolved ? 0.05 : 0));

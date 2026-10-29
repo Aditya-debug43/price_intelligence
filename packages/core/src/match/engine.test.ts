@@ -194,6 +194,51 @@ describe('relationships', () => {
     expect(e.relationship).not.toBe('substitute');
     expect(e.tier === 'strong' && e.relationship === 'substitute').toBe(false);
   });
+  it('"F-250 F-350 Super Duty" and "Ford 250" are the same vehicle: trim words are not another model', () => {
+    const vehicles = [2, 3, 4].flatMap((i) => [input('lasfit', `Fit for 201${i}-201${i + 4} Ford F-250 F-350 Super Duty LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Ford 250 LED Light Bulbs`, { brand: 'AUXITO' })]);
+    const e = run(input('lasfit', 'Fit for 2017-2022 Ford F-250 F-350 Super Duty LED Headlight Bulbs Upgrade H13 9008', { brand: 'Lasfit' }), input('auxito', '2017-2021 Ford 250 LED Bulbs H13 9008 High Low Beam', { brand: 'AUXITO' }), vehicles);
+    expect(e.relationship).toBe('substitute');
+  });
+  it('"ProMaster 1500" is not "Ram 1500": the shared number is not enough', () => {
+    const vehicles = [1, 2, 3, 4, 5, 6, 7, 8].flatMap((i) => [input('lasfit', `Fit for 201${i}-201${i + 4} Ram ProMaster 1500 2500 LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Ram 1500 LED Light Bulbs`, { brand: 'AUXITO' })]);
+    const e = run(input('lasfit', 'Fit for 2014-2022 Ram ProMaster 1500 2500 3500 The Brightest LED Bulbs Upgrade', { brand: 'Lasfit' }), input('auxito', '2021 2022 Ram 1500 LED Bulbs (Not For Classic)', { brand: 'AUXITO' }), vehicles);
+    expect(e.relationship).not.toBe('substitute');
+  });
+  it('a seller\'s NA / NAK suffix names the same bulb (7444NA is 7444)', () => {
+    expect(parseCodeTokens('7444NA 7443 Switchback LED Bulbs', 'title').sort()).toEqual(['7443', '7444']);
+    expect(parseCodeTokens('2825 194NAK LED Bulbs', 'title').sort()).toEqual(['194', '2825']);
+  });
+  it('colour and mode words in a variant ("yellow", "switchback") are not a different position', () => {
+    const own = input('lasfit', 'Switchback 60W H11 H8 H9 LD Plus Series | 6,000LM 6000K/3000K LED Fog Light Bulbs', { brand: 'Lasfit' });
+    const other = input('auxito', 'AUXITO H11 H8 H9 LED Fog Light Bulb 300% Brighter Fanless, 6000K White', { brand: 'AUXITO' });
+    const e = run(own, other);
+    expect(e.conflicts.join(' ')).not.toMatch(/Different part or position/);
+  });
+  it('a switchback (dual-colour) bulb is not a stand-in for a single-colour bulb of the same socket', () => {
+    const e = run(input('lasfit', '3157 3057 4057 4157 CANBUS Error Free Anti Hyper Flash Switchback LED Turn Signal Light Dual Color Bulbs', { brand: 'Lasfit' }), input('allalighting', 'T25 3156 3157 CANBUS LED Bulbs Red Signal Lights Error Free 3057 4057', { brand: 'Alla' }));
+    expect(e.relationship).toBe('related');
+    expect(run(input('lasfit', '3157 3057 LED Switchback Turn Signal Bulbs Dual Color', { brand: 'Lasfit' }), input('auxito', 'AUXITO CANBUS 4KP10 Series 3157 Switchback LED Bulbs 3057 Dual Color Amber/White', { brand: 'AUXITO' })).relationship).toBe('substitute');
+  });
+  it('a combo of one socket and a combo of two sockets are never "strong"', () => {
+    const e = run(input('lasfit', '60W H11 LA LD Plus Series Combo Pack | 6,000LM LED Bulbs', { brand: 'Lasfit' }), input('allalighting', 'Combo 9005 and H11 LED Forward Lightings Bulbs Replacement Upgrade, 6500K White', { brand: 'Alla' }));
+    expect(e.tier).not.toBe('strong');
+  });
+  it('"24 oz" of oil is not a weight to be compared with litres: the pair is still found, with the sizes marked as not comparable', () => {
+    const e = run(input('lingandsons', 'Wesson Pure & 100% Natural Canola Oil 3.79 L'), input('quickmart', 'Wesson Pure & 100% Natural Canola Oil, 24 oz'));
+    expect(['exact', 'variant']).toContain(e.relationship);
+    expect(e.evidence.items.some((i) => i.kind === 'size' && i.effect === 'missing')).toBe(true);
+  });
+  it('two-digit fitment years in brackets, "(12-17) Toyota Camry", are years; a bare "12-24" is not', () => {
+    expect(parseYears('(12-17) Toyota Camry LED Bulbs', 'title').ranges).toEqual([{ from: 2012, to: 2017, source: 'title' }]);
+    expect(parseYears('(05-11) Toyota Tacoma LED Bulbs', 'title').ranges).toEqual([{ from: 2005, to: 2011, source: 'title' }]);
+    expect(parseYears('Juice Box 12-24 pack', 'title').ranges).toEqual([]);
+    // known limit: a bracketed "(12-24)" is read as 2012-2024 (it cannot be told from a pack range by its shape); grocery titles do not write it that way
+  });
+  it('a kit for another vehicle written with bracketed short years is not a stand-in for a different vehicle\'s kit', () => {
+    const vehicles = [1, 2, 3, 4, 5, 6, 7, 8].flatMap((i) => [input('lasfit', `Fit for 201${i}-201${i + 3} Nissan Sentra LED Bulbs H11 Upgrade`, { brand: 'Lasfit' }), input('auxito', `(1${i}-1${i + 3}) Toyota Camry LED Bulbs H11/H9 Fog Light`, { brand: 'AUXITO' })]);
+    const e = run(input('lasfit', 'Fit for 2016-2019 Nissan Sentra LED Bulbs H11 Exterior Interior Lights', { brand: 'Lasfit' }), input('auxito', '(12-17) Toyota Camry LED Bulbs H11/H9 Fog Light', { brand: 'AUXITO' }), vehicles);
+    expect(e.relationship).not.toBe('substitute');
+  });
   it('a decoder is a decoder even when the title goes on for a few words after it', () => {
     const e = run(input('lasfit', '9005 HB3 LED Headlight Bulbs 6000K', { brand: 'Lasfit' }), input('auxito', '9005 HB3 CANBUS LED Resistors Anti-Flicker Decoders Forward Lighting Fog Lights', { brand: 'Alla' }));
     expect(e.relationship).toBe('related');
