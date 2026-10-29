@@ -87,9 +87,19 @@ What the real data changed in the engine (kept as regression tests): "100%" / "2
 over unrelated kinds are now discarded; titles that start with the same brand name but name another variety are *related*, not stand-ins from another maker; the same product as a single bottle and as a pack is a
 *variant*; a year or lone model number on one side is a stated difference on a probable match, not a different product.
 
-### 5.2 Automotive accessories (lasfit.com vs auxito, allalighting, sealight-led) — **not established**
+### 5.2 Automotive accessories (lasfit.com vs auxito, allalighting, sealight-led) — real production data, **accuracy not established, workload far over target**
 
-The production automotive workspace could not be read in this session (SSH to the server was blocked: the security group allows only the owner's changing address). What exists is the earlier **title-only pilot**
+**Production export (read-only, 2026-10-29, workspace "adi")**: 9,199 of your variants (1,129 products) against 4,826 competitor variants, no human decisions yet. The earlier engine proposes **0** pairs here (the original finding).
+The new engine, after the corrections below, proposes **11,913** suggestions: 9,598 substitutes (**1,100 strong**, every one resting on shared part codes; **8,498 medium**, of which about half rest on the vehicle alone), 504 related, 1,811 "not enough information";
+**4,063 of your 9,199 variants get no suggestion at all**. Per 100 of your products the review queue would be **850 variant pairs** (104 per 100 variants), or about **198 per 100 as distinct product pairs** (2,233 product pairs) — against a target of 30.
+Laptop run: 49 s, heap 173 MB, RSS ≈ 350 MB (the t3.micro has 913 MB with the API and worker already using ≈ 420 MB: **tight; not yet run on the server**).
+
+What looking at the real data corrected (each is a regression test or a documented rule now): the first run gave 24,148 suggestions with 10,928 "strong" — a floor-mat listing matched a bulb listing on a model number; "F-150" and "4Runner" lost their model names while tokenising, so "Ford F-150" matched "Ford F-350";
+a fog-light variant matched a dome-light variant of the same vehicle (variants now carry the part/position they are, learned from the websites' own variant titles); "Honda" matched "Honda Accord" (a model must now agree, not just the make);
+fitment alone can no longer be "strong" (a shared part code or hard specification is needed, and the kind of product must agree); and a competitor product offers one variant per variant of yours instead of all of them. **All of this was tuned while reading this very export, so it is development data too.**
+I read ten random strong suggestions at the end: all were genuine part-code substitutes (9012, 9007, H10, 9006 …). That is an impression, not a measurement. The medium tier still contains many same-vehicle pairs whose part differs (a licence-plate bulb against a low-beam bulb listing); the unmet workload target comes from there.
+
+Before the production export, only the earlier **title-only pilot** existed
 (180 pooled pairs from 30 of the owner's products, one labeller, `fixtures/matching/pilot-pairs.json`). Both parts were used while the engine was developed, so neither is held out:
 
 | Pilot set | strong-tier precision (substitute) | strong-tier recall | strong + medium recall | strong + medium precision |
@@ -107,11 +117,11 @@ The lower 95 % bound of those strong-tier precisions is about 71 % and 76 %: **t
 | Strong-tier precision, lower 95 % Wilson bound | ≥ 90 % | **Not met / not established** — pilot bound ≈ 71–76 % (above). Strong-tier suggestions are therefore not promoted: no auto-accept exists at all, and the tier is shown as a label only. |
 | Recall of strong + medium | ≥ 90 % | Pilot: 100 % on both sets, but in-sample and title-only. **Not established.** |
 | False suggestions for products with no genuine counterpart | ≤ 2 % | **Not established** — the harness takes a `noCounterpart` list; none has been labelled. In the pilot's 20 products, 11 had no counterpart and the earlier hand check found none missed. |
-| Review workload | ≤ 30 per 100 source products | Groceries: **30.4** (AdityaGraphics, 879 already decided), 57.4 (Exploration, 235 decided), 0.8 (Aditya). Borderline/unmet where few decisions exist. Automotive: **not measured** (no export). |
+| Review workload | ≤ 30 per 100 source products | **Not met.** Production grocery ("Aditya", 705 decided): **37.8**. Production automotive ("adi", nothing decided): **850** variant pairs per 100 products (≈ 198 as distinct product pairs). Local grocery copies: 30.4 / 57.4 / 0.8. The queue needs grouping by product pair and a stricter medium tier before it is usable on the automotive catalogue. |
 | Calibration error | ≤ 0.05 before showing percentages | Not applicable: **no percentage is shown**. |
 | Human decisions preserved across repeated runs | 100 % | **Met** (end-to-end test: three re-runs, every decided row identical; a changed product flags, never edits). |
-| Grocery regression | ≥ 95 % of accepted pairs re-proposed | **Met in AdityaGraphics (99.9 %) and Exploration (100 %); not met strictly in Aditya (84.8 %; 97.8 % counting "related"/"not enough information").** Development data (see 5.1). |
-| Resources | ≤ 10 min, ≤ ~600 MB, no paid API | Laptop: 4 s, ≈ 250 MB, no API calls. **Not measured on the t3.micro.** |
+| Grocery regression | ≥ 95 % of accepted pairs re-proposed | **Met on production "Aditya": 701 of 705 = 99.4 % (lower bound 98.6 %)**, 661 of 662 "same product" in the same kind; the earlier engine also re-proposes 701. The 4 missing are Miller Lite / Coors Light multipacks. Local copies: 99.9 % / 100 % / 84.8 % (the last strictly, 97.8 % in any relationship). Development data (see 5.1). |
+| Resources | ≤ 10 min, ≤ ~600 MB, no paid API | Laptop: 4 s grocery, 49 s automotive, ≈ 250–350 MB RSS, no API calls. **Not measured on the t3.micro, where the margin looks thin for the automotive catalogue.** |
 
 **Consequence:** the engine is shipped in `v1` (off) with `v2_shadow` available. Switching a workspace to `v2` is the owner's decision, to be made after (a) an export of the automotive and grocery production workspaces is evaluated,
 (b) ≥ 300 reviewed pairs including a held-out website and category exist (two labellers on ≥ 20 % to report agreement), and (c) the strong-tier lower bound reaches 90 %.

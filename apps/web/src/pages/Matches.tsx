@@ -151,7 +151,8 @@ function EvidenceList({ evidence }: { evidence: MatchEvidence }) {
 
 function MatchCard({ m, orgId, isAdmin, onDecide, onChoose }: { m: MatchRow; orgId: string; isAdmin: boolean; onDecide: (v: { decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => void; onChoose: () => void }) {
   const decided = m.status === 'accepted' || m.status === 'rejected';
-  const earlier = m.engineVersion === null;
+  const earlier = m.engineVersion == null;
+  const rel = m.relationship ?? ({ identical: 'exact', different_pack: 'variant', comparable: 'substitute' } as Record<string, string>)[m.matchClass] ?? 'non_match';
   return (
     <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line-2)' }}>
       <div className="grid2" style={{ gridTemplateColumns: '1fr auto 1fr auto', alignItems: 'center' }}>
@@ -167,7 +168,7 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose }: { m: MatchRow; org
           <div className="sub">{[m.competitorBrand, m.competitorSize].filter(Boolean).join(' · ')} · <b className="num">{money(m.competitorPrice, m.competitorCurrency)}</b></div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <span className="pill info" title={REL_HELP[m.relationship]}>{REL_LABEL[m.relationship] ?? m.relationship}</span>
+          <span className="pill info" title={REL_HELP[rel]}>{REL_LABEL[rel] ?? rel}</span>
           <div className="small" style={{ marginTop: 4 }}>{earlier ? <span className="muted">Suggested by the earlier matcher</span> : <b>{TIER_LABEL[m.tier ?? 'medium']}</b>}</div>
           {m.decidedByPerson && <div className="small muted">decided by a person</div>}
         </div>
@@ -190,11 +191,11 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose }: { m: MatchRow; org
       <History id={m.id} />
       {isAdmin && (
         <div className="row" style={{ marginTop: 8 }}>
-          {!decided && (m.relationship === 'exact' || m.relationship === 'variant' || m.relationship === 'substitute' || m.relationship === 'related') && (
-            <button className="btn btn-sm btn-primary" onClick={() => onDecide({ decision: 'accept' })}>Yes — {REL_LABEL[m.relationship]!.toLowerCase()}</button>
+          {!decided && (rel === 'exact' || rel === 'variant' || rel === 'substitute' || rel === 'related') && (
+            <button className="btn btn-sm btn-primary" onClick={() => onDecide({ decision: 'accept' })}>Yes — {REL_LABEL[rel]!.toLowerCase()}</button>
           )}
-          {RELATIONSHIPS.filter(([c]) => c !== m.relationship || decided).map(([c, l]) => (
-            <button key={c} className="btn btn-sm" onClick={() => onDecide({ decision: 'reclassify', relationship: c })}>{decided && c === m.relationship ? `${l} ✓` : `Actually: ${l.toLowerCase()}`}</button>
+          {RELATIONSHIPS.filter(([c]) => c !== rel || decided).map(([c, l]) => (
+            <button key={c} className="btn btn-sm" onClick={() => onDecide({ decision: 'reclassify', relationship: c })}>{decided && c === rel ? `${l} ✓` : `Actually: ${l.toLowerCase()}`}</button>
           ))}
           <button className="btn btn-sm" onClick={onChoose}>Choose a different product…</button>
           {m.status !== 'rejected' && <button className="btn btn-sm btn-danger" onClick={() => onDecide({ decision: 'reject' })}>Not a match</button>}

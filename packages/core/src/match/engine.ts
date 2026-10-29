@@ -110,8 +110,11 @@ export function runEngine(sources: DossierInput[], competitors: DossierInput[], 
     let any = false;
     for (const [siteId, list] of bySite) {
       list.sort((x, y) => REL_ORDER[x.e.relationship] - REL_ORDER[y.e.relationship] || TIER_ORDER[x.e.tier] - TIER_ORDER[y.e.tier] || y.e.rank - x.e.rank);
-      const strongList = list.filter((x) => x.e.relationship === 'exact' || x.e.relationship === 'variant' || x.e.relationship === 'substitute');
-      const weakList = list.filter((x) => x.e.relationship === 'related' || x.e.relationship === 'insufficient');
+      // a competitor product offers its variants once each: keep the best variant of each product for this variant of yours
+      const seenProduct = new Set<string>();
+      const bestPerProduct = list.filter((x) => (seenProduct.has(x.d.productId) ? false : (seenProduct.add(x.d.productId), true)));
+      const strongList = bestPerProduct.filter((x) => x.e.relationship === 'exact' || x.e.relationship === 'variant' || x.e.relationship === 'substitute');
+      const weakList = bestPerProduct.filter((x) => x.e.relationship === 'related' || x.e.relationship === 'insufficient');
       // weak suggestions only when nothing better exists for this product at this website
       const keep = strongList.length ? strongList.slice(0, opts.perSiteKeep) : weakList.slice(0, opts.perSiteKeepWeak);
       for (const { d, e } of keep) {

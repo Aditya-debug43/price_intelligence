@@ -65,7 +65,7 @@ function compareCodes(a: Dossier, b: Dossier, corpus: Corpus) {
   return { A, B, shared, state, containment, equal: A.length === B.length && shared.length === A.length };
 }
 
-function compareFitment(a: Dossier, b: Dossier) {
+function compareFitment(a: Dossier, b: Dossier, corpus: Corpus) {
   const fa = a.fitment;
   const fb = b.fitment;
   if (!fa && !fb) return { state: 'none' as const };
@@ -78,13 +78,19 @@ function compareFitment(a: Dossier, b: Dossier) {
   // one listing may name less ("Sienna" against "Toyota Sienna") but neither may name something the other does not ("Traverse" against "Colorado")
   const onlyA = a.subject.filter((s) => !b.subject.includes(s));
   const onlyB = b.subject.filter((s) => !sa.has(s));
-  const subjectOverlap = a.subject.length && b.subject.length ? (onlyA.length && onlyB.length ? 0 : sharedSubject.length ? 1 : 0) : null;
+  const modelsA = a.subject.filter((s) => corpus.modelWords.has(s));
+  const modelsB = b.subject.filter((s) => corpus.modelWords.has(s));
+  const sharedModel = modelsA.filter((m) => modelsB.includes(m));
+  const subjectOverlap: number | null = a.subject.length && b.subject.length ? (onlyA.length && onlyB.length ? 0 : sharedSubject.length ? 1 : 0) : null;
+  // naming a model on only one side ("Honda" against "Honda Accord") does not show it is the same vehicle
+  const modelUnverified = subjectOverlap === 1 && (modelsA.length > 0 || modelsB.length > 0) && sharedModel.length === 0;
   if (subjectOverlap === 0) return { state: 'conflict' as const, why: 'different_subject' as const, overlap, subjectOverlap, sharedSubject };
   if (overlap === 0) {
     const gap = Math.min(...[...yb].map((y) => Math.min(...[...ya].map((x) => Math.abs(x - y)))));
     return gap <= 2 ? { state: 'adjacent' as const, gap, overlap, subjectOverlap, sharedSubject } : { state: 'conflict' as const, why: 'years' as const, gap, overlap, subjectOverlap, sharedSubject };
   }
   // years that only touch (2021 against 2015–2021) say little: possibly a different generation
+  if (modelUnverified) return { state: 'agree_years' as const, overlap, subjectOverlap, sharedSubject, modelUnverified };
   if (overlap < 0.5) return { state: 'partial' as const, overlap, subjectOverlap, sharedSubject };
   return { state: subjectOverlap === null ? ('agree_years' as const) : ('agree' as const), overlap, subjectOverlap, sharedSubject };
 }
@@ -157,7 +163,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   }
 
   // ── fitment
-  const fit = compareFitment(a, b);
+  const fit = compareFitment(a, b, corpus);
   if (fit.state === 'agree' || fit.state === 'agree_years') {
     add({ kind: 'fitment', effect: 'supports', strength: fit.state === 'agree' ? 'strong' : 'moderate', text: fit.state === 'agree' ? `Made for the same thing (${fit.sharedSubject!.join(' ')}) and the years overlap` : 'The years they are made for overlap', a: years(a.fitment!), b: years(b.fitment!) });
   } else if (fit.state === 'partial') {
@@ -170,6 +176,22 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     add({ kind: 'fitment', effect: 'conflicts', strength: 'strong', text: why, a: years(a.fitment!), b: years(b.fitment!) });
   } else if (fit.state === 'unverified') {
     add({ kind: 'fitment', effect: 'missing', strength: 'moderate', text: `Only ${fit.onlyA ? 'your' : 'the other'} listing says what it is made to fit; whether the other fits the same thing is not stated`, a: a.fitment ? years(a.fitment) : null, b: b.fitment ? years(b.fitment) : null });
+  }
+
+  // ── which part / position / kit each variant is (a fog-light bulb is not a dome-light bulb, even for the same vehicle)
+  let position: 'agree' | 'conflict' | 'one_sided' | 'none' = 'none';
+  if (a.position.length && b.position.length) {
+    const shared = a.position.filter((t) => b.position.includes(t));
+    position = shared.length ? 'agree' : 'conflict';
+    if (shared.length) add({ kind: 'variant', effect: 'supports', strength: 'moderate', text: `Same part or position (${shared.slice(0, 3).join(', ')})`, a: a.position.join(' '), b: b.position.join(' ') });
+    else {
+      const why = `Different part or position (${a.position.slice(0, 3).join(' ')} vs ${b.position.slice(0, 3).join(' ')})`;
+      conflicts.push(why);
+      add({ kind: 'variant', effect: 'conflicts', strength: 'strong', text: why, a: a.position.join(' '), b: b.position.join(' ') });
+    }
+  } else if (a.position.length || b.position.length) {
+    position = 'one_sided';
+    add({ kind: 'variant', effect: 'missing', strength: 'weak', text: `Only ${a.position.length ? 'your' : 'the other'} listing says which part or position it is` });
   }
 
   // ── exclusions ("not for classic")
@@ -291,7 +313,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   // ── a different maker's product: substitute / related
   const agreeing = {
     codes: codes.state === 'agree' && codes.containment >= 1,
-    fitment: fit.state === 'agree',
+    fitment: fit.state === 'agree' && (position === 'agree' || position === 'none'),
     spec: specs.supports.length > 0,
     type: kindState === 'agree',
     name: !!legacy && legacy.matchClass === 'comparable' && (legacy.components.nameSimilarity ?? 0) >= 0.7,
@@ -315,10 +337,12 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   if (bundleA !== bundleB && codes.state === 'agree') {
     return finish('related', 'medium', 'identity_code', 0.4);
   }
+  // the same code or vehicle but a different KIND of thing (a bed mat against a bulb): the kinds are the point, not a stand-in
+  if (kindState === 'differs' && (codes.state === 'agree' || fit.state === 'agree')) return finish('related', 'medium', 'identity_code', 0.36);
   if (codes.state === 'agree' || (fit.state === 'agree' && kindState === 'agree') || (legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand')) {
     // vehicle-specific vs generic, adjacent generation, or no type confirmation: never "strong"
-    const unresolved = fit.state === 'unverified' || fit.state === 'adjacent' || fit.state === 'partial' || fit.state === 'agree_years';
-    const strong = signals >= 2 && specific && !unresolved && !differs && kindState !== 'differs' && brand !== 'same';
+    const unresolved = fit.state === 'unverified' || fit.state === 'adjacent' || fit.state === 'partial' || fit.state === 'agree_years' || (fit.state === 'agree' && position === 'one_sided' && codes.state !== 'agree');
+    const strong = signals >= 2 && specific && !unresolved && !differs && kindState === 'agree' && brand !== 'same' && (codes.state === 'agree' || specs.supports.length > 0);
     const sameBrandCodes = brand === 'same' && codes.state === 'agree' && codes.equal;
     if (sameBrandCodes && !hasConflict) return finish(packDiffers ? 'variant' : 'exact', 'medium', 'identity_code', 0.65);
     return finish('substitute', strong ? 'strong' : 'medium', codes.state === 'agree' ? 'identity_code' : fit.state === 'agree' ? 'fitment' : 'cross_brand', 0.3 + 0.12 * signals + (specific ? 0.1 : 0) - (unresolved ? 0.05 : 0));

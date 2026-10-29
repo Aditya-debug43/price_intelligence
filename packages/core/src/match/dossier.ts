@@ -77,6 +77,8 @@ export interface Dossier {
   axes: Record<string, string>;
   /** What could not be determined: shown to the reviewer and used to cap the evidence tier. */
   unknown: ('identifier' | 'code' | 'fitment' | 'size' | 'colour')[];
+  /** What THIS variant is (which part, which position, which kit): words from its own title and from option axes that name a position or kit. */
+  variantTokens: string[];
   /** Words next to each year mention (see `yearContexts`). */
   yearContext: { before: string[]; after: string[] }[];
   // ── resolved against the whole catalogue (corpus.ts); empty until then
@@ -88,6 +90,8 @@ export interface Dossier {
   fitment: { ranges: { from: number; to: number }[]; years: number[] } | null;
   /** Years that are a vintage or an edition, not a fitment ("Sauvignon Blanc 2013"). */
   vintages: number[];
+  /** `variantTokens` that actually tell variants apart in this catalogue (not words found everywhere); empty when the product has no such variants. */
+  position: string[];
   /** The words that name what kind of thing this is: the last words of the title's lead part that, across the catalogue, usually come last ("bulb", "mat", "juice"). */
   kindWords: string[];
 }
@@ -150,7 +154,10 @@ export function plain(text: string | null | undefined): string {
     .replace(/&/g, ' and ')
     .replace(/['’`]/g, '')
     // "6,000LM" is six thousand, not six: a comma followed by exactly three digits groups thousands
-    .replace(/(\d),(\d{3})(?!\d)/g, '$1$2');
+    .replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
+    // model names written with a hyphen are one name: "F-150" -> f150, "E-350" -> e350, "CR-V" -> crv, "C-HR" -> chr
+    .replace(/\b([a-z]{1,3})-(\d{1,4}[a-z]?)\b/g, '$1$2')
+    .replace(/\b(cr|c|hr|rx|gr|crv|z|x)-([a-z]{1,2})\b/g, '$1$2');
 }
 
 export function stem(w: string): string {
@@ -201,7 +208,12 @@ export function yearContexts(text: string): { before: string[]; after: string[] 
     if (b >= a && b - a <= 40) spans.push([m.index!, m.index! + m[0].length]);
   }
   for (const m of t.matchAll(YEAR_ONE)) if (!spans.some(([s, e]) => m.index! >= s && m.index! < e)) spans.push([m.index!, m.index! + m[0].length]);
-  const toks = (s: string) => s.split(/[^a-z0-9]+/).filter((w) => w && !STOP.has(w) && !/^\d+$/.test(w)).map((w) => (/\d/.test(w) ? w : stem(w)));
+  // model numbers ("1500", "350") are kept; years and other numbers are not
+  const toks = (s: string) =>
+    s
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w && !STOP.has(w) && !(/^\d+$/.test(w) && (w.length < 3 || w.length > 4 || /^(19[5-9]|20[0-3])\d$/.test(w))))
+      .map((w) => (/\d/.test(w) ? w : stem(w)));
   return spans.map(([s, e]) => ({ before: toks(t.slice(0, s)).slice(-4).reverse(), after: toks(t.slice(e)).slice(0, 5) }));
 }
 
@@ -314,6 +326,21 @@ export function kindOf(title: string): { tail: string | null; companion: boolean
   return { tail: null, companion: false, last3: [] };
 }
 
+/** Option axes that say WHICH PART / position / kit a variant is (not which vehicle trim it is for): a language-level reading of the axis name. */
+const POSITION_AXIS = /location|position|application|package|set-?up|installation|choose your|which/i;
+
+export function variantTokensOf(variantTitle: string | null, options: Record<string, string> | null | undefined): string[] {
+  const texts: string[] = [];
+  if (variantTitle) texts.push(variantTitle);
+  for (const [k, v] of Object.entries(options ?? {})) if (POSITION_AXIS.test(k) && typeof v === 'string') texts.push(v);
+  const out = new Set<string>();
+  for (const t of texts) {
+    for (const w of plain(t).split(/[^a-z]+/)) if (w.length >= 3 && !STOP.has(w)) out.add(stem(w));
+    for (const c of parseCodeTokens(t)) out.add(c);
+  }
+  return [...out];
+}
+
 const COLOUR_AXIS = /colou?r|finish|shade|tint/i;
 
 export function coloursOf(text: string, options: Record<string, string> | null | undefined, vocab: Set<string>): Dossier['colours'] {
@@ -400,11 +427,13 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     tags: (input.tags ?? []).filter((t) => typeof t === 'string').slice(0, 30),
     axes: options,
     unknown,
+    variantTokens: variantTokensOf(variantTitle, options),
     yearContext: yearContexts(fullText),
     codes: [],
     subject: [],
     fitment: null,
     vintages: [],
     kindWords: [],
+    position: [],
   };
 }

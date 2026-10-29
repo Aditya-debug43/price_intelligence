@@ -53,9 +53,9 @@ export function PricesPage() {
         </select></div>
       </div>
 
-      {awaitingNote(d?.matching.awaiting ?? 0) && (
+      {awaitingNote(d?.matching?.awaiting ?? 0) && (
         <div className="callout info" role="status" style={{ marginBottom: 12 }}>
-          {awaitingNote(d!.matching.awaiting)} <Link to={`/o/${orgId}/matches`}>Review them</Link>
+          {awaitingNote(d!.matching!.awaiting)} <Link to={`/o/${orgId}/matches`}>Review them</Link>
         </div>
       )}
       {substitutes && (
@@ -63,7 +63,7 @@ export function PricesPage() {
           A substitute is a <b>different product</b> that can stand in for yours. Its price is shown for orientation and is never counted as a price for the same product — check what differs first.
         </div>
       )}
-      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : comparisonEmpty(params.view as 'prices' | 'substitutes', d?.matching ?? { state: 'never_run', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : comparisonEmpty(params.view as 'prices' | 'substitutes', d?.matching ?? { state: 'never_run', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
+      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : comparisonEmpty(params.view as 'prices' | 'substitutes', d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : comparisonEmpty(params.view as 'prices' | 'substitutes', d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
         {(r) => (
           <Card pad={false}>
             <div className="table-wrap">
@@ -96,12 +96,12 @@ export function PricesPage() {
                         return (
                           <td key={s.id}>
                             <PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
-                              matchLabel={c.relationship === 'exact' ? 'same product' : c.relationship === 'variant' ? 'other pack' : 'substitute'} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
+                              matchLabel={(c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute')) === 'exact' ? 'same product' : (c.relationship ?? (c.matchClass === 'different_pack' ? 'variant' : 'substitute')) === 'variant' ? 'other pack' : 'substitute'} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
                             {(c.caveats.length > 0 || c.reasons.length > 0) && (
                               <details className="ev">
-                                <summary>{c.relationship === 'substitute' ? 'A substitute — what differs?' : 'Why this match?'}</summary>
+                                <summary>{(c.relationship ?? c.matchClass) === 'substitute' || c.matchClass === 'comparable' ? 'A substitute — what differs?' : 'Why this match?'}</summary>
                                 <div><b>{c.title}</b>{c.variantTitle ? ` — ${c.variantTitle}` : ''}</div>
-                                <ul>{c.differences.map((x, i) => <li key={`d${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}{c.reasons.map((x, i) => <li key={i}>{x}</li>)}{c.caveats.map((x, i) => <li key={`c${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}</ul>
+                                <ul>{(c.differences ?? []).map((x, i) => <li key={`d${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}{c.reasons.map((x, i) => <li key={i}>{x}</li>)}{c.caveats.map((x, i) => <li key={`c${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}</ul>
                               </details>
                             )}
                           </td>
