@@ -1,13 +1,14 @@
 /**
  * Agreement between the first labeller and a second reviewer, from the filled-in review sheet.
  *
- *   npx tsx scripts/match-kappa.ts <filled review-sheet.csv> [--mapping fixtures/matching/eval-v1/second-review/mapping.json] [--out agreement.json]
+ *   npx tsx scripts/match-kappa.ts <filled review workbook .xlsx or sheet .csv> [--mapping fixtures/matching/eval-v1/second-review/mapping.json] [--out agreement.json]
  *
  * Prints, over the rows the reviewer labelled: raw agreement and Cohen's kappa for the six classes, for "genuine counterpart (E/V/S) or not", and
  * for "same product (E/V) or not"; and lists every disagreement. It never edits the evaluation set. With fewer than 30 labelled rows the result is
  * only printed as counts, because a kappa from so few rows says nothing.
  */
 import fs from 'node:fs';
+import ExcelJS from 'exceljs';
 import { cohensKappa } from '@ci/core';
 
 const arg = (name: string, d?: string) => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : d; };
@@ -34,14 +35,27 @@ function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((x) => x.trim()));
 }
 
-const table = parseCsv(fs.readFileSync(file, 'utf8'));
+/** The filled workbook (sheet "Review", columns Ref / your_label / unsure) as rows of text, like the CSV. */
+async function readWorkbook(f: string): Promise<string[][]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(f);
+  const ws = wb.getWorksheet('Review');
+  if (!ws) throw new Error('the workbook has no "Review" sheet');
+  const text = (v: ExcelJS.CellValue): string => (v == null ? '' : typeof v === 'object' ? ('richText' in v ? v.richText.map((t) => t.text).join('') : 'text' in v ? String(v.text) : 'result' in v ? String(v.result ?? '') : '') : String(v));
+  const out: string[][] = [];
+  ws.eachRow((row) => { const cells: string[] = []; for (let c = 1; c <= ws.columnCount; c++) cells.push(text(row.getCell(c).value)); out.push(cells); });
+  return out;
+}
+const table = /\.xlsx$/i.test(file) ? await readWorkbook(file) : parseCsv(fs.readFileSync(file, 'utf8'));
 const head = table[0]!.map((h) => h.trim().toLowerCase());
-const col = (name: string) => head.indexOf(name);
-const iId = col('review_id'), iLabel = col('your_label'), iUnsure = col('unsure');
-if (iId < 0 || iLabel < 0) { console.error('the sheet needs the columns review_id and your_label'); process.exit(1); }
+const col = (...names: string[]) => head.findIndex((h) => names.includes(h));
+const iId = col('review_id', 'ref'), iLabel = col('your_label'), iUnsure = col('unsure');
+if (iId < 0 || iLabel < 0) { console.error('the sheet needs the columns review_id (or Ref) and your_label'); process.exit(1); }
 
 const VALID = new Set(['E', 'V', 'S', 'R', 'I', 'N']);
-const rows = table.slice(1).map((r) => ({ reviewId: r[iId]!.trim(), label: (r[iLabel] ?? '').trim().toUpperCase(), unsure: /^y/i.test((r[iUnsure] ?? '').trim()) }))
+/** "E – Same product" (the dropdown text) or a bare letter. */
+const letterOf = (s: string) => (/^\s*([EVSRIN])(?![A-Za-z])/i.exec(s)?.[1] ?? '').toUpperCase();
+const rows = table.slice(1).map((r) => ({ reviewId: (r[iId] ?? '').trim(), label: letterOf(r[iLabel] ?? ''), unsure: /^y/i.test((r[iUnsure] ?? '').trim()) }))
   .filter((r) => VALID.has(r.label) && byId.has(idOf.get(r.reviewId) ?? ''));
 const first = rows.map((r) => byId.get(idOf.get(r.reviewId)!)!.label);
 const second = rows.map((r) => r.label);

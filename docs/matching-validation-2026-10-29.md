@@ -82,6 +82,21 @@ Second reviewer: `fixtures/matching/eval-v1/second-review/review-sheet.csv` (120
 
 SSH timed out at the AWS security group (the laptop's address is now different from the rule). Nothing was run on, or deployed to, the server in this round. To continue: set the SSH rule to this laptop's own public address /32 (`curl https://checkip.amazonaws.com`), then a bounded run under `systemd-run --scope -p MemoryMax=… -p MemorySwapMax=0` outside the 05:30 UTC collection, and `sudo shelfwatch-update` after a verified backup. Rollback and the deployed state are in `docs/matching-engine-v2.md` §7b.
 
+## 7b. The review workbook for the second reviewer (evaluation preparation only)
+
+The CSV sheet of §5 was replaced by an Excel workbook (`Shelfwatch-pair-review.xlsx`, kept outside the repository) with the same 120 pairs and the same `rv-…` references. Per pair: both products' names, websites and **stored** page links (a link is shown only if it is the address Shelfwatch stored for that product, on that product's own website, using the same `productPageLink` rule as the app; otherwise "No stored link"), their stored details (brand, barcode, part number, size / pack, variants and options, category, tags, description), and a side-by-side check (Agree / Differs / Check / Missing; facts read from a title are marked "from the title"; a missing detail is never assumed equal). Drop-downs for the six labels and for "unsure", filters, frozen header, a "Start here" sheet with the label meanings, and a "Side by side" sheet with every detail. `your_label` is blank; `AI_suggestion` / `AI_explanation` are empty on purpose (a suggestion shown first would bias an independent review); the first labeller's labels, the engine's verdicts and production row ids are not in the file.
+
+The local development database holds the complete grocery catalogues, so the 53 grocery pairs are filled from it (matched by website and exact title: 48 pairs for both products, 5 for one product because two stored products share that exact title and none is shown). The 67 car-lighting pairs have **no stored details in that copy** (those catalogues exist only on the server): they show names and title-based facts and say so per row. When the server is reachable again, regenerate with the production export; answers already given are carried over by Ref:
+
+```
+npx tsx scripts/match-review-data.ts --mode sql --out <folder outside the repo>/query-production.sql     # read-only query, products picked by stored id
+ssh <server> 'sudo -u postgres psql -d competitor_intel -q -At -f -' < query-production.sql > records-production.json
+npx tsx scripts/match-review-data.ts --mode local --out <folder outside the repo>/records-local.json     # local database must be running (npm run dev:db)
+npx tsx scripts/match-review-xlsx.ts --records records-production.json --records records-local.json --carry <current workbook> --out <new workbook>
+npx tsx scripts/match-kappa.ts <returned workbook>                                                      # agreement, after the answers come back
+```
+All three scripts refuse to write inside the repository. No matching code, decision or server was changed to make the workbook.
+
 ## 8. How to reproduce
 
 ```
