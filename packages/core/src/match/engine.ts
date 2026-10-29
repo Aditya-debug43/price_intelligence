@@ -9,7 +9,7 @@ import { evaluatePair, type PairEvaluation } from './evidence.ts';
  * Pure: no database, no network, no clock. Nothing here accepts anything: every suggestion is for a person to confirm.
  */
 
-export const ENGINE_VERSION = 'match-v2.0';
+export const ENGINE_VERSION = 'match-v2.4';
 
 export interface EngineOptions {
   candidates: CandidateOptions;

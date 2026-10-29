@@ -15,3 +15,6 @@ deploy.env
 
 # archives of the project made by the user
 *.zip
+
+# matching evaluation set: competitor product titles and production row ids; the repository is public, so it stays local (docs/matching-validation-2026-10-29.md)
+fixtures/matching/eval-v1/

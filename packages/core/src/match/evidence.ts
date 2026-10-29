@@ -44,9 +44,32 @@ const codesText = (d: Dossier, only?: string[]) => {
 const pct = (a: number, b: number) => Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b), 1e-9);
 const TOLERANCE: Partial<Record<SpecKey, number>> = { length_mm: 0.06, colour_temp_k: 0.25, voltage_v: 0.02, current_a: 0.05, frequency_hz: 0.05, storage_gb: 0, capacity_mah: 0.1, power_w: 0.1, light_lm: 0.1, count: 0 };
 
-function wordCosine(a: Dossier, b: Dossier, corpus: Corpus): number {
-  const wa = new Map(a.words.map((w) => [w, corpus.idf(`w:${w}`)]));
-  const wb = new Map(b.words.map((w) => [w, corpus.idf(`w:${w}`)]));
+/**
+ * Whether two names say the same thing in different order or with a size or pack left out: both must start with the same word, their core names must
+ * be the same set of words, and the words of the full titles may differ only by a little weight. One word in a name and not the other is often what
+ * makes a different flavour or variety ("Original" against "Strawberry", "Cucumber" Ranch), and the core name drops some such words, so the full
+ * titles are compared as well.
+ */
+const NAME_TITLE_DIFF_MAX = 0.2;
+function nameContainment(a: Dossier, b: Dossier, corpus: Corpus): { shared: string[]; extras: string[] } | null {
+  const ca = [...new Set(a.legacy.core)];
+  const cb = [...new Set(b.legacy.core)];
+  if (ca.length < 3 || ca[0] !== cb[0] || ca.length !== cb.length) return null;
+  const inB = new Set(cb);
+  if (ca.some((w) => !inB.has(w))) return null;
+  const weight = (words: Iterable<string>) => [...words].reduce((sum, w) => sum + corpus.idf(`w:${w}`), 0);
+  const wa = new Set(a.words.filter((w) => !/\d/.test(w)));
+  const wb = new Set(b.words.filter((w) => !/\d/.test(w)));
+  const diff = [...wa].filter((w) => !wb.has(w)).concat([...wb].filter((w) => !wa.has(w)));
+  if (weight(diff) / Math.max(1e-9, weight(new Set([...wa, ...wb]))) > NAME_TITLE_DIFF_MAX) return null;
+  return { shared: ca, extras: [] };
+}
+
+const KIND_MODIFIERS =new Set(['led', 'series', 'kit', 'set', 'pair', 'upgrade']);
+
+function wordCosine(a: Dossier, b: Dossier, corpus: Corpus, skip?: Set<string>): number {
+  const wa = new Map(a.words.filter((w) => !skip?.has(w)).map((w) => [w, corpus.idf(`w:${w}`)]));
+  const wb = new Map(b.words.filter((w) => !skip?.has(w)).map((w) => [w, corpus.idf(`w:${w}`)]));
   let dot = 0;
   for (const [w, x] of wa) { const y = wb.get(w); if (y) dot += x * y; }
   const n = (m: Map<string, number>) => Math.sqrt([...m.values()].reduce((s, v) => s + v * v, 0)) || 1;
@@ -73,18 +96,39 @@ function compareFitment(a: Dossier, b: Dossier, corpus: Corpus) {
   const ya = fitmentYears(fa);
   const yb = fitmentYears(fb);
   const overlap = [...ya].filter((y) => yb.has(y)).length / Math.max(1, Math.min(ya.size, yb.size));
-  const sa = new Set(a.subject);
-  const sharedSubject = b.subject.filter((s) => sa.has(s));
+  // "F-250" and "250" name the same model
+  const norm = (t: string) => t.replace(/^[a-z]{1,2}(?=\d{3,4}$)/, '');
+  const subA = [...new Set(a.subject.map(norm))];
+  const subB = [...new Set(b.subject.map(norm))];
+  const sa = new Set(subA);
+  const sharedSubject = subB.filter((s) => sa.has(s));
   // one listing may name less ("Sienna" against "Toyota Sienna") but neither may name something the other does not ("Traverse" against "Colorado")
-  const onlyA = a.subject.filter((s) => !b.subject.includes(s));
-  const onlyB = b.subject.filter((s) => !sa.has(s));
-  const modelsA = a.subject.filter((s) => corpus.modelWords.has(s));
-  const modelsB = b.subject.filter((s) => corpus.modelWords.has(s));
+  const onlyA = subA.filter((s) => !subB.includes(s));
+  const onlyB = subB.filter((s) => !sa.has(s));
+  const modelsA = a.subject.filter((s) => corpus.modelWords.has(s)).map(norm);
+  const modelsB = b.subject.filter((s) => corpus.modelWords.has(s)).map(norm);
   const sharedModel = modelsA.filter((m) => modelsB.includes(m));
-  const subjectOverlap: number | null = a.subject.length && b.subject.length ? (onlyA.length && onlyB.length ? 0 : sharedSubject.length ? 1 : 0) : null;
+  // "F350" agreeing with "350" is only a number; with "Transit" named on the other side it says nothing about the vehicle
+  const rawShared = a.subject.filter((s) => b.subject.includes(s));
+  const nameShared = rawShared.some((s) => corpus.modelWords.has(s) || /\d/.test(s));
+  const unsharedWord = [...a.subject.filter((s) => !b.subject.includes(s)), ...b.subject.filter((s) => !a.subject.includes(s))].some((s) => /^[a-z]+$/.test(s));
+  const numberOnly = !nameShared && sharedSubject.some((s) => /^\d+$/.test(s)) && unsharedWord;
+  const subjectOverlap: number | null = subA.length && subB.length ? (onlyA.length && onlyB.length ? 0 : sharedSubject.length ? 1 : 0) : null;
   // naming a model on only one side ("Honda" against "Honda Accord") does not show it is the same vehicle
-  const modelUnverified = subjectOverlap === 1 && (modelsA.length > 0 || modelsB.length > 0) && sharedModel.length === 0;
+  const modelUnverified = subjectOverlap === 1 && (((modelsA.length > 0 || modelsB.length > 0) && sharedModel.length === 0) || numberOnly);
   if (subjectOverlap === 0) return { state: 'conflict' as const, why: 'different_subject' as const, overlap, subjectOverlap, sharedSubject };
+  // "Jeep Cherokee" against "Jeep Grand Cherokee": a word the title puts in front of the model, and the other title does not, names another model
+  const chainA = a.subjectChain.map(norm);
+  const chainB = b.subjectChain.map(norm);
+  const qualifier = (x: string[], y: string[]) => x.some((m, i) => {
+    const j = y.indexOf(m);
+    if (!/^[a-z]+$/.test(m) || i < 1 || j < 1) return false;
+    const px = x[i - 1]!;
+    const py = y[j - 1]!;
+    // x writes "<make> <model>", y writes "<make> <qualifier> <model>"
+    return px !== py && j >= 2 && i === 1 && /^[a-z]+$/.test(py) && !x.includes(py);
+  });
+  if (sharedSubject.length && (qualifier(chainA, chainB) || qualifier(chainB, chainA))) return { state: 'conflict' as const, why: 'different_model' as const, overlap, subjectOverlap, sharedSubject };
   if (overlap === 0) {
     const gap = Math.min(...[...yb].map((y) => Math.min(...[...ya].map((x) => Math.abs(x - y)))));
     return gap <= 2 ? { state: 'adjacent' as const, gap, overlap, subjectOverlap, sharedSubject } : { state: 'conflict' as const, why: 'years' as const, gap, overlap, subjectOverlap, sharedSubject };
@@ -171,7 +215,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   } else if (fit.state === 'adjacent') {
     add({ kind: 'fitment', effect: 'differs', strength: 'strong', text: `The years they are made for do not overlap but are only ${fit.gap} year${fit.gap === 1 ? '' : 's'} apart — possibly a different generation`, a: years(a.fitment!), b: years(b.fitment!) });
   } else if (fit.state === 'conflict') {
-    const why = fit.why === 'different_subject' ? `They are made for different things (${a.subject.join(' ')} vs ${b.subject.join(' ')})` : `They are made for different periods (${years(a.fitment!)} vs ${years(b.fitment!)})`;
+    const why = fit.why === 'different_model' ? `They are made for different models (${a.subjectChain.join(' ')} vs ${b.subjectChain.join(' ')})` : fit.why === 'different_subject' ? `They are made for different things (${a.subject.join(' ')} vs ${b.subject.join(' ')})` : `They are made for different periods (${years(a.fitment!)} vs ${years(b.fitment!)})`;
     conflicts.push(why);
     add({ kind: 'fitment', effect: 'conflicts', strength: 'strong', text: why, a: years(a.fitment!), b: years(b.fitment!) });
   } else if (fit.state === 'unverified') {
@@ -236,8 +280,14 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
 
   // ── kind of thing
   const wc = wordCosine(a, b, corpus);
+  // the vehicle's name says nothing about what kind of part a listing is: judge the kind on the other words
+  // (a name that starts with a digit, "4Runner", is split into "runner" in the title words, so that form is left out too)
+  const vehicleWords = new Set([...a.subject, ...b.subject].flatMap((s) => (/^\d+[a-z]/.test(s) ? [s, s.replace(/^\d+/, '')] : [s])));
+  const wcKind = vehicleWords.size ? wordCosine(a, b, corpus, vehicleWords) : wc;
+  const lastDisjoint = a.kind.last3.length > 0 && b.kind.last3.length > 0 && !a.kind.last3.some((w) => b.kind.last3.includes(w));
   let kindState: 'agree' | 'companion' | 'differs' | 'unknown' = 'unknown';
-  const sharedKind = a.kindWords.filter((w) => b.kindWords.includes(w));
+  // "LED" in both says the light source, not the kind of thing
+  const sharedKind = a.kindWords.filter((w) => b.kindWords.includes(w) && !KIND_MODIFIERS.has(w));
   if (a.kind.companion !== b.kind.companion || (a.kind.companion && b.kind.companion && a.kind.tail !== b.kind.tail)) {
     kindState = 'companion';
     add({
@@ -248,10 +298,10 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   } else if (sharedKind.length || (a.kind.tail && a.kind.tail === b.kind.tail)) {
     kindState = 'agree';
     add({ kind: 'product_type', effect: 'supports', strength: 'moderate', text: `Both are “${sharedKind[0] ?? a.kind.tail}” listings` });
-  } else if (a.kindWords.length && b.kindWords.length) {
+  } else if ((a.kindWords.length && b.kindWords.length && wcKind < 0.5) || (lastDisjoint && wcKind < 0.15)) {
     kindState = 'differs';
     add({ kind: 'product_type', effect: 'differs', strength: 'moderate', text: `The kind of product may differ (“${a.kindWords.join(' ')}” vs “${b.kindWords.join(' ')}”)`, a: a.kindWords.join(' '), b: b.kindWords.join(' ') });
-  } else if (wc >= 0.35) {
+  } else if (wcKind >= 0.35) {
     kindState = 'agree';
     add({ kind: 'product_type', effect: 'supports', strength: 'weak', text: 'The descriptions use largely the same words' });
   } else add({ kind: 'product_type', effect: 'missing', strength: 'weak', text: 'The titles share few descriptive words, so the kind of product is not confirmed' });
@@ -301,7 +351,13 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   const sameMakerByTitle = brand !== 'different' && /^[a-z]{3,}$/.test(lead) && lead === leadWord(b) && (corpus.df.get('w:' + stem(lead)) ?? 0) <= 0.03 * corpus.n;
   if (sameMakerByTitle && legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand' && codes.state !== 'agree') {
     const variety = variantDifference(a.legacy.core, b.legacy.core);
-    const onlySize = !variety.length && qty === 'different_total' && a.legacy.qty.kind === b.legacy.qty.kind && a.legacy.qty.kind !== 'unknown';
+    // "only the size differs" needs the names to say the same thing: the earlier variety check knows a short list of words, so "Original Roast" against
+    // "Hazelnut" or "Spinach Dip" against "Ranch Dip" passed it
+    // (the same unit size sold as a different number of units is the exception: one descriptor word more or less, "Artesian", does not change which product it is)
+    const unitSize = (d: Dossier) => d.legacy.qty.unitAmount ?? d.legacy.qty.total;
+    const sameUnit = !!unitSize(a) && !!unitSize(b) && Math.abs(unitSize(a)! - unitSize(b)!) / Math.max(unitSize(a)!, unitSize(b)!) <= 0.01 && a.legacy.qty.packCount !== b.legacy.qty.packCount;
+    const oneWordApart = (() => { const ca = new Set(a.legacy.core), cb = new Set(b.legacy.core); const [s, l] = ca.size <= cb.size ? [ca, cb] : [cb, ca]; return s.size >= 2 && [...s].every((w) => l.has(w)) && l.size - s.size <= 1; })();
+    const onlySize = !variety.length && qty === 'different_total' && a.legacy.qty.kind === b.legacy.qty.kind && a.legacy.qty.kind !== 'unknown' && (!!nameContainment(a, b, corpus) || (sameUnit && oneWordApart));
     if (onlySize) {
       add({ kind: 'brand', effect: 'supports', strength: 'weak', text: 'Both titles start with the same brand name, so probably the same maker', a: a.title, b: b.title });
       return finish('variant', 'medium', 'name_similarity', 0.6);
@@ -338,7 +394,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     return finish('related', 'medium', 'identity_code', 0.4);
   }
   // the same code or vehicle but a different KIND of thing (a bed mat against a bulb): the kinds are the point, not a stand-in
-  if (kindState === 'differs' && (codes.state === 'agree' || fit.state === 'agree')) return finish('related', 'medium', 'identity_code', 0.36);
+  if (kindState === 'differs' && (codes.state === 'agree' || fit.state === 'agree' || (legacy && legacy.matchClass === 'comparable'))) return finish('related', 'medium', 'identity_code', 0.36);
   if (codes.state === 'agree' || (fit.state === 'agree' && kindState === 'agree') || (legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand')) {
     // vehicle-specific vs generic, adjacent generation, or no type confirmation: never "strong"
     const unresolved = fit.state === 'unverified' || fit.state === 'adjacent' || fit.state === 'partial' || fit.state === 'agree_years' || (fit.state === 'agree' && position === 'one_sided' && codes.state !== 'agree');
@@ -348,6 +404,15 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     return finish('substitute', strong ? 'strong' : 'medium', codes.state === 'agree' ? 'identity_code' : fit.state === 'agree' ? 'fitment' : 'cross_brand', 0.3 + 0.12 * signals + (specific ? 0.1 : 0) - (unresolved ? 0.05 : 0));
   }
   if (fit.state === 'adjacent' || fit.state === 'partial') return finish('insufficient', 'insufficient', 'fitment', 0.2);
+  // the same product named the same way, whose size cannot be compared (one listing leaves it out, or the two state it in different kinds of unit):
+  // the rules above need a size to agree on, but a person can settle this at a glance
+  const named = nameContainment(a, b, corpus);
+  if (named && brand !== 'different' && qty !== 'different_total' && kindState !== 'differs' && kindState !== 'companion' && codes.state !== 'conflict' && !packDiffers) {
+    add({ kind: 'name', effect: 'supports', strength: 'moderate', text: `The names say the same thing (${named.shared.join(' ')})`, a: a.title, b: b.title });
+    if (named.extras.length) add({ kind: 'variant', effect: 'differs', strength: 'weak', text: `One listing adds: ${named.extras.join(' ')}`, a: null, b: null });
+    if (qty !== 'same_total') add({ kind: 'size', effect: 'missing', strength: 'moderate', text: 'The sizes cannot be compared (one listing leaves the size out or states it in another kind of unit)' });
+    return finish('exact', 'medium', 'name_similarity', 0.5 - 0.05 * named.extras.length);
+  }
   if (legacy && legacy.matchClass === 'comparable') return finish('related', 'medium', 'name_similarity', 0.35);
   // "not enough information" is only worth a person's time when something is actually MISSING on a side (no code and no fitment), not when both
   // sides say plenty and simply do not agree

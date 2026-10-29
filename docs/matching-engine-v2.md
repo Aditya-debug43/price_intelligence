@@ -5,6 +5,8 @@ Status: **implemented, tested and DEPLOYED (backend `98bab87` on the server, fro
 established, so the engine stays off until the evaluation data exists. Design and reasoning: `docs/proposals/universal-matching-design.md` (approved 2026-10-29).
 Verbatim request: `docs/original-prompt/17_DIRECTIVE_IMPLEMENT_UNIVERSAL_MATCHING_2026-10-29.md`.
 
+> **Later the same day (directive 18):** the engine was improved to `match-v2.4` and validated against an independent evaluation set. The numbers in §5–§6 below are the v2.0 measurements as first reported; **the current measurements, the gate table and what is still not established are in `docs/matching-validation-2026-10-29.md`.** The gates are still not met; v2.4 is not deployed and nothing is switched on.
+
 ## 1. Rules that now hold for every workspace, whatever engine it uses
 
 | Rule | Where it is enforced |

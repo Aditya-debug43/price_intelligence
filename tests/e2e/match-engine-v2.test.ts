@@ -87,7 +87,7 @@ describe('engine v2 stores suggestions, never decisions', () => {
     const all = await db().select().from(productMatches).where(eq(productMatches.orgId, org));
     expect(all.length).toBe(r.created);
     expect(all.every((m) => m.status === 'needs_review' && m.decidedBy === null && m.supersededAt === null)).toBe(true);
-    expect(all.every((m) => m.relationship !== null && m.tier !== null && m.engineVersion === 'match-v2.0' && m.pairHash)).toBe(true);
+    expect(all.every((m) => m.relationship !== null && m.tier !== null && m.engineVersion === 'match-v2.4' && m.pairHash)).toBe(true);
     expect(all.every((m) => (m.evidence?.items.length ?? 0) > 1 && (m.evidence?.summary.length ?? 0) > 10)).toBe(true);
     // an older reader that knows only classes sees a class that matches the relationship — and "related" / "insufficient" are invisible to it
     expect(all.filter((m) => m.relationship === 'exact').every((m) => m.matchClass === 'identical')).toBe(true);
@@ -123,7 +123,7 @@ describe('engine v2 stores suggestions, never decisions', () => {
     expect(cell).toMatchObject({ relationship: 'exact', matchStatus: 'accepted', directlyComparable: true });
     expect(p.total).toBe(1);
     const [ev] = await db().select().from(matchEvents).where(and(eq(matchEvents.matchId, exact.id), eq(matchEvents.kind, 'decided')));
-    expect(ev).toMatchObject({ relationship: 'exact', status: 'accepted', decision: 'accept', actorId: userId, engineVersion: 'match-v2.0' });
+    expect(ev).toMatchObject({ relationship: 'exact', status: 'accepted', decision: 'accept', actorId: userId, engineVersion: 'match-v2.4' });
     expect(ev!.evidence?.items.length).toBeGreaterThan(1);
     expect(ev!.snapshot).toHaveProperty('competitor.title');
   });

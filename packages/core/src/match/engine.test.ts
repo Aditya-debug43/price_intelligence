@@ -156,6 +156,62 @@ describe('relationships', () => {
     expect(e.relationship).toBe('non_match');
     expect(e.conflicts.join(' ')).toMatch(/different things/);
   });
+  it('a word in front of the model changes the model: Cherokee is not Grand Cherokee', () => {
+    const vehicles = [2, 3].flatMap((i) => [
+      input('lasfit', `Fit for 201${i}-201${i + 4} Jeep Cherokee LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Jeep Grand Cherokee LED Light Bulbs`, { brand: 'AUXITO' }),
+      input('sealight', `SEALIGHT® 201${i}-201${i + 3} Jeep Grand Cherokee LED Bulbs`, { brand: 'Sealight' }),
+    ]);
+    const e = run(input('lasfit', 'Fit for 2017-2018 Jeep Cherokee LED Bulbs Upgrade | H11 Low Beam', { brand: 'Lasfit' }), input('auxito', '2011-2024 Jeep Grand Cherokee Headlight Low Beam H11 LED Bulb', { brand: 'AUXITO' }), vehicles);
+    expect(e.relationship).toBe('non_match');
+    expect(e.conflicts.join(' ')).toMatch(/different models/);
+  });
+  it('a vehicle named only between the kind of part and the year still counts as the vehicle', () => {
+    const vehicles = [2, 3].flatMap((i) => [
+      input('lasfit', `Fit for 201${i}-201${i + 4} Ford Fiesta LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Ford Fiesta LED Light Bulbs`, { brand: 'AUXITO' }),
+    ]);
+    const e = run(input('lasfit', 'Fit for 2014-2019 Ford Fiesta LED Bulbs H11 Upgrade', { brand: 'Lasfit' }), input('auxito', 'Ford Focus Led Bulbs (2015-2018) H11', { brand: 'AUXITO' }), vehicles);
+    expect(e.relationship).toBe('non_match');
+  });
+  it('floor mats are not a light for the same van, however many vehicle words the titles share', () => {
+    const vehicles = [2, 3].flatMap((i) => [
+      input('lasfit', `Fit for 201${i}-201${i + 4} Ford Transit Connect LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Ford Transit Connect LED Light Bulbs`, { brand: 'AUXITO' }),
+    ]);
+    const e = run(input('lasfit', 'Fit for 2014-2021 Ford Transit Connect Front Floor Mats, Only Fit Vinyl Floor', { brand: 'Lasfit' }), input('auxito', 'Clear Lens Amber LED Side Marker Light for Ford Transit Connect 2010-2021, Front', { brand: 'AUXITO' }), vehicles);
+    expect(['related', 'non_match']).toContain(e.relationship);
+  });
+  it('a wiper blade for a vehicle is not a light for it, even though "4Runner" is split into a word that both titles share', () => {
+    const vehicles = [2, 3].flatMap((i) => [
+      input('lasfit', `Fit for 201${i}-201${i + 4} Toyota 4Runner LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Toyota 4Runner LED Light Bulbs`, { brand: 'AUXITO' }),
+    ]);
+    const e = run(input('lasfit', 'Fit for 2021-2024 Toyota 4Runner LED Exterior Interior Lights Upgrade | Tested and Verified', { brand: 'Lasfit' }), input('auxito', 'Rear Wiper Arm & Blade For 2010-2023 Toyota 4Runner', { brand: 'AUXITO' }), vehicles);
+    expect(['related', 'non_match']).toContain(e.relationship);
+  });
+  it('"250" in a van\'s name and in a truck\'s name is only a number: Transit-250 is not F-250', () => {
+    const vehicles = [2, 3].flatMap((i) => [
+      input('lasfit', `Fit for 201${i}-201${i + 4} Ford Transit-150/250/350 LED Bulbs Upgrade`, { brand: 'Lasfit' }), input('auxito', `201${i}-201${i + 5} Ford F-250 LED Light Bulbs`, { brand: 'AUXITO' }),
+    ]);
+    const e = run(input('lasfit', 'Fit for 2015-2025 Ford Transit-150/250/350 The Brightest LED Bulbs Upgrade', { brand: 'Lasfit' }), input('auxito', '2017-2022 Ford F-250 LED Headlight High Beam and Low Beam H13/9008 LED Bulb 6500K', { brand: 'AUXITO' }), vehicles);
+    expect(e.relationship).not.toBe('substitute');
+    expect(e.tier === 'strong' && e.relationship === 'substitute').toBe(false);
+  });
+  it('a decoder is a decoder even when the title goes on for a few words after it', () => {
+    const e = run(input('lasfit', '9005 HB3 LED Headlight Bulbs 6000K', { brand: 'Lasfit' }), input('auxito', '9005 HB3 CANBUS LED Resistors Anti-Flicker Decoders Forward Lighting Fog Lights', { brand: 'Alla' }));
+    expect(e.relationship).toBe('related');
+    const feature = run(input('lasfit', '9005 HB3 LED Headlight Bulbs 6000K', { brand: 'Lasfit' }), input('auxito', '9005 HB3 LED Headlight Bulbs Decoder Free Canbus Ready Forward Lighting', { brand: 'Alla' }));
+    expect(feature.relationship).toBe('substitute');
+  });
+  it('the same grocery name in another word order, with the size left out by one listing, is proposed as the same product to confirm', () => {
+    const e = run(input('lingandsons', 'Kraft Parmesan Cheese Grated 8oz'), input('foodstore2go', 'Kraft Grated Parmesan Cheese'));
+    expect(e.relationship).toBe('exact');
+    expect(e.tier).toBe('medium');
+    expect(e.evidence.items.some((i) => i.kind === 'size' && i.effect === 'missing')).toBe(true);
+  });
+  it('a different flavour or variety is never proposed as the same product, even when the rest of the name matches', () => {
+    for (const [x, y] of [
+      ['Philadelphia Cream Cheese Original 8oz', 'Philadelphia Cream Cheese-Strawberry'], ['Nestle Nesquik Chocolate Low Fat Milk', 'Nestle Nesquik Strawberry Low-Fat Milk, 8 oz'],
+      ['Kraft Cucumber Ranch Dressing', 'Kraft Ranch Dressing'], ['Chef Boyardee Beef Ravioli', 'Chef Boyardee Mini Beef Ravioli and Meatballs'],
+    ] as const) expect(run(input('lingandsons', x), input('foodstore2go', y)).relationship).not.toBe('exact');
+  });
   it('adjacent generations are held for a person, not suggested as a stand-in', () => {
     const e = run(input('lasfit', 'Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade', { brand: 'Lasfit' }), input('auxito', 'SEALIGHT® 2016-2018 Ram 1500 LED Bulbs Exterior Multiple Position', { brand: 'Sealight' }));
     // never strong; and the period problem is on the record for the reviewer (in a catalogue where "1500" is learned to be part of the vehicle name the
@@ -228,6 +284,12 @@ describe('what the first real grocery catalogue taught (regressions)', () => {
   it('the same product sold as a single bottle and as a pack is a variant, compared per unit', () => {
     const e = run(input('lasfit', 'Fiji Artesian Water 1L'), input('auxito', 'Fiji Water 1 L - 6 pack'));
     expect(e.relationship).toBe('variant');
+  });
+  it('another flavour or variety of the same brand is not "the same product in another size", whatever the sizes', () => {
+    for (const [x, y] of [
+      ['Maxwell House The Original Roast Medium Roast Ground Coffee 11.50oz', 'Maxwell House Ground Coffee Hazelnut, 11 oz'], ['Mccormick Seasoning Mix Spinach Dip 1.5oz', 'McCormick Seasoning Mix Ranch Dip, 1 oz'],
+      ['General Mills Reese\'S Puffs Cereal 13oz', 'General Mills Cocoa Puffs Cereal, 11.8 oz'],
+    ] as const) expect(run(input('lingandsons', x), input('quickmart', y)).relationship).not.toBe('variant');
   });
   it('a year or a lone model number on one side is a stated difference on a probable match, not another product', () => {
     const e = run(input('lasfit', 'Yellow Tail Pinot Grigio 2015 75cl'), input('auxito', 'Yellow Tail Pinot Grigio 75cl'));

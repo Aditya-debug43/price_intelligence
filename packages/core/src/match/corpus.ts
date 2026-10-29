@@ -24,6 +24,8 @@ export interface Corpus {
   codeSites: Map<string, Set<string>>;
   /** Subject words that name a MODEL (they keep company with few other vehicle words), as opposed to a make that goes with many. */
   modelWords: Set<string>;
+  /** Numbers/codes judged to be scattered over unrelated kinds of product (not part codes). Diagnostic. */
+  scatteredCodes: Set<string>;
   colourVocab: Set<string>;
   stats: CorpusStats;
 }
@@ -167,7 +169,8 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   }
   const scattered = new Set<string>();
   for (const [c, n] of carrying) {
-    if (n < 6) continue;
+    // only bare numbers can be "just a number"; a code with letters in it (H7, T10, W5W) is a part code however many kinds of product it is sold for
+    if (n < 6 || !/^\d+$/.test(c)) continue;
     const top = Math.max(0, ...(kindsByCode.get(c)?.values() ?? []));
     if (top / n < 0.4) scattered.add(c);
   }
@@ -187,8 +190,9 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const codeSet = new Set<string>();
   for (const d of dossiers) for (const c of d.codeTokens) codeSet.add(c.value);
   // what a fitment listing is FOR: the run of uncommon words right next to the year (nearest first), stopping at the first word that is everywhere
-  const reach = (tokens: string[]): string[] => {
+  const reach = (tokens: string[], skipLeading = 0): string[] => {
     const out: string[] = [];
+    let skipped = 0;
     for (const t of tokens) {
       // a part code (H11, 9005) is a code; a name with a digit in it ("4runner", "f150") is a name, judged like any other word
       const isCode = codeSet.has(t);
@@ -199,6 +203,8 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
       }
       // a word goes with the vehicle unless it is everywhere or names what kind of thing the listing is; a part code only if codes like it accompany year ranges
       const generic = tailVocab.has(t) || (df.get(key) ?? 0) > generalShare * n;
+      // "Ford Focus LED Bulbs (2015-2018)": the kind of thing stands between the vehicle and the year; walk over it
+      if (generic && !isCode && !out.length && skipped < skipLeading) { skipped++; continue; }
       if (isCode || generic) break;
       out.push(t);
     }
@@ -214,7 +220,9 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const siteVocabulary = (siteId: string, w: string) => (siteTitles.get(siteId) ?? 0) >= 10 && (siteWord.get(`${siteId}|${w}`) ?? 0) / siteTitles.get(siteId)! > 0.3;
   for (const d of dossiers) {
     const brandWords = new Set(d.brand.key ? [d.brand.key, ...(d.brand.name ?? '').toLowerCase().split(/[^a-z0-9]+/)] : []);
-    d.subject = [...new Set(d.yearContext.flatMap((c) => [...reach(c.after), ...reach(c.before)]))].filter((w) => !brandWords.has(w) && !siteVocabulary(d.siteId, w)).sort();
+    const named = (w: string) => !brandWords.has(w) && !siteVocabulary(d.siteId, w);
+    d.subject = [...new Set(d.yearContext.flatMap((c) => [...reach(c.after), ...reach(c.before, 3)]))].filter(named).sort();
+    d.subjectChain = d.yearContext.map((c) => { const after = reach(c.after).filter(named); return after.length ? after : reach(c.before, 3).filter(named).reverse(); }).find((chain) => chain.length) ?? [];
     d.kindWords = d.kind.last3.filter((w) => tailVocab.has(w));
     // which part / position this listing is for: the words of its own variant that name an application, else the application words of its title
     const own = d.variantTokens.filter((t) => applicationWords.has(t));
@@ -250,6 +258,7 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     siteCodes,
     codeSites,
     modelWords,
+    scatteredCodes: scattered,
     colourVocab,
     stats: { dossiers: n, withCodes, withFitment, aliasGroups: new Set(alias.values()).size, subjectWords: subjectWords.size, colourWords: colourVocab.size },
   };

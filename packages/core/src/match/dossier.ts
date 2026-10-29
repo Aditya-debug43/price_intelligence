@@ -86,6 +86,8 @@ export interface Dossier {
   codes: string[];
   /** Words and codes that say WHICH vehicle / appliance / device a listing is for (learned: they accompany year ranges). */
   subject: string[];
+  /** The same words in the order the title writes them ("jeep", "grand", "cherokee"): a qualifier in front of a model name changes the model. */
+  subjectChain: string[];
   /** Years the listing is for, when it is a fitment listing. */
   fitment: { ranges: { from: number; to: number }[]; years: number[] } | null;
   /** Years that are a vintage or an edition, not a fitment ("Sauvignon Blanc 2013"). */
@@ -118,7 +120,11 @@ export const COMPANION_NOUNS = new Set([
   'case', 'bezel', 'trim', 'stand', 'charger', 'remote', 'controller', 'fuse', 'gasket', 'seal', 'screw', 'bolt', 'nut', 'washer', 'tool', 'socket', 'base', 'lens', 'refill', 'cartridge', 'strap', 'sleeve', 'dock',
 ]);
 
-const BUNDLE_RE = /\b(combo|kit|bundle|assortment|multi-?pack|variety pack|value pack|set of \d+)\b/g;
+/** Companion nouns that can sit a few words before the end of a listing's kind, and the words that turn them into a feature ("decoder free", "built-in resistor"). */
+const FAR_COMPANION = new Set(['decoder', 'resistor', 'canceler', 'canceller', 'harness', 'adapter', 'adaptor']);
+const NOT_A_PART = /(?:decoders?|resistors?|cancell?ers?|harness(?:es)?|adapters?|adaptors?)[\s-]*(?:free|included)|(?:built[\s-]*in|without|no|includes?|including)\s+(?:\w+\s+)?(?:decoders?|resistors?|cancell?ers?|harness(?:es)?|adapters?|adaptors?)/;
+
+const BUNDLE_RE =/\b(combo|kit|bundle|assortment|multi-?pack|variety pack|value pack|set of \d+)\b/g;
 
 const COLOUR_SEED = ['black', 'white', 'red', 'blue', 'green', 'yellow', 'orange', 'purple', 'pink', 'brown', 'grey', 'gray', 'silver', 'gold', 'amber', 'clear', 'beige', 'cyan', 'navy', 'teal', 'maroon', 'violet', 'turquoise', 'bronze', 'copper', 'tan', 'ivory'];
 
@@ -320,7 +326,9 @@ export function kindOf(title: string): { tail: string | null; companion: boolean
       .map(stem);
     if (!words.length) continue;
     const last3 = words.slice(-3);
-    const comp = [...last3].reverse().find((w) => COMPANION_NOUNS.has(w));
+    // "LED Resistors Anti-Flicker Decoders Forward Lighting/Fog Lights": the decoder is further from the end than the last three words
+    const farCompanion = NOT_A_PART.test(seg) ? undefined : words.slice(-7, -3).reverse().find((w) => FAR_COMPANION.has(w));
+    const comp = [...last3].reverse().find((w) => COMPANION_NOUNS.has(w)) ?? farCompanion;
     return comp ? { tail: comp, companion: true, last3 } : { tail: words[words.length - 1]!, companion: false, last3 };
   }
   return { tail: null, companion: false, last3: [] };
@@ -331,7 +339,7 @@ const POSITION_AXIS = /location|position|application|package|set-?up|installatio
 
 export function variantTokensOf(variantTitle: string | null, options: Record<string, string> | null | undefined): string[] {
   const texts: string[] = [];
-  if (variantTitle) texts.push(variantTitle);
+  void variantTitle;
   for (const [k, v] of Object.entries(options ?? {})) if (POSITION_AXIS.test(k) && typeof v === 'string') texts.push(v);
   const out = new Set<string>();
   for (const t of texts) {
@@ -431,6 +439,7 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     yearContext: yearContexts(fullText),
     codes: [],
     subject: [],
+    subjectChain: [],
     fitment: null,
     vintages: [],
     kindWords: [],
