@@ -749,7 +749,7 @@ Follow-up the same day (evaluation preparation only; engine, decisions, producti
 
 Not done: product-level review screen; the t3.micro resource test and shadow run and any deployment (SSH timed out: the AWS security group does not allow the laptop's current address); a fresh held-out set; second-reviewer labels. Commit is local; nothing pushed.
 
-## 2026-10-30 — Directive 19: complete the universal product-matching project without manual labelling by the owner (engine v2.7, still OFF, not deployed)
+## 2026-10-30 — Directive 19: complete the universal product-matching project without manual labelling by the owner (engine v2.7, deployed, still OFF)
 
 Request (verbatim: `docs/original-prompt/19_DIRECTIVE_COMPLETE_MATCHING_WITHOUT_MANUAL_LABELLING_2026-10-30.md`). Report, tables and the acceptance-criteria status: **`docs/matching-validation-2026-10-30.md`**.
 
@@ -759,4 +759,4 @@ Engine v2.4 → v2.7: head-model identity from titles (Transit/F-250, ProMaster/
 
 Evaluation: dev strong+medium precision 93.0 %, recall 54.1 % (unchanged against v2.4 on the same labels); fresh independent set (151 pairs, 26 positives) on a frozen v2.5: precision 87.5 %, recall 53.8 %, strong tier 1/3; grocery regression 701/705; no-counterpart 0/55 (+0/4 fresh); grocery review load 24.4 per 100 with decisions; automotive 176 product pairs per 100. Criteria still unmet: recall, strong-tier bound, automotive load, candidate recall < 95 % per website; resources unverified on the t3.micro.
 
-Deployment: BLOCKED. SSH timed out (security group allows only the laptop's earlier /32). v2.7 is committed locally and not pushed; no backup, update or live verification was run; production data and settings untouched. Resume steps are in `docs/PROJECT_CONTEXT.md` Update 19.
+Deployment: first blocked (SSH timed out; the security group allows only the laptop's current /32), then completed the same day once the owner re-allowed SSH: read-only baseline → verified backup → push `98798cb..ccfbb78` → `sudo shelfwatch-update` (server on `ccfbb78`, no new migration) → read-only counts identical before and after (3 workspaces on `v1`, 705 accepted, 1,391 waiting incl. 36 set aside, 0 v2 fields) → new routes 401 without login, grouped query on production 1,355 → 1,343 product pairs → bounded resource test on the t3.micro (450 MB cap: automotive 106 s / 295 MB, grocery 12 s / 152 MB, API ready throughout; test files deleted). Not run: the project smoke test (registers a throwaway account in production; owner's call) and a logged-in click-through. Engine remains OFF.

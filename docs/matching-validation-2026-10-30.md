@@ -2,7 +2,7 @@
 
 Request: `docs/original-prompt/19_DIRECTIVE_COMPLETE_MATCHING_WITHOUT_MANUAL_LABELLING_2026-10-30.md`. Continues `docs/matching-validation-2026-10-29.md` and `docs/matching-engine-v2.md`.
 
-**Verdict.** The engine is more careful about vehicle identity and product kind, Match Review now lists one item per product pair, and the evaluation uses labels the assistant adjudicated itself from evidence. **The acceptance criteria are still not met, nothing is validated by an independent human, the matcher stays off (`v1`) in every workspace, and v2.7 is committed but could not be deployed (the server's security group does not allow the laptop's current address; see §9).** Nothing is accepted automatically.
+**Verdict.** The engine is more careful about vehicle identity and product kind, Match Review now lists one item per product pair, and the evaluation uses labels the assistant adjudicated itself from evidence. **The acceptance criteria are still not met, nothing is validated by an independent human, the matcher stays off (`v1`) in every workspace. v2.7 is deployed (backend on the server, frontend on Vercel) and verified, but switched off (§9).** Nothing is accepted automatically.
 
 ## 1. Labels: what they are and what they are not
 
@@ -64,7 +64,7 @@ Audits of the engine's own output (labelled by the assistant from titles, 24 ran
 | Calibration | ECE ≤ 0.05 when probabilities are shown | no probability is shown | Not applicable |
 | Three re-runs change no decided row | 100 % | end-to-end tests (three re-runs; product-pair rejection survives a re-run) | **Met** |
 | Grocery regression | ≥ 95 % of 705 | 701 / 705 = 99.4 % | **Met** |
-| Resources: ≤ 10 min, ≤ ~600 MB, no paid calls | | laptop: automotive ≈ 50 s, grocery ≈ 6 s, ≈ 350–400 MB resident for one catalogue, no paid calls; **not measured on the t3.micro** (SSH blocked, §9) | **Met on the laptop; unverified on the server** |
+| Resources: ≤ 10 min, ≤ ~600 MB, no paid calls | | **measured on the production t3.micro** (§9) under a 450 MB cap, lowest priority, no database access: automotive 106 s in the engine (112 s wall), 295 MB resident, unit memory ≤ 268 MB at 5 s samples; grocery 12 s, 152 MB; the API answered 200 on every check during both runs; no paid calls. Laptop: automotive ≈ 50 s | **Met** (for the engine run on an exported catalogue; the production job path and a first shadow run were not exercised, because the matcher is off) |
 
 ## 6. What remains weak (known, not hidden)
 
@@ -91,8 +91,11 @@ npx vitest run                                                              # 1,
 ```
 The datasets, the adjudicated labels and the fresh set hold catalogue data and live outside the repository (`fixtures/matching/eval-v2` is git-ignored).
 
-## 9. Deployment record
+## 9. Deployment record (2026-10-30)
 
-* Before this work the server ran `98bab87` (engine v2.0, disabled; migration 0013 applied; 705 accepted and 1,353 waiting grocery pairs; every workspace `matching_engine = 'v1'`), ready, all 14 migrations applied.
-* v2.7 is committed locally (`7884f1a`) and **not deployed**. After this work was committed the laptop's public address changed and the AWS security group no longer allowed it: SSH to the server timed out, so the planned steps (verified backup, `sudo shelfwatch-update`, readiness and data-count checks, the bounded resource test on the t3.micro) were not run. **No production data, setting or decision was changed by this work.**
-* No schema change is part of this release, so it needs no migration. The new web page tolerates the older backend (it ignores the grouping it does not return), so pushing the frontend first is safe. Rollback: `git revert` the engine commit and `sudo shelfwatch-update`.
+* **Before:** the server ran `98bab87` (engine v2.0, disabled), ready, all 14 migrations applied. Read-only counts taken first: every workspace `matching_engine = 'v1'` (3 workspaces); 705 accepted, 1,391 waiting (36 of them set aside), 36 history events, 0 match runs, no row with a v2 field.
+* **Backup:** `shelfwatch-backup` run, then read back with `pg_restore -l` (22 MB, 49 table-data entries including `product_matches`, `match_events`, `org_settings`); `shelfwatch-update` took a second backup of its own.
+* **Deploy:** `main` fast-forwarded on GitHub (`98798cb..ccfbb78`; the five commits were scanned for credentials, addresses and data first); `sudo shelfwatch-update` pulled it, installed lockfile-exact, built, applied migrations (none new: 14 of 14), restarted the worker then the API, and reported ready. The server now runs `ccfbb78`; Vercel serves the new frontend (its bundle contains the product-pair call).
+* **Verification:** the same read-only counts after the update are identical to the counts before it (3 × `v1`, 705 accepted, 1,391 waiting, 36 events, 0 runs, 0 v2 fields, 14 migrations); readiness `ready` on every check. The grouped review query was run on the production data read-only: 1,355 waiting variant pairs in the one grocery workspace collapse to 1,343 product pairs. The new routes answer 401 without a login (a made-up route answers 404), so they exist and are protected. **Not done:** a logged-in click-through of the new review screen, and the project's smoke test, because the smoke test registers a throwaway account in the production database and that needs the owner's say-so.
+* **Resource test on the t3.micro** (913 MB): the exported catalogues were copied to a private temporary folder, the engine ran as a transient systemd unit with `MemoryMax=450M`, `MemorySwapMax=0`, lowest priority and no database access, outside the 05:30 UTC collection window, then the files and units were deleted. Grocery: engine 12 s, 152 MB resident. Automotive: engine 106 s (112 s wall), 295 MB resident, unit memory at most 268 MB in 5 s samples. The API answered 200 on all 25 readiness checks during the runs; host free memory fell to about 105 MB at the low point; no swap added. The server's results equal the laptop's (grocery review queue 580 = 24.4 per 100, regression 701 of 705; automotive 6,999 variant pairs = 619.9 per 100). Not exercised: the production job path and a first `v2_shadow` run (the matcher is off).
+* **Rollback:** `git revert` the engine commit (`7884f1a`) and run `sudo shelfwatch-update`; there is no schema change to undo; the two backups above restore the data. Switching a workspace to `v2_shadow` or `v2` is a separate decision of the owner and is not made by this release.

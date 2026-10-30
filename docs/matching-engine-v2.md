@@ -7,7 +7,7 @@ Verbatim request: `docs/original-prompt/17_DIRECTIVE_IMPLEMENT_UNIVERSAL_MATCHIN
 
 > **Later the same day (directive 18):** the engine was improved to `match-v2.4` and validated against an independent evaluation set. The numbers in §5–§6 below are the v2.0 measurements as first reported; **the current measurements, the gate table and what is still not established are in `docs/matching-validation-2026-10-29.md`.** The gates are still not met; v2.4 is not deployed and nothing is switched on.
 
-> **Directive 19 (2026-10-30):** the engine is now `match-v2.7` (committed locally, **not deployed**: SSH was blocked), Match Review lists one item per product pair (§9), and the evaluation uses labels the assistant adjudicated from evidence (not independent human ground truth). **Current measurements, the acceptance-criteria table and the open weaknesses are in `docs/matching-validation-2026-10-30.md`.** The criteria are still not met; the matcher stays off.
+> **Directive 19 (2026-10-30):** the engine is now `match-v2.7` (deployed 2026-10-30 on the server and Vercel, **switched off**; deployment record in the validation doc §9), Match Review lists one item per product pair (§9), and the evaluation uses labels the assistant adjudicated from evidence (not independent human ground truth). **Current measurements, the acceptance-criteria table and the open weaknesses are in `docs/matching-validation-2026-10-30.md`.** The criteria are still not met; the matcher stays off.
 
 ## 1. Rules that now hold for every workspace, whatever engine it uses
 
