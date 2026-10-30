@@ -8,7 +8,7 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-10-29, after directive 18 (see "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
@@ -16,7 +16,19 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
-# Update 18 — directive of 2026-10-29 (second): improve matching accuracy, cut review overload, validate before activation (CURRENT STATE — read with Updates 17 and 5–14)
+# Update 19 — directive of 2026-10-30: complete the matching project without manual labelling by the owner (CURRENT STATE — read with Updates 17, 18 and 5–14)
+
+Verbatim directive: `docs/original-prompt/19_DIRECTIVE_COMPLETE_MATCHING_WITHOUT_MANUAL_LABELLING_2026-10-30.md`. Full report, tables and the acceptance-criteria status: **`docs/matching-validation-2026-10-30.md`** (read it first). How the engine works and how it is evaluated: `docs/matching-engine-v2.md` §9.
+
+* **Verdict:** better vehicle identity and product-kind handling, a manageable review unit, and an evaluation on labels the assistant adjudicated from evidence. **Acceptance criteria still NOT met (recall ≈ 54 %, strong tier unproven, automotive review load too high, candidate recall < 95 % on several websites), not independently validated by a person, not production-ready; matcher stays OFF (`v1`) everywhere; nothing is accepted automatically.**
+* **Labels:** all 120 reviewed pairs adjudicated by the assistant with recorded evidence types and provenance (first labeller, second AI evaluator, adjudication); 6 stay "insufficient evidence". They are **not independent human ground truth**. The dataset and the case report are outside the repository (public repo).
+* **Engine `match-v2.7`** (commit `7884f1a`, local, not pushed or deployed): title-based head-model identity, short bracketed years, colour-mode and combo-contents rules, NA/NAK suffixes, grocery name-containment route with guards. Tests: 1,144 passing.
+* **Review unit:** Match Review shows one item per product pair (`group=product`) with a "these are different products" action that rejects every waiting variant pair through the normal decision path. No schema change.
+* **Evaluation:** dev (486 pairs) strong+medium precision 93.0 %, recall 54.1 %; a fresh set of 151 pairs (26 positives) evaluated once on a frozen engine: precision 87.5 %, recall 53.8 %; grocery regression 701/705; no-counterpart 0/55 (+0/4); grocery review load 24.4 per 100 with decisions applied; automotive 176 product pairs per 100 (620 variant pairs).
+* **Deployment: BLOCKED.** SSH to the server timed out — the AWS security group allows only a specific laptop IPv4 /32 and the laptop's address changed. Backup, `sudo shelfwatch-update`, live verification and the t3.micro resource test were NOT run; production data and settings were not touched. To resume: allow the laptop's current address (`curl -s -4 https://checkip.amazonaws.com`) in the security group, then `sudo shelfwatch-backup` → push `main` → `sudo shelfwatch-update` → check readiness, engine `v1`, 705 accepted / 1,353 waiting unchanged.
+* **Not done:** server-side resource test; independent human review (the 120-pair workbook exists); use of descriptions for vehicle sockets; cross-brand grocery stand-ins.
+
+# Update 18 — directive of 2026-10-29 (second): improve matching accuracy, cut review overload, validate before activation (read with Updates 17 and 19)
 
 Verbatim directive: `docs/original-prompt/18_DIRECTIVE_IMPROVE_MATCHING_ACCURACY_2026-10-29.md`. Full measurements and the gate table: **`docs/matching-validation-2026-10-29.md`** (read it first).
 

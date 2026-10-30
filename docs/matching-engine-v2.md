@@ -7,6 +7,8 @@ Verbatim request: `docs/original-prompt/17_DIRECTIVE_IMPLEMENT_UNIVERSAL_MATCHIN
 
 > **Later the same day (directive 18):** the engine was improved to `match-v2.4` and validated against an independent evaluation set. The numbers in §5–§6 below are the v2.0 measurements as first reported; **the current measurements, the gate table and what is still not established are in `docs/matching-validation-2026-10-29.md`.** The gates are still not met; v2.4 is not deployed and nothing is switched on.
 
+> **Directive 19 (2026-10-30):** the engine is now `match-v2.7` (committed locally, **not deployed**: SSH was blocked), Match Review lists one item per product pair (§9), and the evaluation uses labels the assistant adjudicated from evidence (not independent human ground truth). **Current measurements, the acceptance-criteria table and the open weaknesses are in `docs/matching-validation-2026-10-30.md`.** The criteria are still not met; the matcher stays off.
+
 ## 1. Rules that now hold for every workspace, whatever engine it uses
 
 | Rule | Where it is enforced |
@@ -160,3 +162,13 @@ Roll back: set `matching_engine` back to `v1` (suggestions already written stay 
 * Evidence rules are hand-written and were refined while looking at the development data above; weights have not been fitted or tested on a held-out set.
 * Descriptions, tags and images are not yet used (titles, option axes and identifiers are).
 * Multi-variant products are matched variant by variant; a bundle's single bulb position can match a competitor's single bulb, the whole bundle never matches one.
+
+## 9. State after directive 19 (engine `match-v2.7`)
+
+**How a suggestion is made, in order.** (1) Each variant becomes a dossier (identifiers, codes, years, vehicle chain, sizes, colours, kind, options). (2) The corpus is analysed once per workspace (alias codes, series names, vehicle makes learned from the titles, kind words, colour words). (3) Candidates are retrieved per competitor website by several independent keys (identifier, shared code, vehicle/device words, rare tokens, name tokens). (4) `evaluatePair` turns typed facts into a relationship, a tier and a list of evidence; decisive conflicts end the question and a name never outvotes them. (5) At most three suggestions per website are kept. (6) Nothing is accepted: every suggestion waits for a person.
+
+**What v2.4 → v2.7 added** (details, tests and measurements: `docs/matching-validation-2026-10-30.md` §2): head-model identity from the product title (Transit vs F-250, ProMaster vs Ram 1500, Cherokee vs Grand Cherokee, F-250 Super Duty = Ford 250); two-digit bracketed years; colour-mode and kind-of-part rules (switchback, combos with different sockets, decoder or resistor companions); NA/NAK suffixes; a grocery "same name, size not comparable" route with guards for flavour and variant size.
+
+**Product-pair review unit.** `GET /matches?group=product` returns one row per (your product, competitor product) — the strongest variant pair, `groupSize`, the others on request (`sourceProductId` and `competitorProductId` filters). `POST /matches/product-pair/reject` (`{sourceProductId, competitorProductId, note?}`) rejects every waiting variant pair of the pair through the ordinary decision path (history, audit, `match_events`); decided and set-aside rows are not touched; confirming stays per variant pair. `GET /matches/summary` also reports `awaitingProductPairs`. No schema change; the web page works against an older backend. End-to-end test: `tests/e2e/match-product-pairs.test.ts`.
+
+**How an improvement is evaluated** (rules in `docs/matching-validation-2026-10-30.md` §7): develop on the development set and audits of the engine's own output; freeze the engine (record file hashes) before opening a fresh set once; report precision and recall with and without uncertain labels, per domain and website, the workload as variant pairs and product pairs, grocery regression, no-counterpart rate, resources on the server; state which labels are AI-made; a label is "verified" only after a person opened the pages. Datasets, labels and the fresh set stay outside the repository (`fixtures/matching/eval-v1/` and `eval-v2/` are git-ignored).
