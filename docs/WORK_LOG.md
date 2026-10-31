@@ -801,3 +801,50 @@ It fixed the labelling (items vs products) and added the sitemap cross-check, an
 
 * The 935 are not collected, and connecting the store would not change that as the integration works today: the authorised connection (Shopify OAuth; needs a registered Shopify app and its credentials on the server) only supplies exact unit counts for products already collected. Importing unpublished products from the admin would be a new feature, outside this fix. The owner can settle what the 935 are in Shopify admin → Products, filtering by Status (Draft, Archived) and by sales channel.
 * Side observation, not touched: the automotive workspace's scheduled collections of two sites ended `partial` at 10:47 UTC (the same rate-limit continuation applies).
+
+## 2026-11-01 — Directive 22: Reports — the dropdown beside PDF/Excel/CSV and the section tabs "do not work"
+
+Request (verbatim: `docs/original-prompt/22_DIRECTIVE_REPORT_FILTERS_AND_TABS_2026-11-01.md`).
+
+### What the controls are (read from the code first)
+
+* The dropdown is the **CSV table chooser** (its only label was screen-reader-only, "CSV dataset"): its value goes into the CSV link (`dataset=`) and nowhere else. PDF and Excel are always the whole report (the export service keeps one saved copy, dataset `all`; Excel has a sheet per table). It does not change the page.
+* The tabs are client-side sections of the saved snapshot; the open one is in the address (`?tab=`). They fetch nothing.
+
+### What was NOT broken (measured, not assumed)
+
+* **Tabs, on a copy of the real 28 October snapshot** (68 insights, 1,006 comparisons, 150 offers, 0 stock, 1 marketing, 4 websites; the numbers in the owner's screenshot), loaded into a throwaway local tenant behind the real built app: 8 tabs × 2 passes (real mouse clicks and scripted), correct section, URL, content, ≤ 75 ms, no console errors, no failed requests. (A first reading of "stale content" was a hidden-pane timer artefact; re-measured with a MutationObserver.)
+* **Exports, all 8 tables + Excel + PDF**, rendered in memory on production from the real 28 October snapshot and from the newest one (read-only, nothing written; 1.0 s for Excel, 0.9 s PDF, 211 MB peak): no errors; rows equal the snapshot (comparison 1,170, offers 150, stock 0, marketing 1, marketing summary 3, insights 68, coverage 4, assortment 120). Production had only ever stored **one** export (a PDF, 28 Oct); no CSV or Excel export had been recorded there.
+* The page reads only the snapshot (`GET /reports/:id`, plus the app shell's freshness bar); tab clicks make no requests and create nothing.
+
+### What was broken
+
+1. The dropdown looked like a report switcher but only chose the CSV table, was unlabelled to sighted users, and ignored the open section: on "My stock", CSV downloaded the price comparison. (This is the "dropdown does nothing / export scope does not follow" the screenshot shows.)
+2. The tab strip is 1 px taller than its box (tabs overlap its bottom border) and the box scrolls, so Windows shows a stray vertical scrollbar at the end of the strip (visible in the screenshot).
+3. An unrecognised `?tab=` left the section body blank with no tab highlighted.
+4. Assortment with nothing in it showed two empty cards; the Offers empty state had no text.
+5. The table list existed twice by hand (page and API).
+
+### Change (smallest set; PDF/Excel/CSV rendering and the snapshot are untouched)
+
+* `packages/shared/src/constants.ts`: `CSV_DATASETS` / `CsvDataset` live here; `packages/services/src/exports.ts` re-exports them (no behaviour change).
+* `apps/web/src/report-sections.ts` (new, pure): the eight sections, `reportTabFrom` (unknown → first section), which CSV table each section downloads, the dropdown names.
+* `apps/web/src/pages/Reports.tsx`: visible "CSV table" label; the dropdown follows the open section and a pick holds only on that section; PDF/Excel titled "the whole report"; unknown `?tab=`; Assortment and Offers empty states.
+* `apps/web/src/ui.tsx` (optional `className` on `Tabs`) and `apps/web/src/styles.css` (`.tabs-flush`, same pixels without the overlap): used by the report tabs only. The tab strips of Alerts, Match review, Price comparison and Settings have the same stray scrollbar and were **left alone** (other pages).
+* The basket has no CSV table (it is in no export); on that section CSV starts at the price comparison. Not changed (export redesign).
+
+### Tests
+
+`tests/unit/report-sections.test.ts` (8), `tests/e2e/reports.test.ts` (+3: every dropdown table exports its own rows/headings/name and no two files are equal, also from the saved copy; PDF/Excel identical whatever table is chosen; empty sections give header-only CSVs), `tests/e2e/api.test.ts` (+1: the route serves the chosen table, refuses unknown ones, snapshot hash and data unchanged). Mutation check: pointing the stock table at the offers table makes the new export test fail ("stock: expected 2 rows, got 13"). Full suite **1,184 tests in 76 files pass**; lint 0 errors (2 old warnings in untouched files); typecheck and build clean.
+
+### Browser verification (built web app + real API, throwaway database, fictional shops + copy of the real snapshot; a copy of the owner's data was kept only in a scratch folder and deleted)
+
+All 8 tabs by real clicks (dropdown, CSV link and content follow each); all 8 dropdown options through the control, each CSV link fetched and checked against the snapshot (file name, title line, headings, row count); a pick on one section dropped on leaving it; unknown tab → Insights; an all-empty snapshot: every tab shows its empty state, 8 valid CSVs; PDF and Excel valid (`%PDF`, `PK`); phone width 390 px: no overflow. Snapshot digests of all saved reports identical before and after, report count unchanged (3 → 3), only cached export copies added. Downloads were fetched in the page (nothing saved to disk).
+
+### Deployment
+
+Commit `1a3b3a3` pushed to `main`; Vercel now serves `index-D3PyXuLr.js` (identical hash to the tested build). Production checked: bundle has the new text, stylesheet has `.tabs-flush`, `/api/v1/ready` ready through the website, export route answers 401 without a login, report deep link 200. The EC2 server was **not** redeployed (no behaviour change there; it picks up the shared-constant move at its next update). No database change, no backup needed.
+
+### Not verified
+
+The logged-in production page itself (no credentials entered): the owner should open the 28 October report once, pick a tab and press CSV.

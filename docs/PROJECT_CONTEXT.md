@@ -8,13 +8,23 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-10-31, after directive 21 (see "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-11-01, after directive 22 (see "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
 
 ---
+
+# Update 22 — directive of 2026-11-01: Reports dropdown and section tabs (CURRENT STATE — read with Updates 21, 20 and 5–14)
+
+Verbatim directive: `docs/original-prompt/22_DIRECTIVE_REPORT_FILTERS_AND_TABS_2026-11-01.md`. Details and evidence: `docs/WORK_LOG.md` (directive 22).
+
+* **What the controls are:** the dropdown beside PDF/Excel/CSV only chooses the **CSV table** (PDF and Excel are the whole report); the tabs are client-side sections of the saved snapshot (`?tab=`). Neither fetches live data; neither creates or changes a snapshot (digests verified).
+* **Measured working:** all 8 tabs on a copy of the real 28 October snapshot; all 8 CSV tables, Excel and PDF rendered on production from the real snapshot (rows equal the snapshot). Production had stored only one export ever (a PDF).
+* **Fixed:** the dropdown now has a visible "CSV table" label and follows the open section (a pick holds on that section only); PDF/Excel are labelled "the whole report"; the stray vertical scrollbar on the report tab strip is gone; an unknown `?tab=` opens Insights; empty Assortment/Offers say so. The table list is one definition in `@ci/shared`.
+* **Left alone / limits:** the same stray scrollbar exists on the tab strips of other pages (not touched); the basket has no CSV table and is in neither Excel nor PDF; the logged-in production page was not clicked through (no credentials).
+* **Verified:** 1,184 tests in 76 files; browser pass on the built app; deployed as commit `1a3b3a3` (website only; bundle `index-D3PyXuLr.js`), EC2 not redeployed.
 
 # Update 21 — directive of 2026-10-31: My Stock "2,381 products" against the admin's 3,316 (CURRENT STATE — read with Updates 10, 11 and 20)
 
