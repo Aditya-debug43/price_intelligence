@@ -10,7 +10,7 @@
 import { and, eq } from 'drizzle-orm';
 import { loadConfig, loadDotEnv } from '@ci/core';
 import { createDb, createPool, organizations, sites } from '@ci/database';
-import { PgBossQueue, consoleLogger, createProducerBoss, createServices, startScan } from '@ci/services';
+import { OutboxMailer, PgBossQueue, consoleLogger, createProducerBoss, createServices, startScan } from '@ci/services';
 
 loadDotEnv();
 const config = loadConfig();
@@ -23,7 +23,9 @@ const log = consoleLogger('warn', { app: 'ops' });
 const pool = createPool(config.workerDatabaseUrl, { applicationName: 'ci-ops', max: 2 });
 const db = createDb(pool);
 const boss = await createProducerBoss(config.DATABASE_URL, log);
-const svc = createServices(config, db, { queue: new PgBossQueue(boss), log });
+const queue = new PgBossQueue(boss);
+// (a collection sends no email; the service context just needs its mailer, as in the API and the worker)
+const svc = createServices(config, db, { queue, log, mailerFactory: (base) => new OutboxMailer(db, () => queue, { smtp: config.smtp, from: config.emailFrom }, base.log) });
 const [site] = await db.select({ id: sites.id, orgId: sites.orgId }).from(sites).innerJoin(organizations, eq(organizations.id, sites.orgId)).where(and(eq(organizations.name, workspace), eq(sites.hostname, hostname)));
 if (!site) {
   console.error('no such website in that workspace');
