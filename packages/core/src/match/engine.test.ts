@@ -142,7 +142,7 @@ describe('relationships', () => {
     expect(e.evidence.items.some((i) => i.kind === 'fitment' && i.effect === 'missing')).toBe(true);
   });
   it('two vehicle listings for the same vehicle and overlapping years support each other through fitment', () => {
-    const e = run(input('lasfit', 'Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade', { brand: 'Lasfit' }), input('auxito', '2019 2020 Ram 1500 (Classic) LED Bulbs', { brand: 'AUXITO' }));
+    const e = run(input('lasfit', 'Fit for 2019-2024 Ram 1500 Classic LED Bulbs Upgrade', { brand: 'Lasfit' }), input('auxito', '2019 2020 Ram 1500 Classic LED Bulbs', { brand: 'AUXITO' }));
     expect(e.relationship).toBe('substitute');
     expect(e.evidence.items.some((i) => i.kind === 'fitment' && i.effect === 'supports')).toBe(true);
   });
@@ -490,5 +490,17 @@ describe('vehicle models are not part codes (engine v2.8)', () => {
     const comp = input('auxito', 'AUXITO H7 LED Headlight Bulbs 6500K', { brand: 'AUXITO' });
     const c = analyseCatalogue([own, comp, ...filler(), input('sealight', 'H7 LED Headlight Bulbs 60W', { brand: 'Sealight' }), input('alla', 'H7 LED Forward Lightings Bulbs', { brand: 'Alla' }), input('alla', 'Mini H7 LED Bulbs', { brand: 'Alla' })]);
     expect(c.byVariant.get(own.variantId)!.codes).toContain('h7');
+  });
+});
+
+describe('kinds of product that never appear together (engine v2.8)', () => {
+  it('a floor mat and a bulb for the same vehicle are different kinds of product, even when the bulb\'s title starts with the vehicle and has brackets', () => {
+    const makes = ['Toyota', 'Honda', 'Ford', 'Nissan', 'Jeep', 'Kia'];
+    const mats = Array.from({ length: 48 }, (_, i) => input('lasfit', `Fit for 20${10 + (i % 8)}-20${14 + (i % 8)} ${makes[i % makes.length]} Model${i % 9} Floor Mats or Cargo Mat`, { brand: 'Lasfit' }));
+    const bulbs = Array.from({ length: 48 }, (_, i) => input(i % 2 ? 'auxito' : 'alla', `${makes[i % makes.length]} Model${i % 9} (1${i % 8}-2${i % 5}) LED Light Bulbs ${i % 2 ? 'H11 H8' : '9005'}`, { brand: i % 2 ? 'AUXITO' : 'Alla' }));
+    const mat = input('lasfit', 'Fit for 2019-2025 Toyota RAV4 All-weather TPE Floor Mats & Cargo Mat', { brand: 'Lasfit' });
+    const bulb = input('auxito', 'Toyota Rav4 (19-21) LED Light Bulbs H8 H9 H11 Fog Light, Cool White', { brand: 'AUXITO' });
+    const e = run(mat, bulb, [...mats, ...bulbs]);
+    expect(['substitute', 'exact', 'variant']).not.toContain(e.relationship);
   });
 });

@@ -73,7 +73,7 @@ function nameContainment(a: Dossier, b: Dossier, corpus: Corpus): { shared: stri
   return { shared: ca, extras: [] };
 }
 
-const KIND_MODIFIERS =new Set(['led', 'series', 'kit', 'set', 'pair', 'upgrade']);
+const KIND_MODIFIERS = new Set(['led', 'series', 'kit', 'set', 'pair', 'upgrade', 'exterior', 'interior', 'front', 'rear', 'universal', 'custom', 'replacement']);
 
 function wordCosine(a: Dossier, b: Dossier, corpus: Corpus, skip?: Set<string>): number {
   const wa = new Map(a.words.filter((w) => !skip?.has(w)).map((w) => [w, corpus.idf(`w:${w}`)]));
@@ -304,11 +304,26 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   const wcKind = vehicleWords.size ? wordCosine(a, b, corpus, vehicleWords) : wc;
   const lastDisjoint = a.kind.last3.length > 0 && b.kind.last3.length > 0 && !a.kind.last3.some((w) => b.kind.last3.includes(w));
   let kindState: 'agree' | 'companion' | 'differs' | 'unknown' = 'unknown';
+  /** The kind is confirmed by a shared kind WORD (not merely by the titles using similar words, which a shared vehicle name inflates). */
+  let kindStrict = false;
   // "LED" in both says the light source, not the kind of thing
   const sharedKind = a.kindWords.filter((w) => b.kindWords.includes(w) && !KIND_MODIFIERS.has(w));
   // a modifier ("LED", "kit") says how a thing is built or sold, not what it is: a listing that names only a modifier names no kind
   const kindA = a.kindWords.filter((w) => !KIND_MODIFIERS.has(w));
   const kindB = b.kindWords.filter((w) => !KIND_MODIFIERS.has(w));
+  // what a listing is, from the kind words anywhere in its title (a title that starts with the vehicle and has brackets names its kind late)
+  const kindsAnywhere = (d: Dossier) => [...new Set(d.words.filter((w) => corpus.kindVocab.has(w) && !KIND_MODIFIERS.has(w) && !d.subject.includes(w) && !corpus.subjectWords.has(`w:${w}`) && !corpus.subjectWords.has(`c:${w}`)))];
+  const sharedAnywhere = kindsAnywhere(a).filter((w) => kindsAnywhere(b).includes(w));
+  const exclusiveKinds: [string, string] | null = (() => {
+    if (sharedKind.length) return null;
+    const ka = kindsAnywhere(a), kb = kindsAnywhere(b);
+    if (!ka.length || !kb.length || ka.some((x) => kb.includes(x))) return null;
+    for (const x of ka) for (const y of kb) {
+      const together = corpus.kindTogether.get([x, y].sort().join('|')) ?? 0;
+      if (together === 0 && (corpus.df.get(`w:${x}`) ?? 0) >= 30 && (corpus.df.get(`w:${y}`) ?? 0) >= 30) return [x, y];
+    }
+    return null;
+  })();
   if (a.kind.companion !== b.kind.companion || (a.kind.companion && b.kind.companion && a.kind.tail !== b.kind.tail)) {
     kindState = 'companion';
     add({
@@ -318,10 +333,18 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     });
   } else if (sharedKind.length || (a.kind.tail && a.kind.tail === b.kind.tail)) {
     kindState = 'agree';
+    kindStrict = true;
     add({ kind: 'product_type', effect: 'supports', strength: 'moderate', text: `Both are “${sharedKind[0] ?? a.kind.tail}” listings` });
+  } else if (sharedAnywhere.length && !(kindA.length && kindB.length && !kindA.some((w) => kindB.includes(w)) && wcKind < 0.2)) {
+    kindState = 'agree';
+    kindStrict = true;
+    add({ kind: 'product_type', effect: 'supports', strength: 'moderate', text: `Both are “${sharedAnywhere[0]}” listings` });
   } else if ((kindA.length && kindB.length && wcKind < 0.5) || (lastDisjoint && wcKind < 0.15 && kindA.length > 0 && kindB.length > 0)) {
     kindState = 'differs';
     add({ kind: 'product_type', effect: 'differs', strength: 'moderate', text: `The kind of product may differ (“${kindA.join(' ')}” vs “${kindB.join(' ')}”)`, a: kindA.join(' '), b: kindB.join(' ') });
+  } else if (exclusiveKinds) {
+    kindState = 'differs';
+    add({ kind: 'product_type', effect: 'differs', strength: 'moderate', text: `They are different kinds of product (“${exclusiveKinds[0]}” and “${exclusiveKinds[1]}” are never seen together on one listing)`, a: exclusiveKinds[0], b: exclusiveKinds[1] });
   } else if (wcKind >= 0.35) {
     kindState = 'agree';
     add({ kind: 'product_type', effect: 'supports', strength: 'weak', text: 'The descriptions use largely the same words' });
@@ -479,7 +502,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   if (codes.state === 'agree' && !!a.fitment && !!b.fitment && fit.state === 'agree_years') {
     return finish('related', 'medium', 'identity_code', 0.4);
   }
-  if (codes.state === 'agree' || (fit.state === 'agree' && kindState === 'agree') || (legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand')) {
+  if (codes.state === 'agree' || (fit.state === 'agree' && kindStrict) || (legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand')) {
     // vehicle-specific vs generic, adjacent generation, or no type confirmation: never "strong"
     const unresolved = fit.state === 'unverified' || fit.state === 'adjacent' || fit.state === 'partial' || fit.state === 'agree_years' || (fit.state === 'agree' && position === 'one_sided' && codes.state !== 'agree');
     // two combos that do not hold the same sockets ("H11 combo" against "9005 + H11 combo") are not the same contents: never strong

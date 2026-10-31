@@ -17,6 +17,9 @@ export interface Corpus {
   nameIdf(word: string): number;
   /** For each name word, how many different leading words (makers) the titles containing it start with: high = names a kind of product, low = a maker or line. */
   typeSpread: Map<string, number>;
+  /** The words that name what a listing IS (they usually end titles), and how often two of them appear on the same listing: "mat" and "bulb" never do. */
+  kindVocab: Set<string>;
+  kindTogether: Map<string, number>;
   /** Document frequency of 'w:<word>' and 'c:<code>' keys. */
   df: Map<string, number>;
   idf(key: string): number;
@@ -135,13 +138,27 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const plainWithMake = new Map<string, number>();
   for (const d of dossiers) {
     if (d.yearMentions.ranges.length || d.yearMentions.singles.length) continue;
-    const hasMake = plain(d.legacy.title).split(/[^a-z0-9]+/).some((w) => provisionalMakes.has(w));
+    const toks = plain(d.legacy.title).replace(/-/g, '').split(/[^a-z0-9]+/);
     for (const c of new Set(d.codeTokens.map((x) => x.value))) {
       const set = plainSites.get(c) ?? new Set<string>();
       set.add(d.siteId);
       plainSites.set(c, set);
       plainCount.set(c, (plainCount.get(c) ?? 0) + 1);
-      if (hasMake) plainWithMake.set(c, (plainWithMake.get(c) ?? 0) + 1);
+      // the make is right next to it ("Ram 1500", "Ford F150", "Chevrolet Silverado 1500"), not merely somewhere in the title ("H7 LED Bulbs for Mercedes Benz")
+      const i = toks.indexOf(c);
+      if (i > 0 && (provisionalMakes.has(toks[i - 1]!) || (i > 1 && provisionalMakes.has(toks[i - 2]!)))) plainWithMake.set(c, (plainWithMake.get(c) ?? 0) + 1);
+    }
+  }
+  // Which makes each word keeps company with, counted from the listings that carry a year range and a make (a make counts only when the word keeps its company at least three times).
+  // (a make counts only when the word keeps its company at least three times: a model named once in another make's multi-vehicle title does not make it a descriptor)
+  const makesWith = new Map<string, Map<string, number>>();
+  for (const d of withRange) {
+    const found = [...new Set(plain(d.legacy.title).split(/[^a-z0-9]+/).filter((w) => provisionalMakes.has(w)))];
+    if (!found.length) continue;
+    for (const w of d.words) {
+      let m = makesWith.get(w);
+      if (!m) makesWith.set(w, (m = new Map<string, number>()));
+      for (const mk of found) m.set(mk, (m.get(mk) ?? 0) + 1);
     }
   }
   const isPartCode = (code: string) => (plainSites.get(code)?.size ?? 0) >= 2 && (plainCount.get(code) ?? 0) >= 3 && (plainWithMake.get(code) ?? 0) / (plainCount.get(code) ?? 1) < 0.4;
@@ -346,8 +363,26 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const nameIdf = (w: string) => Math.log(1 + nProducts / (1 + (nameDf.get(w) ?? 0)));
   const typeSpread = new Map<string, number>([...leadsOf].map(([w, s]) => [w, s.size]));
 
+  // What a listing IS, for telling kinds apart: words that usually end titles, are not a make, and are not a vehicle model (a model goes mostly with ONE make; "mat", "bulb" go with all).
+  // (Independent of the vehicle-word learning above, so a kind word that sits next to year ranges, like "mat", still counts.)
+  const dominantMake = (w: string) => {
+    const counts = [...(makesWith.get(w)?.values() ?? [])];
+    const total = counts.reduce((x, y) => x + y, 0);
+    return total >= 5 && Math.max(0, ...counts) / total >= 0.6;
+  };
+  const kindSet = new Set<string>();
+  for (const [w, c] of tailCount) if (c >= 3 && c / Math.max(1, df.get(`w:${w}`) ?? c) >= 0.5 && !provisionalMakes.has(w) && !dominantMake(w)) kindSet.add(w);
+  // which kind words are ever seen together on one listing ("LED bulb", "light bulb"); kinds that are both common and never together are different kinds of product
+  const kindTogether = new Map<string, number>();
+  for (const d of dossiers) {
+    const ks = [...new Set(d.words.filter((w) => kindSet.has(w)))].sort();
+    for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) kindTogether.set(`${ks[i]}|${ks[j]}`, (kindTogether.get(`${ks[i]}|${ks[j]}`) ?? 0) + 1);
+  }
+
   return {
     dossiers,
+    kindVocab: kindSet,
+    kindTogether,
     nameDf,
     nameIdf,
     nProducts,
