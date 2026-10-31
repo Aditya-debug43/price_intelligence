@@ -173,5 +173,41 @@ report['noCounterpart'] = { products: nc.length, withStrongOrMediumSuggestion: n
 console.log(`\nproducts with no genuine counterpart (independent keyword search): ${nc.length}; given a strong/medium suggestion: ${ncAny} (${pct(nc.length ? ncAny / nc.length : null)}); strong: ${ncStrong}`);
 console.log('\nWORKLOAD (exact/variant/substitute, strong+medium):');
 for (const [d, w] of Object.entries(workload) as [string, Record<string, unknown>][]) console.log(`  ${d}: ${w.sourceProducts} source products; variant pairs ${w.variantPairs} (${w.variantPairsPer100SourceProducts}/100), product pairs ${w.productPairs} (${w.productPairsPer100SourceProducts}/100), strong product pairs ${w.strongProductPairs} (${w.strongProductPairsPer100SourceProducts}/100); run ${w.runMs} ms, heap ${w.heapMb} MB, rss ${w.rssMb} MB; per website ${JSON.stringify(w.perWebsite)}`);
+// ── classification: what the engine called each labelled pair against its adjudicated label (strong and medium tiers; anything else counts as "none").
+// This is the table that shows whether "same product", "other pack" and "substitute" are kept apart — the pair-level precision above counts all three as one.
+{
+  const COLS = ['exact', 'variant', 'substitute', 'related', 'none'] as const;
+  const ROWS = ['exact', 'variant', 'substitute', 'related', 'insufficient', 'non_match'] as const;
+  const predOf = new Map(allPreds.map((p) => [`${p.source}|${p.competitor}`, p]));
+  const cell = (l: (typeof allLabelled)[number]): (typeof COLS)[number] => {
+    const p = predOf.get(`${l.source}|${l.competitor}`);
+    if (!p || p.tier === 'insufficient' || p.relationship === 'insufficient' || p.relationship === 'non_match') return 'none';
+    return p.relationship as (typeof COLS)[number];
+  };
+  const matrix = (label: string, ls: typeof allLabelled) => {
+    const m: Record<string, Record<string, number>> = {};
+    for (const r of ROWS) m[r] = Object.fromEntries(COLS.map((c) => [c, 0]));
+    for (const l of ls) m[l.label]![cell(l)]!++;
+    console.log(`\nCLASSIFICATION ${label} — rows: adjudicated label; columns: what the engine proposed (strong or medium)`);
+    console.log(`  ${''.padEnd(13)}${COLS.map((c) => c.padStart(11)).join('')}`);
+    for (const r of ROWS) console.log(`  ${r.padEnd(13)}${COLS.map((c) => String(m[r]![c]).padStart(11)).join('')}`);
+    const sum = (rows: readonly string[], cols: readonly string[]) => rows.reduce((s, r) => s + cols.reduce((t, c) => t + (m[r]?.[c] ?? 0), 0), 0);
+    const proposedSame = sum(ROWS, ['exact', 'variant']);
+    const sameRight = sum(['exact', 'variant'], ['exact', 'variant']);
+    const proposedSub = sum(ROWS, ['substitute']);
+    const subRight = sum(['substitute'], ['substitute']);
+    console.log(`  proposed as the same product (exact or other pack): ${proposedSame}, of which the label agrees (exact or variant): ${sameRight}${proposedSame ? ` (${pct(sameRight / proposedSame)}, lower 95% bound ${pct(wilsonLower(sameRight, proposedSame))})` : ''}`);
+    console.log(`  proposed as a substitute: ${proposedSub}, label substitute: ${subRight}${proposedSub ? ` (${pct(subRight / proposedSub)})` : ''}; label exact or other pack (labelled as a lesser relation): ${sum(['exact', 'variant'], ['substitute'])}`);
+    console.log(`  proposed as same product but the label is substitute/related/not a match: ${sum(['substitute', 'related', 'non_match'], ['exact', 'variant'])}   (the costly error: a different product in a same-product comparison)`);
+    console.log(`  proposed as a substitute but the label is related/not a match: ${sum(['related', 'non_match'], ['substitute'])}`);
+    return { matrix: m, proposedSame, sameRight, proposedSubstitute: proposedSub, substituteRight: subRight };
+  };
+  report['classification'] = {
+    all: matrix(`${which} (all domains)`, allLabelled.filter((l) => !l.uncertain || true)),
+    certainOnly: matrix(`${which} (certain labels only)`, allLabelled.filter((l) => !l.uncertain)),
+    automotive: matrix(`${which} automotive`, allLabelled.filter((l) => l.domain === 'automotive')),
+    grocery: matrix(`${which} grocery`, allLabelled.filter((l) => l.domain === 'grocery')),
+  };
+}
 if (arg('out')) fs.writeFileSync(arg('out')!, JSON.stringify(report, null, 1));
 void allPreds;

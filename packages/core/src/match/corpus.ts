@@ -1,5 +1,5 @@
 import { collectKnownBrands, prepareVariant } from '../matching.ts';
-import { buildDossier, plain, seedColours, yearContexts, type Dossier, type DossierInput } from './dossier.ts';
+import { buildDossier, COMPANION_NOUNS, plain, seedColours, yearContexts, type Dossier, type DossierInput } from './dossier.ts';
 
 /**
  * Corpus analysis (matching engine v2): what the whole catalogue says about its own tokens. Nothing here is written by hand for a product kind —
@@ -11,6 +11,12 @@ export interface Corpus {
   dossiers: Dossier[];
   byVariant: Map<string, Dossier>;
   n: number;
+  /** Products (not variants) in which each word of the name (`legacy.core`, brand included) occurs, and the number of products. */
+  nameDf: Map<string, number>;
+  nProducts: number;
+  nameIdf(word: string): number;
+  /** For each name word, how many different leading words (makers) the titles containing it start with: high = names a kind of product, low = a maker or line. */
+  typeSpread: Map<string, number>;
   /** Document frequency of 'w:<word>' and 'c:<code>' keys. */
   df: Map<string, number>;
   idf(key: string): number;
@@ -238,6 +244,9 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     // the vehicle named by the PRODUCT TITLE alone (a variant's own text can carry part codes next to a year): what the head model is read from
     d.titleChain = best(chainsOf(yearContexts(d.title)));
     d.kindWords = d.kind.last3.filter((w) => tailVocab.has(w));
+    // a title that ends in specifications or marketing ("LED Headlight Bulbs 18000LM 6500K Cool White Wireless Design") names its kind earlier
+    // (companion words are never picked this way: "Decoder Free" names a feature, and whether a listing IS a companion is decided from its tail, not from here)
+    if (!d.kindWords.length) d.kindWords = (d.kind.last8 ?? []).filter((w) => tailVocab.has(w) && !COMPANION_NOUNS.has(w)).slice(-1);
     // which part / position this listing is for: the words of its own variant that name an application, else the application words of its title
     const own = d.variantTokens.filter((t) => applicationWords.has(t));
     d.position = own.length ? [...new Set(own)].sort() : [...new Set(d.words.filter((w) => applicationWords.has(w)))].sort();
@@ -265,8 +274,33 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   for (const d of dossiers) { const w = d.subjectChain[0]; if (w) startCount.set(w, (startCount.get(w) ?? 0) + 1); }
   const makeWords = new Set<string>([...startCount].filter(([, c]) => c >= Math.max(15, Math.floor(0.001 * n))).map(([w]) => w));
 
+  // the words of a product's NAME (brand included), counted once per product: how rare each is, and how many different makers' titles use it.
+  // A maker's name is rare and belongs to one maker; a word that names a kind of product ("foil", "mayonnaise", "pinot") turns up under many makers.
+  const nameDf = new Map<string, number>();
+  const leadsOf = new Map<string, Set<string>>();
+  const seenProduct = new Set<string>();
+  for (const d of dossiers) {
+    if (seenProduct.has(d.productId)) continue;
+    seenProduct.add(d.productId);
+    const core = [...new Set(d.legacy.core)];
+    const lead = core[0] ?? '';
+    for (const w of core) {
+      nameDf.set(w, (nameDf.get(w) ?? 0) + 1);
+      let s = leadsOf.get(w);
+      if (!s) leadsOf.set(w, (s = new Set()));
+      s.add(lead);
+    }
+  }
+  const nProducts = seenProduct.size;
+  const nameIdf = (w: string) => Math.log(1 + nProducts / (1 + (nameDf.get(w) ?? 0)));
+  const typeSpread = new Map<string, number>([...leadsOf].map(([w, s]) => [w, s.size]));
+
   return {
     dossiers,
+    nameDf,
+    nameIdf,
+    nProducts,
+    typeSpread,
     byVariant: new Map(dossiers.map((d) => [d.variantId, d])),
     n,
     df,

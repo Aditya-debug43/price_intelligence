@@ -12,7 +12,7 @@ import { normalizeBrand } from '../text.ts';
  */
 
 /** Where a fact was read: a field the website publishes in a defined place beats the same words found inside a title. */
-export type FactSource = 'gtin_field' | 'mpn_field' | 'sku_field' | 'title' | 'variant_title' | 'option' | 'category' | 'tag';
+export type FactSource = 'gtin_field' | 'mpn_field' | 'sku_field' | 'title' | 'variant_title' | 'option' | 'category' | 'tag' | 'description';
 
 export interface SourcedValue<T> {
   value: T;
@@ -68,7 +68,9 @@ export interface Dossier {
   exclusions: string[];
   bundleMarkers: string[];
   /** The last descriptive words before "for/with/|": what kind of thing the listing is. */
-  kind: { tail: string | null; companion: boolean; last3: string[] };
+  kind: { tail: string | null; companion: boolean; last3: string[]; last8?: string[] };
+  /** Bulb sizes the description's own chart gives for this variant's position (empty when there is none): these replace the title's codes. */
+  chartCodes: string[];
   /** Descriptive words (stemmed, no stop words, no codes, no brand), for type agreement and retrieval. */
   words: string[];
   category: string | null;
@@ -103,6 +105,8 @@ export interface Dossier {
 export interface DossierInput extends MatchableVariant {
   options?: Record<string, string> | null;
   tags?: string[] | null;
+  /** The product page's own description. Only read for a "Location | Bulb Size | … | Watt/Lumens" chart (see `chartFacts`); never kept. */
+  description?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────── vocabulary (language-level, not product-level)
@@ -328,7 +332,7 @@ const EXTRAS_CUT = /\sw\/|\s(?:with|includes?|including|plus)\s|[|,([:;]|\s-\s|\
 const FOR_CUT = /\s(?:for|fits?|fitting|compatible|compatibility|suitable|designed|vs|replaces?)\s/;
 
 /** What kind of thing the listing is: the tail of the words that come before "for / with / |". */
-export function kindOf(title: string): { tail: string | null; companion: boolean; last3: string[] } {
+export function kindOf(title: string): { tail: string | null; companion: boolean; last3: string[]; last8: string[] } {
   const t = plain(title);
   // the first part that says something ("40W 9003 H4 L1 Plus Series | 4,000LM LED Bulbs" says it in the second part)
   for (const part of t.split(/\s*\|\s*/)) {
@@ -343,12 +347,15 @@ export function kindOf(title: string): { tail: string | null; companion: boolean
       .map(stem);
     if (!words.length) continue;
     const last3 = words.slice(-3);
+    const last8 = words.slice(-8);
     // "LED Resistors Anti-Flicker Decoders Forward Lighting/Fog Lights": the decoder is further from the end than the last three words
     const farCompanion = NOT_A_PART.test(seg) ? undefined : words.slice(-7, -3).reverse().find((w) => FAR_COMPANION.has(w));
-    const comp = [...last3].reverse().find((w) => COMPANION_NOUNS.has(w)) ?? farCompanion;
-    return comp ? { tail: comp, companion: true, last3 } : { tail: words[words.length - 1]!, companion: false, last3 };
+    // "Bulb-CK Socket", "Bulb Socket Type": a bulb's own base type, not an adapter that goes with a bulb (the title still says "bulb" or "led")
+    const baseType = (w: string) => (w === 'socket' || w === 'base') && words.slice(-8).some((x) => x === 'bulb' || x === 'led');
+    const comp = [...last3].reverse().find((w) => COMPANION_NOUNS.has(w) && !baseType(w)) ?? farCompanion;
+    return comp ? { tail: comp, companion: true, last3, last8 } : { tail: words[words.length - 1]!, companion: false, last3, last8 };
   }
-  return { tail: null, companion: false, last3: [] };
+  return { tail: null, companion: false, last3: [], last8: [] };
 }
 
 /** Option axes that say WHICH PART / position / kit a variant is (not which vehicle trim it is for): a language-level reading of the axis name. */
@@ -364,6 +371,48 @@ export function variantTokensOf(variantTitle: string | null, options: Record<str
     for (const c of parseCodeTokens(t)) out.add(c);
   }
   return [...out];
+}
+
+/**
+ * A vehicle-specific listing often states in its description which part each of its variants is, as a chart:
+ *   "Bulb Size Chart (2018-2024) Location Bulb Size Recommend Product Series Watt/Lumens(per bulb) Key Features
+ *    Low Beam H11 LS Plus Series 65W/6500LM … Front Turn Signal Light 7443 T3-T20 Series 24W/2000LM …"
+ * while the variant itself only says "Low Beam". The variant's own position words (from its location option) are looked up in that chart: the word right after them
+ * is the bulb size (or sizes, "168/194"), and a power/light output may follow. Nothing is read when the variant names no position, the description has no such chart, or the
+ * position is not in it. The text is not kept.
+ */
+const POSITION_LABEL = /location|position|application|set-?up|installation|choose your|which/i;
+const COMBO_WORD = /\b(combo|kit|package|set|pair|bundle)\b|\+/i;
+export function chartFacts(description: string | null | undefined, options: Record<string, string> | null | undefined): { codes: string[]; specs: Spec[] } | null {
+  if (!description || !options) return null;
+  const text = plain(description).replace(/\s+/g, ' ');
+  const head = text.indexOf('location bulb size');
+  if (head < 0) return null;
+  const chart = text.slice(head, head + 3000);
+  const codes: string[] = [];
+  const specs: Spec[] = [];
+  for (const [axis, value] of Object.entries(options)) {
+    if (!POSITION_LABEL.test(axis) || typeof value !== 'string' || COMBO_WORD.test(value)) continue;
+    const toks = plain(value).replace(/[/+&]/g, ' ').split(' ').map((w) => w.replace(/s$/, '')).filter((w) => w.length >= 2 && w !== 'and');
+    if (!toks.length) continue;
+    // the position words in the chart's order, with at most one other word between them ("brake light" finds "brake tail light")
+    const re = new RegExp(toks.map((w) => `${w.replace(/[^a-z0-9]/g, '')}s?`).join('(?: \\w+)? '), 'g');
+    for (const m of chart.matchAll(re)) {
+      const after = chart.slice(m.index! + m[0].length, m.index! + m[0].length + 60).trim();
+      const first = after.split(' ')[0] ?? '';
+      if (!/\d/.test(first) || first.length > 14) continue;
+      const found = parseCodeTokens(first);
+      if (!found.length) continue;
+      for (const c of found) if (!codes.includes(c)) codes.push(c);
+      const w = /(\d{1,3}(?:\.\d)?)\s?w\s?\/\s?(\d{3,5})\s?lm/.exec(after);
+      if (w) {
+        const add = (key: SpecKey, v: number, raw: string) => { if (!specs.some((s) => s.key === key && s.value === v)) specs.push({ key, value: v, raw, source: 'description' }); };
+        add('power_w', Number(w[1]), `${w[1]}W`);
+        add('light_lm', Number(w[2]), `${w[2]}LM`);
+      }
+    }
+  }
+  return codes.length ? { codes, specs } : null;
 }
 
 const COLOUR_AXIS = /colou?r|finish|shade|tint/i;
@@ -404,6 +453,14 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     yearMentions.ranges.push(...y.ranges);
     yearMentions.singles.push(...y.singles);
     for (const s of parseSpecs(txt, src)) if (!specs.some((x) => x.key === s.key && x.value === s.value)) specs.push(s);
+  }
+  // the description's chart names THIS variant's own bulb; the title lists every position the product covers, so the chart's size replaces the title's codes
+  const chart = chartFacts(input.description, options);
+  if (chart) {
+    const keep = codeTokens.filter((c) => c.source !== 'title' || chart.codes.includes(c.value));
+    codeTokens.splice(0, codeTokens.length, ...keep);
+    for (const c of chart.codes) if (!seenCode.has(c) || !codeTokens.some((x) => x.value === c)) { seenCode.add(c); codeTokens.push({ value: c, source: 'description' }); }
+    for (const s of chart.specs) if (!specs.some((x) => x.key === s.key)) specs.push(s);
   }
   const fullText = parts.map(([t]) => t).join(' ');
   const brandWords = new Set(normalizeBrand(legacy.brand).split(' ').filter(Boolean).map(stem));
@@ -447,6 +504,7 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     exclusions,
     bundleMarkers: bundleMarkersIn(fullText),
     kind: kindOf(input.title),
+    chartCodes: chart?.codes ?? [],
     words,
     category: input.category ?? null,
     tags: (input.tags ?? []).filter((t) => typeof t === 'string').slice(0, 30),

@@ -9,7 +9,7 @@ import { evaluatePair, type PairEvaluation } from './evidence.ts';
  * Pure: no database, no network, no clock. Nothing here accepts anything: every suggestion is for a person to confirm.
  */
 
-export const ENGINE_VERSION = 'match-v2.7';
+export const ENGINE_VERSION = 'match-v2.8';
 
 export interface EngineOptions {
   candidates: CandidateOptions;
@@ -29,6 +29,8 @@ export interface Suggestion {
   tier: EvidenceTier;
   evidence: MatchEvidence;
   method: PairEvaluation['method'];
+  /** The auto-confirmation policy allows this pair to be confirmed without a person (see `PairEvaluation.auto`). Whether a workspace uses that is its own setting. */
+  autoEligible: boolean;
   rank: number;
   /** Fingerprint of what both products said when this was judged: a change means the suggestion must be looked at again. */
   pairHash: string;
@@ -71,9 +73,10 @@ export function hashText(str: string, seed = 0): string {
 
 /** What a product said, reduced to what matching reads: if none of it changed, a judgement made earlier still stands. */
 export function dossierHash(d: Dossier): string {
-  return hashText(
-    JSON.stringify([d.title, d.brand.name, d.category, d.identifiers.gtin?.value, d.identifiers.mpn?.value, d.identifiers.sku?.value, d.legacy.qty.label, d.axes, d.tags]),
-  );
+  const read: unknown[] = [d.title, d.brand.name, d.category, d.identifiers.gtin?.value, d.identifiers.mpn?.value, d.identifiers.sku?.value, d.legacy.qty.label, d.axes, d.tags];
+  // only a product whose description carries a chart reads anything from it: every other product keeps the fingerprint it had, so no earlier decision is flagged
+  if (d.chartCodes.length) read.push(d.chartCodes);
+  return hashText(JSON.stringify(read));
 }
 
 const REL_ORDER: Record<MatchRelationship, number> = { exact: 0, variant: 1, substitute: 2, related: 3, insufficient: 4, non_match: 5 };
@@ -123,7 +126,7 @@ export function runEngine(sources: DossierInput[], competitors: DossierInput[], 
         stats.byTier[e.tier]++;
         stats.suggestions++;
         out.push({
-          sourceVariantId: s.variantId, competitorVariantId: d.variantId, competitorSiteId: siteId, relationship: e.relationship, tier: e.tier, evidence: e.evidence, method: e.method, rank: e.rank,
+          sourceVariantId: s.variantId, competitorVariantId: d.variantId, competitorSiteId: siteId, relationship: e.relationship, tier: e.tier, evidence: e.evidence, method: e.method, autoEligible: e.auto && (e.relationship === 'exact' || e.relationship === 'variant'), rank: e.rank,
           pairHash: hashText(`${dossierHash(s)}|${dossierHash(d)}`), engineVersion: ENGINE_VERSION,
         });
       }

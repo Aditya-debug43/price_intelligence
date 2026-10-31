@@ -369,3 +369,85 @@ describe('the engine as a whole', () => {
     expect(r.suggestions.filter((s) => s.sourceVariantId === own.variantId && s.competitorSiteId === 'auxito').length).toBeLessThanOrEqual(3);
   });
 });
+
+describe('names without brand fields, products of the same kind from different makers, and descriptions (engine v2.8)', () => {
+  /** A grocery-like catalogue: makers under which kind words repeat, so the corpus can tell a maker's name from the name of a kind of product. */
+  const grocery = (): DossierInput[] => {
+    const out: DossierInput[] = [];
+    for (const maker of ['Alpha', 'Beta', 'Gamma', 'Delta', 'Omega']) {
+      for (const kindName of ['Sauvignon Blanc', 'Pinot Noir', 'Aluminum Foil', 'Mayonnaise', 'Pear']) out.push(input(maker === 'Alpha' ? 'shopa' : 'shopb', `${maker} ${kindName} ${maker.length}0cl`));
+    }
+    for (let i = 0; i < 30; i++) out.push(input('shopb', `Filler${i} Cereal Box ${i}00g`));
+    return out;
+  };
+  const gr = (a: DossierInput, b: DossierInput) => run(a, b, grocery());
+
+  it('two titles that start with the same rare maker name and spell it the way each shop does are the same maker', () => {
+    const e = gr(input('shopa', 'Hellmann\'s Light Mayonnaise 15oz'), input('shopb', 'Hellman\'s Lite Mayonnaise'));
+    expect(e.relationship).toBe('exact');
+    expect(e.tier).toBe('medium');
+  });
+  it('the same name with a maker added or left out on one side is never claimed as the same product', () => {
+    const e = gr(input('shopa', 'Goya Extra Virgin Olive Oil 8.5oz'), input('shopb', 'Extra Virgin Olive Oil'));
+    expect(e.relationship).toBe('substitute');
+    expect(e.evidence.items.some((i) => i.kind === 'brand' && i.effect === 'differs')).toBe(true);
+  });
+  it('a flavour or formulation word on one side only makes it another product of the same maker', () => {
+    const e = gr(input('shopa', 'Land O Lakes Half And Half 16oz'), input('shopb', 'Land O Lakes Half And Half Fat Free 16oz'));
+    expect(e.relationship).not.toBe('exact');
+    expect(e.relationship).not.toBe('variant');
+  });
+  it('titles where each side has words the other lacks are two products of one range, not one product', () => {
+    const e = gr(input('shopa', 'McCormick Grill Mates Montreal Chicken Seasoning'), input('shopb', 'McCormick Grill Mates Montreal Steak Seasoning'));
+    expect(['exact', 'variant']).not.toContain(e.relationship);
+  });
+  it('the same kind of thing from different makers is a stand-in, never the same product and never strong', () => {
+    const e = gr(input('shopa', 'Alpha Sauvignon Blanc 75cl'), input('shopb', 'Gamma Sauvignon Blanc 75cl'));
+    expect(e.relationship).toBe('substitute');
+    expect(e.tier).toBe('medium');
+  });
+  it('the same noun in another form is not a stand-in (strained baby food against the fresh fruit)', () => {
+    const e = gr(input('shopa', 'Beta Strained Pear 113g'), input('shopb', 'Delta Pear'));
+    expect(e.relationship).not.toBe('substitute');
+  });
+  it('a different grape or another kind is not a stand-in', () => {
+    const e = gr(input('shopa', 'Alpha Sauvignon Blanc 75cl'), input('shopb', 'Gamma Pinot Noir 75cl'));
+    expect(e.relationship).not.toBe('substitute');
+  });
+  it('a vehicle-specific variant takes its bulb size from the chart in its own description and so matches a generic bulb', () => {
+    const description = 'Toyota Camry Bulb Size Chart (2018-2024) Location Bulb Size Recommend Product Series Watt/Lumens(per bulb) Key Features Low Beam H11 LS Plus Series 65W/6500LM bright Front Turn Signal Light 7443 T3-T20 Series 24W/2000LM amber Backup Light 921 T-T15 Series 13W/1500LM white';
+    const own = input('lasfit', 'Fit for 2018-2024 Toyota Camry LED Exterior Interior Lights Upgrade', { brand: 'Lasfit', variantTitle: 'XLE / Front Turn Signal Light', options: { Trim: 'XLE', Location: 'Front Turn Signal Light' }, description });
+    const comp = input('auxito', 'AUXITO 7443 LED Turn Signal Light Bulbs Amber 2800LM', { brand: 'AUXITO' });
+    const c = analyseCatalogue([own, comp, ...filler()]);
+    const d = c.byVariant.get(own.variantId)!;
+    expect(d.chartCodes).toEqual(['7443']);
+    expect(d.codes).toContain(c.alias.get('7443') ?? '7443');
+    expect(d.specs.some((s) => s.key === 'power_w' && s.value === 24 && s.source === 'description')).toBe(true);
+    const ev = evaluatePair(d, c.byVariant.get(comp.variantId)!, c);
+    expect(ev.relationship).toBe('substitute');
+    // the difference worth showing next to the price: the figures differ and are in the evidence
+    expect(ev.evidence.items.some((i) => i.kind === 'spec' && i.effect === 'differs' && /Light output/.test(i.text))).toBe(true);
+  });
+  it('a variant that names no position, or a description without a chart, reads nothing from the description', () => {
+    const description = 'Camry Bulb Size Chart Location Bulb Size Recommend Product Series Low Beam H11 LS Plus Series 65W/6500LM';
+    const none = input('lasfit', 'Fit for 2018-2024 Toyota Camry LED Lights', { brand: 'Lasfit', options: { Trim: 'XLE' }, description });
+    const noChart = input('lasfit', 'Fit for 2018-2024 Toyota Camry LED Lights', { brand: 'Lasfit', options: { Location: 'Low Beam' }, description: 'Great bulbs. Low Beam H11 is what we recommend.' });
+    const c = analyseCatalogue([none, noChart, ...filler()]);
+    expect(c.byVariant.get(none.variantId)!.chartCodes).toEqual([]);
+    expect(c.byVariant.get(noChart.variantId)!.chartCodes).toEqual([]);
+  });
+  it('the same bulb size in listings for different generations of one vehicle goes together, it does not replace', () => {
+    const e = run(input('lasfit', 'Fit for 2022-2024 Hyundai Tucson LED Bulbs 921 Upgrade', { brand: 'Lasfit' }), input('auxito', '2016-2020 Hyundai Tucson LED Bulbs 921', { brand: 'AUXITO' }));
+    expect(e.relationship).toBe('related');
+  });
+  it('a bulb base type in a title ("Bulb-CK Socket") does not make a bulb an accessory', () => {
+    expect(kindOf('7443 7444 Switchback LED Turn Signal Light Dual Color Blinker Bulb-CK Socket, 2 Bulbs').companion).toBe(false);
+    expect(kindOf('LED Bulb Socket Adapter Harness 9005').companion).toBe(true);
+  });
+  it('a pair hash does not change for a product whose description has no chart (earlier decisions are not flagged)', () => {
+    const a = input('shopa', 'Alpha Sauvignon Blanc 75cl');
+    const withText = { ...a, description: 'A fine wine with notes of citrus.' };
+    const h = (x: DossierInput) => runEngine([x], [input('shopb', 'Gamma Sauvignon Blanc 75cl'), ...grocery()]).suggestions[0]?.pairHash;
+    expect(h(withText)).toBe(h(a));
+  });
+});
