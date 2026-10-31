@@ -262,9 +262,9 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (v: T) => void; tabs: { id: T; label: ReactNode }[] }) {
+export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: { id: T; label: ReactNode }[]; className?: string }) {
   return (
-    <div className="tabs" role="tablist">
+    <div className={className ? `tabs ${className}` : 'tabs'} role="tablist">
       {tabs.map((t) => (
         <button key={t.id} role="tab" aria-selected={t.id === value} className="tab" onClick={() => onChange(t.id)}>
           {t.label}

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { formatDateTime, formatMoney, formatPct, type ReportData } from '@ci/shared';
+import { CSV_DATASETS, formatDateTime, formatMoney, formatPct, type CsvDataset, type ReportData } from '@ci/shared';
 import { api, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
+import { csvTableFor, csvTableLabel, reportTabFrom, type ReportTab } from '../report-sections';
 import { MarketingSummaryCard } from '../social';
 import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Icon, PageHead, Pct, PriceTag, SourceLink, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
 import type { ReportListItem, ReportRecord } from '../types';
@@ -76,28 +77,33 @@ export function ReportsPage() {
   );
 }
 
-function ExportMenu({ orgId, reportId, compact }: { orgId: string; reportId: string; compact?: boolean }) {
+/**
+ * PDF and Excel are the whole report. CSV is one table of it: the one that holds the section on screen, unless the person picks another
+ * (that choice holds for that section only), so the file always matches what the menu says.
+ */
+function ExportMenu({ orgId, reportId, compact, tab = 'prices' }: { orgId: string; reportId: string; compact?: boolean; tab?: ReportTab }) {
   const base = `/api/v1/orgs/${orgId}/reports/${reportId}/export`;
-  const [ds, setDs] = useState('comparison');
+  const [picked, setPicked] = useState<{ tab: ReportTab; dataset: CsvDataset } | null>(null);
+  if (picked && picked.tab !== tab) setPicked(null); // a pick holds only while the person stays on the section it was made on
+  const dataset = compact ? 'comparison' : csvTableFor(tab, picked);
   return (
     <span className="row" style={{ gap: 6, justifyContent: compact ? 'flex-end' : undefined }}>
-      <a className="btn btn-sm" href={`${base}?format=pdf`} download><Icon name="download" /> PDF</a>
-      <a className="btn btn-sm" href={`${base}?format=xlsx`} download><Icon name="download" /> Excel</a>
+      <a className="btn btn-sm" href={`${base}?format=pdf`} download title="The whole report: every section"><Icon name="download" /> PDF</a>
+      <a className="btn btn-sm" href={`${base}?format=xlsx`} download title="The whole report: one sheet for each section"><Icon name="download" /> Excel</a>
       {!compact && (
         <>
-          <label className="sr-only" htmlFor={`ds-${reportId}`}>CSV dataset</label>
-          <select id={`ds-${reportId}`} value={ds} onChange={(e) => setDs(e.target.value)} style={{ width: 'auto' }}>
-            {['comparison', 'offers', 'stock', 'marketing', 'marketing_summary', 'insights', 'coverage', 'assortment'].map((d) => <option key={d} value={d}>{d[0]!.toUpperCase() + d.slice(1).replace('_', ' ')}</option>)}
+          <label className="small muted" htmlFor={`ds-${reportId}`}>CSV table</label>
+          <select id={`ds-${reportId}`} value={dataset} onChange={(e) => setPicked({ tab, dataset: e.target.value as CsvDataset })} style={{ width: 'auto' }}>
+            {CSV_DATASETS.map((d) => <option key={d} value={d}>{csvTableLabel(d)}</option>)}
           </select>
         </>
       )}
-      <a className="btn btn-sm" href={`${base}?format=csv&dataset=${compact ? 'comparison' : ds}`} download><Icon name="download" /> CSV</a>
+      <a className="btn btn-sm" href={`${base}?format=csv&dataset=${dataset}`} download title={`Download the "${csvTableLabel(dataset)}" table as a CSV file`}><Icon name="download" /> CSV</a>
     </span>
   );
 }
 
 // ───────────────────────────────────────────────────────────── single report
-type Tab = 'insights' | 'prices' | 'offers' | 'stock' | 'marketing' | 'assortment' | 'basket' | 'coverage';
 
 export function ReportViewPage() {
   const { reportId = '' } = useParams();
@@ -118,8 +124,8 @@ export function ReportViewPage() {
 
 function ReportBody({ report, data, orgId }: { report: ReportRecord; data: ReportData; orgId: string }) {
   const [sp, setSp] = useSearchParams();
-  const tab = (sp.get('tab') as Tab | null) ?? 'insights';
-  const setTab = (t: Tab) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); };
+  const tab = reportTabFrom(sp.get('tab'));
+  const setTab = (t: ReportTab) => { const n = new URLSearchParams(sp); n.set('tab', t); setSp(n, { replace: true }); };
   const m = data.meta;
   const k = data.kpis;
   const reporting = m.reportingCurrency;
@@ -132,7 +138,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
         docTitle={`Report ${m.periodDate}${m.isPartial ? ' (partial)' : ''}`}
         title={<>{m.periodDate} {m.isPartial && <span className="pill warn" style={{ fontSize: 14 }}>Partial</span>}</>}
         subtitle={<>Prepared {formatDateTime(m.generatedAt)} ({m.timezone}).{m.deadlineAt && m.readyBeforeDeadline !== null && <> {m.readyBeforeDeadline ? 'Ready before' : 'Finished after'} the {formatDateTime(m.deadlineAt)} target.</>} Saved snapshot — it will not change.</>}
-        actions={<ExportMenu orgId={orgId} reportId={report.id} />}
+        actions={<ExportMenu key={report.id} orgId={orgId} reportId={report.id} tab={tab} />}
       />
       <div className="stack">
         {data.warnings.length > 0 && (
@@ -159,7 +165,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
           <div style={{ marginTop: 14 }}><StandingBar cheap={standing.cheap} par={standing.par} dear={standing.dear} /></div>
         </Card>
 
-        <Tabs value={tab} onChange={setTab} tabs={[
+        <Tabs className="tabs-flush" value={tab} onChange={setTab} tabs={[
           { id: 'insights', label: `Insights (${data.insights.length})` },
           { id: 'prices', label: `Prices (${data.comparisons.length})` },
           { id: 'offers', label: `Offers (${data.offers.length})` },
@@ -211,7 +217,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
         )}
 
         {tab === 'offers' && (
-          data.offers.length === 0 ? <Card><EmptyState title="No offers in this report" /></Card> : (
+          data.offers.length === 0 ? <Card><EmptyState title="No offers in this report">No offer was observed at any website when this report was prepared.</EmptyState></Card> : (
             <Card pad={false}><div className="table-wrap"><table className="table">
               <thead><tr><th>Website</th><th>Offer</th><th className="r">Was → now</th><th>Discount</th><th>Valid</th><th>Status</th></tr></thead>
               <tbody>{data.offers.slice(0, 200).map((o) => (
@@ -256,14 +262,18 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
         {tab === 'assortment' && (
           <div className="stack">
             <div className={`callout ${data.assortment.basis && (!data.assortment.basis.competitorsComplete || !data.assortment.basis.sourceComplete) ? 'warn' : 'info'}`}>{data.assortment.note}</div>
-            <div className="grid2">
-              <Card title={`At competitors, no equivalent found at your shop (${data.assortment.competitorOnly.length})`} pad={false}>
-                <table className="table"><tbody>{data.assortment.competitorOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.siteName}{a.category ? ` · ${a.category}` : ''}</div><SourceLink href={a.url ?? null} product={a.title} /></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
-              </Card>
-              <Card title={`At your shop, no equivalent found at competitors (${data.assortment.sourceOnly.length})`} pad={false}>
-                <table className="table"><tbody>{data.assortment.sourceOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.category}</div><SourceLink href={a.url ?? null} product={a.title} /></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>
-              </Card>
-            </div>
+            {data.assortment.competitorOnly.length === 0 && data.assortment.sourceOnly.length === 0 ? (
+              <Card><EmptyState title="No assortment gaps in this report">No product is listed as missing at your shop or at a competitor.</EmptyState></Card>
+            ) : (
+              <div className="grid2">
+                <Card title={`At competitors, no equivalent found at your shop (${data.assortment.competitorOnly.length})`} pad={false}>
+                  {data.assortment.competitorOnly.length === 0 ? <div className="card-b muted">None.</div> : <table className="table"><tbody>{data.assortment.competitorOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.siteName}{a.category ? ` · ${a.category}` : ''}</div><SourceLink href={a.url ?? null} product={a.title} /></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>}
+                </Card>
+                <Card title={`At your shop, no equivalent found at competitors (${data.assortment.sourceOnly.length})`} pad={false}>
+                  {data.assortment.sourceOnly.length === 0 ? <div className="card-b muted">None.</div> : <table className="table"><tbody>{data.assortment.sourceOnly.slice(0, 60).map((a) => <tr key={a.variantId}><td><div className="title">{a.title}</div><div className="sub">{a.category}</div><SourceLink href={a.url ?? null} product={a.title} /></td><td className="r num">{a.price !== null ? formatMoney(a.price, a.currency) : '—'}</td></tr>)}</tbody></table>}
+                </Card>
+              </div>
+            )}
           </div>
         )}
 

@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { eq, and } from 'drizzle-orm';
 import { sha256Hex, stableStringify } from '@ci/core';
-import { formatAge, formatDateTime, formatMoney, formatPct, type ReportData, type ReportFormat } from '@ci/shared';
+import { CSV_DATASETS, formatAge, formatDateTime, formatMoney, formatPct, type CsvDataset, type ReportData, type ReportFormat } from '@ci/shared';
 import { reportExports, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { getReport } from './report.ts';
@@ -12,8 +12,9 @@ import { getReport } from './report.ts';
  * dashboard, PDF, CSV and Excel can never disagree with each other.
  */
 
-export const CSV_DATASETS = ['comparison', 'offers', 'stock', 'marketing', 'marketing_summary', 'insights', 'coverage', 'assortment'] as const;
-export type CsvDataset = (typeof CSV_DATASETS)[number];
+// the list lives in @ci/shared so the Reports page offers exactly the tables the API accepts
+export { CSV_DATASETS };
+export type { CsvDataset };
 
 type Cell = string | number | boolean | null;
 export interface Table {

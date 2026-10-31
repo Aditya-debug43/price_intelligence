@@ -399,6 +399,25 @@ describe('reports, exports and alerts through the API', () => {
     expect((await owner.get(`${base()}/reports/${reportId}/export?format=docx`)).status).toBe(400);
   });
 
+  it('serves the table asked for in the CSV link, refuses one that does not exist, and changes nothing in the saved report', async () => {
+    const before = (await owner.get(`${base()}/reports/${reportId}`)).body.report;
+    const heading: Record<string, string> = { comparison: 'Product,Variant,Brand', offers: 'Website,Role,Kind', stock: 'Product,SKU,State', marketing: 'Website,Platform,Kind', marketing_summary: 'Competitor,Items observed,Promotional', insights: 'Rank,Type,Score', coverage: 'Website,Role,Capability', assortment: 'Gap type,Website,Product' };
+    for (const [dataset, columns] of Object.entries(heading)) {
+      const r = await owner.get(`${base()}/reports/${reportId}/export?format=csv&dataset=${dataset}`);
+      expect(r.status, dataset).toBe(200);
+      expect(String(r.headers['content-disposition']), dataset).toMatch(new RegExp(`filename="report-.*-${dataset}\\.csv"`));
+      expect(r.raw.toString('utf8').split('\r\n')[1], dataset).toMatch(new RegExp('^' + columns));
+    }
+    // a link with no table is the price comparison (the default of the API), an unknown one is refused rather than guessed
+    expect((await owner.get(`${base()}/reports/${reportId}/export?format=csv`)).raw.toString('utf8')).toContain('Product,Variant,Brand');
+    for (const bad of ['basket', 'Stock', 'all', '']) expect((await owner.get(`${base()}/reports/${reportId}/export?format=csv&dataset=${bad}`)).status, `dataset=${bad}`).toBe(400);
+    // exporting reads the snapshot and writes nothing into it
+    const after = (await owner.get(`${base()}/reports/${reportId}`)).body.report;
+    expect(after.dataHash).toBe(before.dataHash);
+    expect(after.data).toEqual(before.data);
+    expect((await owner.get(`${base()}/reports`)).body.reports.filter((x: { id: string }) => x.id === reportId)).toHaveLength(1);
+  });
+
   it('compares two saved reports', async () => {
     const second = await owner.post(`${base()}/reports`, {});
     await h.queue.drain();

@@ -4,8 +4,8 @@ import { extractText, getDocumentProxy } from 'unpdf';
 import { and, eq } from 'drizzle-orm';
 import { evidence, orgSettings, priceObservations, reportExports, reports, scanRuns, alerts } from '@ci/database';
 import { sha256Hex, stableStringify, type LlmProvider } from '@ci/core';
-import type { ReportData } from '@ci/shared';
-import { ExportError, assembleReportData, exportReport, generateReport, getReport, listReports, marketingSummaryTable, renderPdf, runMatching, runRetention, startScan, JOB_HANDLERS } from '@ci/services';
+import type { CsvDataset, ReportData } from '@ci/shared';
+import { CSV_DATASETS, ExportError, assembleReportData, exportReport, generateReport, getReport, listReports, marketingSummaryTable, renderCsv, renderPdf, runMatching, runRetention, startScan, tableFor, JOB_HANDLERS } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
 import { confirmSuggestions } from '../support/confirm.ts';
 
@@ -157,6 +157,61 @@ describe('exports are rendered from the same snapshot', () => {
       expect((await exportReport(h.svc, db(), t.orgId, report.id, 'csv', ds)).body.length).toBeGreaterThan(50);
     }
     expect(parseCsv((await exportReport(h.svc, db(), t.orgId, report.id, 'csv', 'offers')).body).slice(2).filter((r) => r.length > 1)).toHaveLength(data.offers.length);
+  });
+
+  it('CSV: every table of the dropdown downloads its own data, headings and file name, never another table\'s', async () => {
+    const expected: Record<CsvDataset, number> = {
+      comparison: cellCount(),
+      offers: data.offers.length,
+      stock: data.stock.length,
+      marketing: data.marketing.length,
+      marketing_summary: data.marketingSummary!.competitors.length,
+      insights: data.insights.length,
+      coverage: data.sites.length,
+      assortment: data.assortment.competitorOnly.length + data.assortment.sourceOnly.length,
+    };
+    const digests = new Map<string, CsvDataset>();
+    for (const ds of CSV_DATASETS) {
+      const out = await exportReport(h.svc, db(), t.orgId, report.id, 'csv', ds);
+      expect(out.filename, ds).toBe(`report-${data.meta.periodDate}-partial-${ds}.csv`);
+      expect(out.contentType, ds).toMatch(/^text\/csv/);
+      const rows = parseCsv(out.body);
+      const table = tableFor(data, ds);
+      expect(rows[0]![0], ds).toContain(` — ${table.name} — period ${data.meta.periodDate}`);
+      expect(rows[1], ds).toEqual(table.columns);
+      expect(rows.slice(2).filter((r) => r.length > 1), ds).toHaveLength(expected[ds]);
+      const digest = sha256Hex(out.body);
+      expect(digests.get(digest), `${ds} is the same file as ${digests.get(digest)}`).toBeUndefined();
+      digests.set(digest, ds);
+    }
+    expect(digests.size).toBe(CSV_DATASETS.length);
+    // asked again (now served from the saved copy of each table) every table is still its own, byte for byte
+    for (const ds of ['stock', 'offers', 'comparison', 'stock'] as const) {
+      const again = await exportReport(h.svc, db(), t.orgId, report.id, 'csv', ds);
+      expect(digests.get(sha256Hex(again.body)), `${ds} again`).toBe(ds);
+    }
+    const saved = await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, 'csv')));
+    expect(saved.map((r) => r.dataset).sort()).toEqual([...CSV_DATASETS].sort());
+  });
+
+  it('PDF and Excel are the whole report whatever table is chosen for CSV', async () => {
+    for (const format of ['pdf', 'xlsx'] as const) {
+      const a = await exportReport(h.svc, db(), t.orgId, report.id, format, 'stock');
+      const b = await exportReport(h.svc, db(), t.orgId, report.id, format, 'offers');
+      expect(a.filename, format).toBe(b.filename);
+      expect(sha256Hex(a.body), format).toBe(sha256Hex(b.body));
+      const saved = await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, format)));
+      expect(saved.map((r) => r.dataset), format).toEqual(['all']);
+    }
+  });
+
+  it('CSV of a section with nothing in it is still a valid file: its title and its headings, no rows', () => {
+    const empty: ReportData = { ...data, offers: [], stock: [], marketing: [], marketingSummary: null, insights: [], comparisons: [], sites: [], assortment: { ...data.assortment, competitorOnly: [], sourceOnly: [] } };
+    for (const ds of CSV_DATASETS) {
+      const rows = parseCsv(renderCsv(empty, ds));
+      expect(rows, ds).toHaveLength(2);
+      expect(rows[1], ds).toEqual(tableFor(empty, ds).columns);
+    }
   });
 
   it('Excel: the comparison sheet has the same rows, and the summary carries the partial warning', async () => {

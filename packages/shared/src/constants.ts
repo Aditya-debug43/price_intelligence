@@ -193,6 +193,10 @@ export type ReportStatus = (typeof REPORT_STATUSES)[number];
 export const REPORT_FORMATS = ['pdf', 'csv', 'xlsx'] as const;
 export type ReportFormat = (typeof REPORT_FORMATS)[number];
 
+/** The tables of a saved report that can be downloaded as CSV (one file per table). The export service, the API and the Reports page all use this one list. */
+export const CSV_DATASETS = ['comparison', 'offers', 'stock', 'marketing', 'marketing_summary', 'insights', 'coverage', 'assortment'] as const;
+export type CsvDataset = (typeof CSV_DATASETS)[number];
+
 export const INSIGHT_TYPES = [
   'price_above_competitor',
   'price_below_competitor',
