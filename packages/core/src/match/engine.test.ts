@@ -451,3 +451,27 @@ describe('names without brand fields, products of the same kind from different m
     expect(h(withText)).toBe(h(a));
   });
 });
+
+describe('shared codes are not enough on their own (engine v2.8)', () => {
+  it('a vehicle model that is also a bulb series name does not make a floor mat a stand-in for a bulb', () => {
+    const mats = ['X5', 'X3', 'Q5'].flatMap((m, i) => [input('lasfit', `Fit for 201${i + 4}-201${i + 8} BMW ${m} Floor Mats | Cargo Mat`, { brand: 'Lasfit' }), input('lasfit', `Fit for 201${i + 2}-201${i + 6} Audi ${m} Floor Mats`, { brand: 'Lasfit' })]);
+    const seriesBulbs = ['9004/HB1', '9005/HB3', '9006/HB4', 'H4'].map((c) => input('sealight', `SEALIGHT® X5 ${c} 80W 6500K White IP68 LED Headlight Bulbs 2Pcs`, { brand: 'Sealight' }));
+    const mat = input('lasfit', 'Fit for 2014-2018 BMW X5 Floor Mats | Cargo Mat', { brand: 'Lasfit' });
+    const bulb = input('sealight', 'SEALIGHT® X5 9004/HB1 80W 6500K White IP68 LED Headlight Bulbs 2Pcs', { brand: 'Sealight' });
+    const e = run(mat, bulb, [...mats, ...seriesBulbs]);
+    expect(['substitute', 'exact', 'variant']).not.toContain(e.relationship);
+  });
+  it('two vehicle-specific kits sharing a bulb size are related unless both name the same model', () => {
+    const escape = input('lasfit', 'Fit for 2017-2018 Ford Escape The Brightest LED Bulbs Upgrade | License Plate Light 168', { brand: 'Lasfit' });
+    const f150 = input('auxito', '2015-2017 Ford F150 LED Light Bulbs Upgrade | 168 LED Side Marker Light', { brand: 'AUXITO' });
+    // (enough Ford listings for the corpus to have learned that "ford" is a make, so the model is the next word)
+    const fords = Array.from({ length: 18 }, (_, i) => input(i % 2 ? 'lasfit' : 'auxito', `201${i % 8}-201${(i % 8) + 3} Ford Escape LED Bulbs ${i} Upgrade`, { brand: i % 2 ? 'Lasfit' : 'AUXITO' }));
+    expect(run(escape, f150, fords).relationship).not.toBe('substitute');
+  });
+  it('no more than two stand-ins are kept per competitor website for one of your variants', () => {
+    const own = input('lasfit', '40W 9003 H4 HB2 LA Plus Series | 4,000LM 6000K LED Bulbs', { brand: 'Lasfit' });
+    const comps = Array.from({ length: 12 }, (_, i) => input('auxito', `AUXITO Series ${i} H4 HB2 9003 LED Headlight Bulb ${i + 1}000LM`, { brand: 'AUXITO' }));
+    const r = runEngine([own], [...comps, ...filler().filter((x) => x.siteId !== 'lasfit')]);
+    expect(r.suggestions.filter((s) => s.sourceVariantId === own.variantId && s.competitorSiteId === 'auxito' && s.relationship === 'substitute').length).toBeLessThanOrEqual(2);
+  });
+});

@@ -126,7 +126,8 @@ function compareFitment(a: Dossier, b: Dossier, corpus: Corpus) {
   const numberOnly = !!headA && !!headB && headA !== headB && sharedSubject.length > 0;
   const subjectOverlap: number | null = subA.length && subB.length ? (onlyA.length && onlyB.length ? 0 : sharedSubject.length ? 1 : 0) : null;
   // naming a model on only one side ("Honda" against "Honda Accord") does not show it is the same vehicle
-  const modelUnverified = subjectOverlap === 1 && (((modelsA.length > 0 || modelsB.length > 0) && sharedModel.length === 0) || numberOnly);
+  const headAsymmetric = (headA === undefined) !== (headB === undefined);
+  const modelUnverified = subjectOverlap === 1 && (((modelsA.length > 0 || modelsB.length > 0) && sharedModel.length === 0) || numberOnly || headAsymmetric);
   if (subjectOverlap === 0) return { state: 'conflict' as const, why: 'different_subject' as const, overlap, subjectOverlap, sharedSubject };
   // "Jeep Cherokee" against "Jeep Grand Cherokee": a word the title puts in front of the model, and the other title does not, names another model
   const chainA = a.subjectChain.map(norm);
@@ -467,6 +468,15 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   if (kindState === 'differs' && (codes.state === 'agree' || fit.state === 'agree' || (legacy && legacy.matchClass === 'comparable'))) return finish('related', 'medium', 'identity_code', 0.36);
   // the same bulb size, but two listings for different generations of the vehicle (the years do not overlap): each is the right kit for its own vehicle, so they go together, they do not replace each other
   if (codes.state === 'agree' && fit.state === 'adjacent') {
+    return finish('related', 'medium', 'identity_code', 0.4);
+  }
+  // a code in common is the ONLY link (the kind of product is not confirmed and the titles share almost no descriptive words): a BMW X5 floor mat and an "X5" headlight bulb
+  if (codes.state === 'agree' && kindState === 'unknown' && wcKind < 0.15 && specs.supports.length === 0 && fit.state !== 'agree') {
+    add({ kind: 'product_type', effect: 'missing', strength: 'moderate', text: 'The listings share a code but nothing else shows they are the same kind of product' });
+    return finish('insufficient', 'insufficient', 'identity_code', 0.2);
+  }
+  // two vehicle-specific kits are each the right kit for their own vehicle: unless both name the same model they go together, they do not replace each other
+  if (codes.state === 'agree' && !!a.fitment && !!b.fitment && fit.state === 'agree_years') {
     return finish('related', 'medium', 'identity_code', 0.4);
   }
   if (codes.state === 'agree' || (fit.state === 'agree' && kindState === 'agree') || (legacy && legacy.matchClass === 'comparable' && legacy.method === 'cross_brand')) {

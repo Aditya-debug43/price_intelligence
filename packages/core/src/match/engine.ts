@@ -15,11 +15,13 @@ export interface EngineOptions {
   candidates: CandidateOptions;
   /** Suggestions kept per product of yours and competitor website (exact / variant / substitute). The right number is decided by evaluation. */
   perSiteKeep: number;
+  /** Of those, at most this many may be stand-ins (substitutes): the comparison shows the closest one per website, the rest only fill the database. */
+  perSiteKeepSubstitutes: number;
   /** "Related" and "not enough information" are kept at most this many per product and website, and only when nothing better exists there. */
   perSiteKeepWeak: number;
 }
 
-export const DEFAULT_ENGINE_OPTIONS: EngineOptions = { candidates: DEFAULT_CANDIDATE_OPTIONS, perSiteKeep: 3, perSiteKeepWeak: 1 };
+export const DEFAULT_ENGINE_OPTIONS: EngineOptions = { candidates: DEFAULT_CANDIDATE_OPTIONS, perSiteKeep: 3, perSiteKeepSubstitutes: 2, perSiteKeepWeak: 1 };
 
 export interface Suggestion {
   sourceVariantId: string;
@@ -119,7 +121,9 @@ export function runEngine(sources: DossierInput[], competitors: DossierInput[], 
       const strongList = bestPerProduct.filter((x) => x.e.relationship === 'exact' || x.e.relationship === 'variant' || x.e.relationship === 'substitute');
       const weakList = bestPerProduct.filter((x) => x.e.relationship === 'related' || x.e.relationship === 'insufficient');
       // weak suggestions only when nothing better exists for this product at this website
-      const keep = strongList.length ? strongList.slice(0, opts.perSiteKeep) : weakList.slice(0, opts.perSiteKeepWeak);
+      let substitutes = 0;
+      const kept = strongList.filter((x) => (x.e.relationship === 'substitute' ? ++substitutes <= opts.perSiteKeepSubstitutes : true)).slice(0, opts.perSiteKeep);
+      const keep = strongList.length ? kept : weakList.slice(0, opts.perSiteKeepWeak);
       for (const { d, e } of keep) {
         any = true;
         stats.byRelationship[e.relationship]++;
