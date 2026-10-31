@@ -475,3 +475,20 @@ describe('shared codes are not enough on their own (engine v2.8)', () => {
     expect(r.suggestions.filter((s) => s.sourceVariantId === own.variantId && s.competitorSiteId === 'auxito' && s.relationship === 'substitute').length).toBeLessThanOrEqual(2);
   });
 });
+
+describe('vehicle models are not part codes (engine v2.8)', () => {
+  it('a model number that sits next to a make on listings without a year ("Ram 1500 LED Bulbs") stays part of the vehicle name, so a bed mat is not a stand-in for those bulbs', () => {
+    const ramMats = Array.from({ length: 16 }, (_, i) => input('lasfit', `Fit for 201${i % 8}-202${i % 4} Ram 1500 Truck Bed Mat ${i}`, { brand: 'Lasfit' }));
+    const ramBulbs = Array.from({ length: 16 }, (_, i) => input(i % 2 ? 'auxito' : 'sealight', `Ram 1500 LED Bulbs Style ${i}`, { brand: i % 2 ? 'AUXITO' : 'Sealight' }));
+    const mat = input('lasfit', 'Fit for 2019-2027 Ram 1500 Truck Bed Mat, Not Fit Drop-in liners', { brand: 'Lasfit' });
+    const bulb = input('auxito', '2021 2022 Ram 1500 LED Bulbs (Not For Classic)', { brand: 'AUXITO' });
+    const e = run(mat, bulb, [...ramMats, ...ramBulbs]);
+    expect(['substitute', 'exact', 'variant']).not.toContain(e.relationship);
+  });
+  it('a bulb code that other websites use on plain listings stays a part code even when one shop writes it after a year range', () => {
+    const own = input('lasfit', 'Fit for 2015-2021 Kia Sedona Custom H7 LED Bulbs Exterior Interior Lights', { brand: 'Lasfit', options: { Location: 'Low Beam' } });
+    const comp = input('auxito', 'AUXITO H7 LED Headlight Bulbs 6500K', { brand: 'AUXITO' });
+    const c = analyseCatalogue([own, comp, ...filler(), input('sealight', 'H7 LED Headlight Bulbs 60W', { brand: 'Sealight' }), input('alla', 'H7 LED Forward Lightings Bulbs', { brand: 'Alla' }), input('alla', 'Mini H7 LED Bulbs', { brand: 'Alla' })]);
+    expect(c.byVariant.get(own.variantId)!.codes).toContain('h7');
+  });
+});

@@ -125,18 +125,26 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const subjectWords = new Set<string>();
   // A code that other websites use on listings with NO vehicle or year ("H7 LED Headlight Bulbs") is a part code, however often one shop writes it next to a year range
   // ("Fit for 2015-2021 Kia Sedona Custom H7 LED Bulbs"): it must not be read as part of the vehicle's name, or the part is lost from the listing.
+  // ... but a vehicle MODEL also turns up on listings without a year ("Ram 1500 LED Bulbs"). What tells it apart: a model sits next to a make ("Ram 1500", "Ford F150"), a part code
+  // does not. The makes are the words that follow a year range in many listings.
+  const afterYear = new Map<string, number>();
+  for (const d of dossiers) for (const w of new Set(d.yearContext.map((c) => c.after[0]).filter((x): x is string => !!x && /^[a-z]{3,}$/.test(x)))) afterYear.set(w, (afterYear.get(w) ?? 0) + 1);
+  const provisionalMakes = new Set([...afterYear].filter(([, c]) => c >= Math.max(15, Math.floor(0.001 * n))).map(([w]) => w));
   const plainSites = new Map<string, Set<string>>();
   const plainCount = new Map<string, number>();
+  const plainWithMake = new Map<string, number>();
   for (const d of dossiers) {
     if (d.yearMentions.ranges.length || d.yearMentions.singles.length) continue;
+    const hasMake = plain(d.legacy.title).split(/[^a-z0-9]+/).some((w) => provisionalMakes.has(w));
     for (const c of new Set(d.codeTokens.map((x) => x.value))) {
-      const s = plainSites.get(c) ?? new Set<string>();
-      s.add(d.siteId);
-      plainSites.set(c, s);
+      const set = plainSites.get(c) ?? new Set<string>();
+      set.add(d.siteId);
+      plainSites.set(c, set);
       plainCount.set(c, (plainCount.get(c) ?? 0) + 1);
+      if (hasMake) plainWithMake.set(c, (plainWithMake.get(c) ?? 0) + 1);
     }
   }
-  const isPartCode = (code: string) => (plainSites.get(code)?.size ?? 0) >= 2 && (plainCount.get(code) ?? 0) >= 3;
+  const isPartCode = (code: string) => (plainSites.get(code)?.size ?? 0) >= 2 && (plainCount.get(code) ?? 0) >= 3 && (plainWithMake.get(code) ?? 0) / (plainCount.get(code) ?? 1) < 0.4;
   if (withRange.length >= 5) {
     for (const [k, c] of fit) {
       const f = df.get(k) ?? 0;
