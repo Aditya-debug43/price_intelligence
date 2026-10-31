@@ -8,7 +8,7 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-10-31, after directive 20 (see "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
@@ -16,7 +16,17 @@ F Environment, commands, integrations · G Testing & verification · H Known def
 
 ---
 
-# Update 19 — directive of 2026-10-30: complete the matching project without manual labelling by the owner (CURRENT STATE — read with Updates 17, 18 and 5–14)
+# Update 20 — directive of 2026-10-31: the new matcher is ACTIVE (CURRENT STATE — read with Updates 17–19 and 5–14)
+
+Verbatim directive: `docs/original-prompt/20_DIRECTIVE_ACTIVATE_UNIVERSAL_MATCHING_2026-10-31.md`. Report, tables, acceptance status, limits: **`docs/matching-validation-2026-10-31.md`** (read it first). Mechanics: `docs/matching-engine-v2.md` §10.
+
+* **Activated:** engine `match-v2.8` on the server (commit `fb299f3` and later docs), all three workspaces on `v2`; migration 0014 (additive); automatic confirmation **on** only in the grocery workspace (reliability bar met: 624/624 same-product pairs agree with the owner's decisions; other-pack 117/117 incl. a fresh 80/80 audit), **off** in the automotive one. Owner's 705 decisions byte-identical; no duplicates; backups before every step.
+* **Live:** grocery 919 same-product pairs confirmed (214 automatically), 255 to review, 1,657 suggested substitutes; automotive 23,108 suggested substitutes shown in the substitutes view with their differences. Price comparison tabs: Same products / Substitutes / Related, "confirmed only" or "confirmed and suggested", each price labelled person / automatic / suggested.
+* **Measured (assistant labels, not independent):** dev strong tier 23/23, strong+medium 61/67 (91.0 %), recall 62.2 %; fresh set 3 (330 pairs, labelled before the engine saw them) 40/45 (88.9 %), recall 58.0 %; all 21 same-product proposals right; products with no counterpart 0/55 and 0/6. **Criteria still unmet:** recall (≈58–62 % vs 90 %), candidate recall (fresh automotive sites 50–80 %), strong tier unproven. Server: automotive run 137–173 s, worker 327–368 MB, host low-water 79–97 MB free: fits, thin margin.
+* **Lessons kept in code and tests:** a part code ("H7") must not be read as vehicle name; a vehicle model ("Ram 1500") must not be read as part code (make right next to it); floor mats vs bulbs for the same vehicle (kinds never seen together; fitment alone needs a shared kind word). 19 of ~1,350 accessory variants still get a wrong suggestion.
+* **Ask the user for:** open Price comparison and Match review once (no logged-in click-through was possible); an independent reviewer for the 120-pair workbook; a decision on a larger server if automotive runs grow (cost needs approval).
+
+# Update 19 — directive of 2026-10-30: complete the matching project without manual labelling by the owner (read with Updates 17, 18, 20 and 5–14)
 
 Verbatim directive: `docs/original-prompt/19_DIRECTIVE_COMPLETE_MATCHING_WITHOUT_MANUAL_LABELLING_2026-10-30.md`. Full report, tables and the acceptance-criteria status: **`docs/matching-validation-2026-10-30.md`** (read it first). How the engine works and how it is evaluated: `docs/matching-engine-v2.md` §9.
 
