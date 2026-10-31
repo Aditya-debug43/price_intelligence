@@ -177,6 +177,8 @@ export interface StockResponse {
   total: number;
   /** The distinct products those items belong to. Absent from a backend older than the website (the two are deployed separately). */
   products?: number;
+  /** What the counts cover: how many products the PUBLIC website lists at its last collection, and whether that collection was complete. Absent from an older backend. */
+  coverage?: { listedPublicly: number | null; complete: boolean; checkedAt: string | null } | null;
   threshold: number;
   mode: 'public' | 'authorised';
   connection: { id: string; provider: string; lastSyncAt: string | null; lastError: string | null; syncHealth: 'ok' | 'failed' | 'stale' | 'never' } | null;

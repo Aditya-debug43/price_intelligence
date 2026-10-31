@@ -123,4 +123,21 @@ describe('My Stock reports items and products separately and truthfully', () => 
     expect(nVariants).toBeGreaterThan(nProducts); // so the two numbers genuinely differ here, and the page must not call the larger one "products"
     expect(view.counts.in + view.counts.low + view.counts.out + view.counts.unknown).toBe(view.total);
   });
+
+  it('says what the counts cover: how many products the public website lists, and whether the last collection reached them all', async () => {
+    const t = await h.newTenant('Stock coverage');
+    // before any collection there is nothing to say
+    const empty = await t.tx(async (tx) => loadStock(tx, h.svc.clock(), await loadSiteMaps(tx, t.orgId), 5, {}));
+    expect(empty.coverage).toBeNull();
+    const siteId = await t.addFixtureSite('shortfeed', 'source', true); // a feed that ends after 12 of the 30 products the sitemaps list
+    await runProfile(h.svc, t.orgId, siteId);
+    await t.tx((tx) => startScan(h.svc, tx, t.orgId, siteId, { kind: 'discovery', trigger: 'manual' }));
+    await h.queue.drain();
+    const view = await t.tx(async (tx) => loadStock(tx, h.svc.clock(), await loadSiteMaps(tx, t.orgId), 5, {}));
+    expect(view.products).toBe(30);
+    expect(view.coverage).toMatchObject({ listedPublicly: 30, complete: true });
+    expect(view.coverage!.checkedAt).not.toBeNull();
+    // the counts themselves are untouched by it: still one per item and per distinct product
+    expect(view.total).toBe((await db().select({ id: variants.id }).from(variants).where(eq(variants.siteId, siteId))).length);
+  });
 });

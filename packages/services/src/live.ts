@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
 import { assortmentBasis, assortmentNote, summariseMarketing, type MarketingSummary } from '@ci/core';
 import { DEFAULTS, type AssortmentBasis, type AssortmentEntry, type Availability, type MarketingRow, type OfferRow, type SiteCoverage, type StockRow, type StockState } from '@ci/shared';
-import { marketingActivities, offers, orgSettings, productMatches, products, sites, socialAccounts, stockStates, users, variants, type DbLike } from '@ci/database';
+import { marketingActivities, offers, orgSettings, productMatches, products, scanRuns, sites, socialAccounts, stockStates, users, variants, type DbLike } from '@ci/database';
 
 /**
  * Live (current-state) views of offers, own stock and marketing. The report builder snapshots exactly these
@@ -47,6 +47,12 @@ export interface StockView {
   total: number;
   /** The distinct products those items belong to (a product can have several variants, e.g. a gift card in five amounts). */
   products: number;
+  /**
+   * What the counts cover. Shelfwatch reads the PUBLIC website: `listedPublicly` is how many products the website itself lists (its product sitemaps / feed) at the last collection,
+   * and `complete` says whether that collection reached all of them. A store's own admin total can be higher (drafts, archived products and products not sold on the website are not published).
+   * Null when the website has not been collected yet.
+   */
+  coverage: { listedPublicly: number | null; complete: boolean; checkedAt: string | null } | null;
 }
 
 /**
@@ -54,7 +60,7 @@ export interface StockView {
  * claim; otherwise `quantity` is null. In-stock rows are omitted unless `includeInStock` is set.
  */
 export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold: number, opts: { includeInStock?: boolean; limit?: number; staleHours?: number } = {}): Promise<StockView> {
-  const out: StockView = { rows: [], counts: { low: 0, out: 0, unknown: 0, in: 0 }, total: 0, products: 0 };
+  const out: StockView = { rows: [], counts: { low: 0, out: 0, unknown: 0, in: 0 }, total: 0, products: 0, coverage: null };
   const source = maps.source;
   if (!source) return out;
   const staleHours = opts.staleHours ?? DEFAULTS.staleAfterHours;
@@ -69,6 +75,10 @@ export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold
     .where(and(eq(variants.siteId, source.id), isNull(products.delistedAt)));
   out.total = rows.length;
   out.products = new Set(rows.map((r) => r.productId)).size;
+  // what the website lists publicly, as recorded by its latest finished collection (the same figure the collection result reports)
+  const [last] = await db.select({ estimatedTotal: scanRuns.estimatedTotal, isComplete: scanRuns.isComplete, finishedAt: scanRuns.finishedAt }).from(scanRuns)
+    .where(and(eq(scanRuns.siteId, source.id), eq(scanRuns.kind, 'discovery'), isNotNull(scanRuns.finishedAt))).orderBy(desc(scanRuns.createdAt)).limit(1);
+  if (last) out.coverage = { listedPublicly: last.estimatedTotal ?? null, complete: last.isComplete === true, checkedAt: last.finishedAt?.toISOString() ?? null };
   for (const r of rows) {
     const state: StockState = (r.state as StockState | null) ?? 'unknown';
     out.counts[state === 'low_stock' ? 'low' : state === 'out_of_stock' ? 'out' : state === 'unknown' ? 'unknown' : 'in']++;

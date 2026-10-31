@@ -24,6 +24,11 @@ export function StockPage() {
               {d.mode === 'authorised' && d.connection?.syncHealth === 'stale' && <> <b>This sync is older than expected.</b> Quantities below may be out of date.</>}
               {d.mode === 'authorised' && d.connection?.syncHealth === 'never' && <> <b>No sync has completed yet.</b> No quantities are available until the first one does.</>}
             </div>
+            {d.coverage && (
+              <p className="small muted" style={{ margin: 0 }} data-testid="stock-coverage">
+                <b>What these numbers cover.</b> Shelfwatch reads your public website. {d.coverage.listedPublicly !== null ? <>Your website lists <b>{d.coverage.listedPublicly.toLocaleString('en-US')}</b> products publicly{d.coverage.complete ? <> and Shelfwatch collected {d.products === d.coverage.listedPublicly ? 'all of them' : <b>{(d.products ?? 0).toLocaleString('en-US')}</b>}</> : <>; the last collection was <b>not complete</b>, so only <b>{(d.products ?? 0).toLocaleString('en-US')}</b> are counted so far</>}{d.coverage.checkedAt && <> (<Age iso={d.coverage.checkedAt} />)</>}.</> : <>The last collection found <b>{(d.products ?? 0).toLocaleString('en-US')}</b> products.</>} A total in your store admin can be higher: drafts, archived products and products not sold on your online store are not published on your website, so Shelfwatch cannot see them unless your store is connected.
+              </p>
+            )}
             <div className="kpis">
               <div className="kpi"><div className="k">Out of stock</div><div className="v" style={{ color: d.counts.out ? 'var(--coral)' : undefined }}>{d.counts.out}</div></div>
               <div className="kpi"><div className="k">Low stock (≤ {d.threshold})</div><div className="v" style={{ color: d.counts.low ? 'var(--amber)' : undefined }}>{d.counts.low}</div></div>
