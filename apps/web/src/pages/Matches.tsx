@@ -8,7 +8,7 @@ import { matchStateMessage, type MatchSummaryView } from '../match-text';
 
 interface MatchRow {
   id: string; matchClass: string; relationship: string; tier: string | null; evidence: MatchEvidence | null; engineVersion: string | null; needsReevaluation: boolean; supersededAt: string | null;
-  confidence: number; status: string; method: string; reasons: string[]; decidedByPerson: boolean;
+  confidence: number; status: string; method: string; reasons: string[]; decidedByPerson: boolean; confirmedBy?: 'person' | 'automatic' | null;
   sourceVariantId: string; competitorVariantId: string; competitorSiteId: string;
   sourceTitle: string; sourceVariantTitle: string | null; sourcePrice: number | null; sourceCurrency: string | null; sourceSize: string | null; sourceBrand: string | null; sourceProductId: string; sourceUrl: string;
   sourceAvailability: string; sourceObservedAt: string | null; sourceGtin: string | null; sourceSku: string | null; sourceCategory: string | null;
@@ -24,7 +24,7 @@ interface Candidate {
   suggestion: { relationship: string; tier: string; summary: string; reasons: string[] } | null;
 }
 
-type Bucket = 'review' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
+type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
 
 /** What a person can say two products are. The wording is the contract: a stand-in is never called the same product. */
 const RELATIONSHIPS = [
@@ -72,12 +72,13 @@ export function MatchesPage() {
     (r) => toast.push(`${r.rejected} suggestion${r.rejected === 1 ? '' : 's'} for these two products marked as not a match. Your decision is kept every time matching runs again.`),
   );
   const s = summary.data;
-  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside }[b]) : null);
+  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside }[b]) : null);
   const label = (text: string, b: Bucket) => (count(b) === null ? text : `${text} (${count(b)})`);
   const tabs: { id: Bucket; label: string }[] = [
     { id: 'review', label: label('To review', 'review') },
+    { id: 'substitutes', label: label('Substitutes', 'substitutes') },
     { id: 'unclear', label: label('Related & unclear', 'unclear') },
-    { id: 'confirmed', label: label('Confirmed by you', 'confirmed') },
+    { id: 'confirmed', label: label('Confirmed', 'confirmed') },
     { id: 'rejected', label: label('Not a match', 'rejected') },
     ...((count('look_again') ?? 0) > 0 ? [{ id: 'look_again' as Bucket, label: label('Look again', 'look_again') }] : []),
     ...((count('set_aside') ?? 0) > 0 ? [{ id: 'set_aside' as Bucket, label: label('Set aside', 'set_aside') }] : []),
@@ -87,7 +88,7 @@ export function MatchesPage() {
       <PageHead
         eyebrow="Market"
         title="Match review"
-        subtitle="The matcher suggests; you decide. Nothing is used for a price comparison until you confirm it, a similar name never proves the same product, and your decisions are never overwritten."
+        subtitle="The matcher suggests matches and shows its reasons. Substitutes are shown as substitutes and need no decision; the same product waits for you, unless clear-cut matches are confirmed automatically in Settings. You can overrule anything, and your decisions are never overwritten."
         actions={isAdmin && <button className="btn" onClick={() => rerun.mutate(undefined)} disabled={rerun.isPending}>Run matching again</button>}
       />
       {s && s.engine === 'v2_shadow' && <div className="callout info" role="status" style={{ marginBottom: 12 }}>The new matcher is being tested alongside the old one. It records what it would suggest but changes nothing you see here.</div>}
@@ -133,6 +134,7 @@ function emptyTitle(tab: Bucket, s: MatchSummaryView | undefined): string {
 
 function emptyText(tab: Bucket, s: MatchSummaryView | undefined) {
   if (tab === 'review') return s ? matchStateMessage(s).body : 'Loading…';
+  if (tab === 'substitutes') return 'No substitutes suggested yet. A substitute is a different product that does the same job; it is shown in the price comparison with its differences, and confirming one is optional.';
   if (tab === 'unclear') return 'Related products and pairs without enough information are kept here for reference. They never count as work to do and never appear in a price comparison.';
   if (tab === 'confirmed') return 'Nothing confirmed yet. Confirm a suggestion and it is kept here, and used in the price comparison once it is the same product, or in the substitutes view once it is a substitute.';
   if (tab === 'rejected') return 'You have not rejected any suggestions. A rejected pair is never suggested again.';
@@ -210,6 +212,7 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
           <span className="pill info" title={REL_HELP[rel]}>{REL_LABEL[rel] ?? rel}</span>
           <div className="small" style={{ marginTop: 4 }}>{earlier ? <span className="muted">Suggested by the earlier matcher</span> : <b>{TIER_LABEL[m.tier ?? 'medium']}</b>}</div>
           {m.decidedByPerson && <div className="small muted">decided by a person</div>}
+          {m.confirmedBy === 'automatic' && <div className="small muted">confirmed automatically</div>}
         </div>
       </div>
       {m.needsReevaluation && (

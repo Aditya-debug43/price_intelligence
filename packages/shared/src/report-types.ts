@@ -73,8 +73,10 @@ export interface ComparisonCell {
   diffAbs: number | null;
   diffPct: number | null;
   unitDiffPct: number | null;
-  /** Same-pack direct comparison is only valid for identical matches. */
+  /** Same-pack direct comparison is only valid for identical matches that are confirmed. */
   directlyComparable: boolean;
+  /** Who stands behind this pair: a person confirmed it, the matcher confirmed it automatically (an identifier, or the same maker with identical names and consistent sizes), or it is only a suggestion nobody has confirmed. */
+  confirmation?: 'person' | 'automatic' | 'suggested';
   offerSummary: string | null;
   caveats: string[];
 }

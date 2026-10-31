@@ -221,10 +221,11 @@ function NotifForm({ s, isAdmin }: { s: Settings; isAdmin: boolean }) {
   const [ai, setAi] = useState(s.aiAdjudication);
   const savedEngine = s.matchingEngine ?? 'v1';
   const [engine, setEngine] = useState<'v1' | 'v2_shadow' | 'v2'>(savedEngine);
+  const [autoConfirm, setAutoConfirm] = useState(s.matchingAutoConfirm === true);
   const errs = fieldErrors(save.error);
   const recipients = prefs.recipientsText.split(/[\s,;]+/).filter(Boolean);
   return (
-    <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate({ lowStockThreshold: Number(threshold), alertPrefs: { inApp: prefs.inApp, email: prefs.email, dailySummaryEmail: prefs.dailySummaryEmail, recipients }, enabledAiAdjudication: ai, ...(engine !== savedEngine ? { matchingEngine: engine } : {}) }); }}>
+    <form className="stack" onSubmit={(e) => { e.preventDefault(); save.mutate({ lowStockThreshold: Number(threshold), alertPrefs: { inApp: prefs.inApp, email: prefs.email, dailySummaryEmail: prefs.dailySummaryEmail, recipients }, enabledAiAdjudication: ai, ...(engine !== savedEngine ? { matchingEngine: engine } : {}), ...(autoConfirm !== (s.matchingAutoConfirm === true) || (engine !== 'v2' && s.matchingAutoConfirm === true) ? { matchingAutoConfirm: engine === 'v2' && autoConfirm } : {}) }); }}>
       <Card title="Low-stock threshold">
         <Field label="Default threshold (units)" error={errs['lowStockThreshold']} hint="A product at your shop counts as low when its quantity is at or below this number. You can set a different number for one product on its page.">
           {(id) => <input id={id} type="number" min={0} style={{ maxWidth: 140 }} value={threshold} disabled={!isAdmin} onChange={(e) => setThreshold(Number(e.target.value))} />}
@@ -255,6 +256,8 @@ function NotifForm({ s, isAdmin }: { s: Settings; isAdmin: boolean }) {
             </select>
           )}
         </Field>
+        <label className="row" style={{ gap: 8, marginTop: 10 }}><input type="checkbox" checked={autoConfirm} disabled={!isAdmin || engine !== 'v2'} onChange={(e) => setAutoConfirm(e.target.checked)} /> Confirm clear-cut matches automatically</label>
+        <p className="small muted" style={{ margin: '4px 0 0' }}>Only for the new matcher, and only when it is certain the two listings are the same product: the same barcode, or the same maker with identical names and sizes that agree. These are marked “confirmed automatically”, appear in the same-product comparison, and you can overrule any of them. Turning this off returns them all to the review list.</p>
         <p className="small muted" style={{ margin: '8px 0 0' }}>The new matcher explains every suggestion (what agrees, what differs, what is missing) and tells the same product, a different pack, a substitute and a related product apart. It is being measured before it is recommended: the test option runs it on your data and records the result without adding or removing a single suggestion.</p>
       </Card>
       {isAdmin && <div className="row"><button className="btn btn-primary" type="submit" disabled={save.isPending}>Save changes</button>{save.error && !Object.keys(errs).length && <span className="err" role="alert">{errorMessage(save.error)}</span>}</div>}

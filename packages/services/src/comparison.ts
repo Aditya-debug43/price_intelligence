@@ -5,14 +5,17 @@ import { offers, productMatches, products, sites, variants, type DbLike } from '
 import { productPageLink } from './source-url.ts';
 
 /**
- * Which confirmed relationships a comparison draws on. The default view holds only the same product (exact) and the same product in another pack,
- * size or colour (variant), each confirmed by a person. Confirmed substitutes have their own view and are never shown as identical products.
- * Suggestions that nobody has confirmed, related products, non-matches and pairs without enough evidence appear in neither.
+ * Which relationships a comparison draws on. The default view holds only the same product (exact) and the same product in another pack, size or colour (variant). Substitutes and related
+ * products have their own views and are never shown as identical products. By default only confirmed pairs (by a person, or automatically under a workspace's auto-confirmation setting)
+ * are used; with `include: 'suggested'` the matcher's current suggestions are added, each carrying `confirmation: 'suggested'`, and they never count towards a price position.
+ * Non-matches and pairs without enough evidence appear in no view.
  */
-export type ComparisonView = 'prices' | 'substitutes';
+export type ComparisonView = 'prices' | 'substitutes' | 'related';
 
 export interface ComparisonOptions {
   view?: ComparisonView;
+  /** 'confirmed' (default): only pairs a person or the matcher's auto-confirmation policy confirmed. 'suggested': also the matcher's suggestions nobody has confirmed, each labelled as such. */
+  include?: 'confirmed' | 'suggested';
   orgId: string;
   reportingCurrency: string;
   fx: FxTable;
@@ -22,6 +25,7 @@ export interface ComparisonOptions {
 
 const CLASS_RANK: Record<MatchClass, number> = { identical: 0, different_pack: 1, comparable: 2, not_comparable: 3 };
 const STATUS_RANK: Record<MatchStatus, number> = { accepted: 0, auto: 1, needs_review: 2, rejected: 3 };
+const TIER_RANK: Record<string, number> = { strong: 0, medium: 1 };
 
 type VRow = {
   id: string; productId: string; siteId: string; title: string; variantTitle: string | null; brand: string | null; category: string | null; url: string; productUrl: string;
@@ -65,17 +69,22 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
   const pageLink = (v: VRow): string | null => productPageLink(v.url, siteHost.get(v.siteId));
 
   const which = o.view ?? 'prices';
-  const classes: MatchClass[] = which === 'prices' ? ['identical', 'different_pack'] : ['comparable'];
-  const relationships: MatchRelationship[] = which === 'prices' ? ['exact', 'variant'] : ['substitute'];
+  const classes: MatchClass[] = which === 'prices' ? ['identical', 'different_pack'] : which === 'substitutes' ? ['comparable'] : ['not_comparable'];
+  const relationships: MatchRelationship[] = which === 'prices' ? ['exact', 'variant'] : which === 'substitutes' ? ['substitute'] : ['related'];
+  const withSuggestions = o.include === 'suggested';
+  // a pair is used when it is confirmed, or (only when suggestions are asked for) when it is a current suggestion with real evidence behind it (not one set aside, not an old record without evidence)
+  const usable = withSuggestions
+    ? or(eq(productMatches.status, 'accepted'), and(inArray(productMatches.status, ['needs_review', 'auto']), isNull(productMatches.supersededAt), inArray(productMatches.tier, ['strong', 'medium'])))
+    : eq(productMatches.status, 'accepted');
   const matchRows = await db
     .select()
     .from(productMatches)
     .where(
       and(
         eq(productMatches.orgId, o.orgId),
-        eq(productMatches.status, 'accepted'),
+        usable,
         inArray(productMatches.matchClass, classes),
-        or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
+        which === 'related' ? inArray(productMatches.relationship, relationships) : or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
       ),
     );
   if (!matchRows.length) return [];
@@ -103,7 +112,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
 
     // Best match per competitor site: class, then reviewed status, then confidence.
     const bestBySite = new Map<string, (typeof matchRows)[number]>();
-    for (const m of [...ms].sort((a, b) => CLASS_RANK[a.matchClass] - CLASS_RANK[b.matchClass] || STATUS_RANK[a.status] - STATUS_RANK[b.status] || b.confidence - a.confidence)) {
+    for (const m of [...ms].sort((a, b) => CLASS_RANK[a.matchClass] - CLASS_RANK[b.matchClass] || STATUS_RANK[a.status] - STATUS_RANK[b.status] || (TIER_RANK[a.tier ?? ''] ?? 2) - (TIER_RANK[b.tier ?? ''] ?? 2) || b.confidence - a.confidence)) {
       if (!bestBySite.has(m.competitorSiteId)) bestBySite.set(m.competitorSiteId, m);
     }
     const cells: ComparisonCell[] = [];
@@ -112,10 +121,11 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       if (!live(cv)) continue;
       const price = view(cv);
       const unit = unitView(price, cv, o.reportingCurrency);
-      const bothPriced = price.normalized !== null && sourcePrice.normalized !== null && sourcePrice.normalized > 0;
+      const confirmation: 'person' | 'automatic' | 'suggested' = m.status === 'accepted' ? (m.autoConfirmedAt ? 'automatic' : 'person') : 'suggested';
+      const bothPriced = price.normalized !== null && sourcePrice.normalized !== null && sourcePrice.normalized > 0 && which !== 'related';
       const diffAbs = bothPriced ? roundMoney(price.normalized! - sourcePrice.normalized!, 4) : null;
       const diffPct = bothPriced ? roundMoney(((price.normalized! - sourcePrice.normalized!) / sourcePrice.normalized!) * 100, 2) : null;
-      const unitDiffPct = unit.value !== null && sourceUnit.value !== null && unit.unit === sourceUnit.unit && sourceUnit.value > 0 ? roundMoney(((unit.value - sourceUnit.value) / sourceUnit.value) * 100, 2) : null;
+      const unitDiffPct = which !== 'related' && unit.value !== null && sourceUnit.value !== null && unit.unit === sourceUnit.unit && sourceUnit.value > 0 ? roundMoney(((unit.value - sourceUnit.value) / sourceUnit.value) * 100, 2) : null;
       const relationship: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
       // what differs, in the matcher's own words (older records carry only their reasons)
       const differences = (m.evidence?.items ?? []).filter((i) => i.effect === 'differs' || i.effect === 'conflicts').map((i) => i.text);
@@ -127,11 +137,14 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       if (m.needsReevaluation) caveats.push('A product changed after you confirmed this pair. Your confirmation stands; check that it still holds.');
       if (m.matchClass === 'different_pack') caveats.push(`Different pack size (${sv.qtyLabel ?? '?'} vs ${cv.qtyLabel ?? '?'}); compare unit prices`);
       if (m.matchClass === 'comparable') caveats.push('A substitute, not the same product: check the differences below');
+      if (which === 'related') caveats.push('A related product that goes with yours: shown for context, not a replacement and not compared on price');
+      if (confirmation === 'suggested') caveats.push('Suggested by the matcher; nobody has confirmed it yet');
+      if (confirmation === 'automatic') caveats.push('Confirmed automatically by the matcher; you can overrule it in Match review');
       const offer = offerBy.get(cv.id);
       cells.push({
         siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: pageLink(cv),
         matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, relationship, tier: m.tier, confidence: m.confidence, reasons: m.reasons, differences, needsReevaluation: m.needsReevaluation, price, availability: cv.availability, unitPrice: unit,
-        diffAbs, diffPct, unitDiffPct, directlyComparable: relationship === 'exact' && bothPriced,
+        diffAbs, diffPct, unitDiffPct, directlyComparable: relationship === 'exact' && bothPriced && confirmation !== 'suggested', confirmation,
         offerSummary: offer ? `On sale: was ${formatMoney(offer.originalPrice, offer.currency)}, now ${formatMoney(offer.salePrice, offer.currency)}${offer.claimedDiscountPct ? ` (claims ${offer.claimedDiscountPct}% off; ${offer.verification === 'verified' ? 'verified by history' : 'not historically verified'})` : ''}` : null,
         caveats,
       });

@@ -123,10 +123,24 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const generalShare = 0.25;
   const maxDf = Math.max(3, Math.floor(generalShare * n));
   const subjectWords = new Set<string>();
+  // A code that other websites use on listings with NO vehicle or year ("H7 LED Headlight Bulbs") is a part code, however often one shop writes it next to a year range
+  // ("Fit for 2015-2021 Kia Sedona Custom H7 LED Bulbs"): it must not be read as part of the vehicle's name, or the part is lost from the listing.
+  const plainSites = new Map<string, Set<string>>();
+  const plainCount = new Map<string, number>();
+  for (const d of dossiers) {
+    if (d.yearMentions.ranges.length || d.yearMentions.singles.length) continue;
+    for (const c of new Set(d.codeTokens.map((x) => x.value))) {
+      const s = plainSites.get(c) ?? new Set<string>();
+      s.add(d.siteId);
+      plainSites.set(c, s);
+      plainCount.set(c, (plainCount.get(c) ?? 0) + 1);
+    }
+  }
+  const isPartCode = (code: string) => (plainSites.get(code)?.size ?? 0) >= 2 && (plainCount.get(code) ?? 0) >= 3;
   if (withRange.length >= 5) {
     for (const [k, c] of fit) {
       const f = df.get(k) ?? 0;
-      if (c >= 2 && c / f >= 0.5 && f <= maxDf) subjectWords.add(k);
+      if (c >= 2 && c / f >= 0.5 && f <= maxDf && !(k.startsWith('c:') && isPartCode(k.slice(2)))) subjectWords.add(k);
     }
   }
 
@@ -152,6 +166,7 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   }
   const alias = resolveAlias(parent);
   const canon = (c: string) => alias.get(c) ?? c;
+  const canonOf = canon;
 
   // words that name what a thing IS usually come last in a title ("... LED Bulbs", "... Floor Mats", "... Orange Juice"): learn which ones do
   const tailCount = new Map<string, number>();
@@ -193,6 +208,34 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
   const applicationWords = new Set<string>();
   // a colour or a colour MODE ("white", "yellow", "switchback") says how a bulb shines, not which part or position it is for
   for (const [w, c] of variantWordCount) if (c >= Math.max(8, Math.floor(0.0005 * n)) && (df.get('w:' + w) ?? 0) <= 0.1 * n && !tailVocab.has(w) && !subjectWords.has('w:' + w) && !colourVocab.has(w) && !MODE_WORDS.has(w)) applicationWords.add(w);
+
+  // Which positions each part code is used for, read from the variants that state both ("H7 Low Beam", "7443 Backup Light"). A title lists the codes of everything the product
+  // covers ("Fit for … Custom H7 LED Bulbs"); a variant for a position the code has never been seen with (a dome light is not an H7) does not inherit it.
+  const affinity = new Map<string, Map<string, number>>();
+  /** The words of a variant's own position option that tell positions apart ("backup", "dome"): not the words every position has ("light"), colours, modes or numbers. */
+  const GENERIC_POSITION = new Set(['light', 'lights', 'lamp', 'lamps', 'bulb', 'bulbs', 'led', 'package', 'combo', 'kit', 'set', 'pair', 'only', 'upgrade']);
+  const positionTokens = (d: Dossier) => d.variantTokens.filter((t) => !/\d/.test(t) && !GENERIC_POSITION.has(t) && !colourVocab.has(t) && !MODE_WORDS.has(t));
+  for (const d of dossiers) {
+    const own = positionTokens(d);
+    if (!own.length) continue;
+    for (const c of d.codeTokens) {
+      if (c.source !== 'variant_title' && c.source !== 'option') continue;
+      const code = canonOf(c.value);
+      const m = affinity.get(code) ?? new Map<string, number>();
+      for (const t of own) m.set(t, (m.get(t) ?? 0) + 1);
+      affinity.set(code, m);
+    }
+  }
+  /** The title's code is not for this variant's position: the code has a known set of positions (at least three sightings) and the variant's position is not among them. */
+  const notForPosition = (d: Dossier, code: string): boolean => {
+    const own = positionTokens(d);
+    if (!own.length) return false;
+    if (d.codeTokens.some((c) => canonOf(c.value) === code && c.source !== 'title')) return false;
+    const m = affinity.get(code);
+    if (!m) return false;
+    const seen = [...m.values()].reduce((a, b) => a + b, 0);
+    return seen >= 3 && !own.some((t) => m.has(t));
+  };
 
   // resolve every dossier against the corpus
   const siteCodes = new Map<string, Set<string>>();
@@ -252,7 +295,7 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     d.position = own.length ? [...new Set(own)].sort() : [...new Set(d.words.filter((w) => applicationWords.has(w)))].sort();
     const subjectSet = new Set(d.subject);
     const learned = d.subject.some((s) => subjectWords.has(`w:${s}`) || subjectWords.has(`c:${s}`));
-    d.codes = [...new Set(d.codeTokens.map((c) => c.value).filter((c) => !subjectSet.has(c) && !scattered.has(c)).map(canon))].sort();
+    d.codes = [...new Set(d.codeTokens.map((c) => c.value).filter((c) => !subjectSet.has(c) && !scattered.has(c) && !notForPosition(d, canon(c))).map(canon))].sort();
     if (d.codes.length) withCodes++;
     const ranges = d.yearMentions.ranges.map(({ from, to }) => ({ from, to }));
     const singles = d.yearMentions.singles.map((s) => s.year);

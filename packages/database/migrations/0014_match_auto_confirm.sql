@@ -1,0 +1,2 @@
+ALTER TABLE "org_settings" ADD COLUMN "matching_auto_confirm" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "product_matches" ADD COLUMN "auto_confirmed_at" timestamp with time zone;

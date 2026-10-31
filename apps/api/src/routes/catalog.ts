@@ -77,7 +77,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get('/matches', async (req) => {
     const q = parse(
       paginationSchema.extend({
-        bucket: z.enum(['review', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside']).optional(),
+        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside']).optional(),
         status: z.enum(MATCH_STATUSES).optional(),
         class: z.enum(MATCH_CLASSES).optional(),
         relationship: z.enum(MATCH_RELATIONSHIPS).optional(),
@@ -155,7 +155,8 @@ export async function catalogRoutes(app: FastifyInstance) {
         q: z.string().max(200).optional(),
         category: z.string().max(200).optional(),
         siteId: uuid.optional(),
-        view: z.enum(['prices', 'substitutes']).default('prices'),
+        view: z.enum(['prices', 'substitutes', 'related']).default('prices'),
+        include: z.enum(['confirmed', 'suggested']).default('confirmed'),
         matchClass: z.enum(MATCH_CLASSES).optional(),
         freshness: z.enum(['fresh', 'stale', 'any']).default('any'),
         position: z.enum(['cheapest', 'middle', 'highest', 'tied', 'no_data']).optional(),
@@ -169,7 +170,7 @@ export async function catalogRoutes(app: FastifyInstance) {
       await ensureFxRates({ db: tx as never, clock: app.svc.clock });
       const fx = await loadFxTable(tx, app.svc.clock());
       const now = app.svc.clock();
-      const rows = await loadComparison(tx, { view: q.view, orgId: req.orgId!, reportingCurrency: settings?.reportingCurrency ?? DEFAULTS.reportingCurrency, fx, now, staleAfterHours: DEFAULTS.staleAfterHours });
+      const rows = await loadComparison(tx, { view: q.view, include: q.include, orgId: req.orgId!, reportingCurrency: settings?.reportingCurrency ?? DEFAULTS.reportingCurrency, fx, now, staleAfterHours: DEFAULTS.staleAfterHours });
       const maps = await loadSiteMaps(tx, req.orgId!);
       const coverage = await loadCoverage(tx, req.orgId!, now, DEFAULTS.staleAfterHours);
       const summary = await matchSummary(tx, req.orgId!);

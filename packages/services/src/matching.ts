@@ -74,6 +74,14 @@ async function loadMatchable(db: DbLike, orgId: string) {
   return rows;
 }
 
+/** The product pages' own descriptions (the first part: a bulb-size chart is near the top), one string per product. Only the v2 engine reads them, and only for a chart. */
+async function loadDescriptions(db: DbLike, orgId: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const res = await db.execute<{ id: string; d: string }>(sql`select p.id, left(p.description, 6000) as d from products p join sites s on s.id = p.site_id where p.org_id = ${orgId} and s.active and p.delisted_at is null and p.description is not null and position('location bulb size' in lower(p.description)) > 0`);
+  for (const r of res.rows) out.set(r.id, r.d);
+  return out;
+}
+
 /** The shop's own tags ("Beer", "Soft Drinks") as plain words: used only to tell fluid ounces from weight ounces. */
 export const tagContext = (attrs: Record<string, unknown> | null | undefined): string | null => (Array.isArray(attrs?.['tags']) ? (attrs!['tags'] as unknown[]).filter((t): t is string => typeof t === 'string').join(' ') : null);
 
@@ -93,7 +101,9 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
   const engine = settings?.matchingEngine ?? 'v1';
   if (engine === 'v2' || engine === 'v2_shadow') {
     const now = svc.clock();
-    const { summary, result } = await runEngineOnInputs(db, orgId, engine, matchables.filter((m) => m.role === 'source'), matchables.filter((m) => m.role === 'competitor'), now);
+    const descriptions = await loadDescriptions(db, orgId);
+    for (const m of matchables) m.description = descriptions.get(m.productId) ?? null;
+    const { summary, result } = await runEngineOnInputs(db, orgId, engine, matchables.filter((m) => m.role === 'source'), matchables.filter((m) => m.role === 'competitor'), now, { autoConfirm: settings?.matchingAutoConfirm === true });
     const p = summary.persisted;
     const rel = summary.byRelationship;
     return {
@@ -245,7 +255,7 @@ export async function decideMatch(
   if (!m) throw new MatchError('Match not found');
   const current: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
   // a person's decision always replaces a pending "look again" flag: they have looked
-  const set: Partial<typeof productMatches.$inferInsert> = { decidedBy: userId, decidedAt: now, decisionNote: d.note ?? null, needsReevaluation: false, updatedAt: now };
+  const set: Partial<typeof productMatches.$inferInsert> = { decidedBy: userId, decidedAt: now, decisionNote: d.note ?? null, needsReevaluation: false, autoConfirmedAt: null, updatedAt: now };
   if (d.decision === 'accept') {
     // "insufficient" and "non-match" are not something to confirm: say what the products are instead
     if (current === 'insufficient' || current === 'non_match') throw new MatchError('Choose what these products are: the same product, a substitute or related.', 400);
@@ -279,7 +289,7 @@ export async function rejectProductPair(db: DbLike, orgId: string, sourceProduct
     select m.id from product_matches m
     join variants vs on vs.id = m.source_variant_id join variants vc on vc.id = m.competitor_variant_id
     where m.org_id = ${orgId} and vs.product_id = ${sourceProductId}::uuid and vc.product_id = ${competitorProductId}::uuid
-      and m.status in ('needs_review','auto') and m.superseded_at is null`);
+      and ((m.status in ('needs_review','auto') and m.superseded_at is null) or (m.status = 'accepted' and m.auto_confirmed_at is not null))`);
   for (const r of waiting.rows) await decideMatch(db, orgId, r.id, userId, { decision: 'reject', note }, now);
   return { rejected: waiting.rows.length };
 }

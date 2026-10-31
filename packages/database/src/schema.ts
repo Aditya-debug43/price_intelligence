@@ -163,6 +163,8 @@ export const orgSettings = pgTable('org_settings', {
   aiAdjudication: boolean('ai_adjudication').notNull().default(false),
   /** Which matching engine proposes matches for this workspace: the earlier one, engine v2 in shadow (computes and records, changes nothing a person sees), or engine v2. */
   matchingEngine: text('matching_engine').$type<MatchingEngine>().notNull().default('v1'),
+  /** Whether engine v2 may confirm the pairs its auto-confirmation policy allows (identifiers; the same maker with identical names and consistent sizes) without a person. Off by default; turning it off reverts every confirmation the engine made. */
+  matchingAutoConfirm: boolean('matching_auto_confirm').notNull().default(false),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
 
@@ -614,6 +616,8 @@ export const productMatches = pgTable(
     supersededAt: ts('superseded_at'),
     /** A product in a decided pair changed materially since the decision. The decision is untouched; the pair is flagged for a person to look at again. */
     needsReevaluation: boolean('needs_reevaluation').notNull().default(false),
+    /** Set when the ENGINE confirmed this pair under the auto-confirmation policy (status 'accepted', no person decided it). A person's later decision clears it; the engine may only revert a confirmation that carries it. */
+    autoConfirmedAt: ts('auto_confirmed_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },

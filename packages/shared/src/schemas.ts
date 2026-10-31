@@ -101,6 +101,8 @@ export const settingsSchema = z.object({
   enabledAiAdjudication: z.boolean().optional(),
   /** Which matching engine proposes matches: the earlier one, engine v2 in shadow, or engine v2. */
   matchingEngine: z.enum(MATCHING_ENGINES).optional(),
+  /** Whether engine v2 may confirm, without a person, the pairs its auto-confirmation policy allows (identifiers; the same maker with identical names and consistent sizes). */
+  matchingAutoConfirm: z.boolean().optional(),
 });
 
 export const matchDecisionSchema = z.object({

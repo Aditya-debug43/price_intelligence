@@ -3,6 +3,7 @@ import { isStale } from '@ci/core';
 import { DEFAULTS, type EvidenceTier, type MatchClass, type MatchRelationship, type MatchStatus, type SettingsInput } from '@ci/shared';
 import { alertRules, auditEvents, evidence, offers, orgSettings, priceObservations, productMatches, products, scanRuns, sites, stockStates, variants, type DbLike } from '@ci/database';
 import { countAwaitingReview } from './match-queue.ts';
+import { withdrawAutoConfirmations } from './matching-v2.ts';
 import { loadCoverage } from './coverage.ts';
 import { DEFAULT_ALERT_TYPES } from './auth.ts';
 
@@ -27,7 +28,10 @@ export async function updateSettings(db: DbLike, orgId: string, userId: string, 
   if (patch.alertPrefs) set.alertPrefs = patch.alertPrefs;
   if (patch.enabledAiAdjudication !== undefined) set.aiAdjudication = patch.enabledAiAdjudication;
   if (patch.matchingEngine) set.matchingEngine = patch.matchingEngine;
+  if (patch.matchingAutoConfirm !== undefined) set.matchingAutoConfirm = patch.matchingAutoConfirm;
   const [row] = await db.update(orgSettings).set(set).where(eq(orgSettings.orgId, orgId)).returning();
+  // turning automatic confirmation off takes back every confirmation the engine made, at once (a person's confirmations stay)
+  if (patch.matchingAutoConfirm === false) await withdrawAutoConfirmations(db, orgId, now);
   await db.insert(auditEvents).values({ orgId, userId, action: 'settings.update', meta: { fields: Object.keys(patch) } });
   return row!;
 }
@@ -141,7 +145,7 @@ export async function getEvidence(db: DbLike, orgId: string, id: string) {
 
 // ───────────────────────────────────────────────────────────── matches
 
-export type MatchBucket = 'review' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
+export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
 
 export interface MatchFilter {
   /** The tab of Match Review: what is waiting, what is only for reference, what a person decided, what needs a second look. */
@@ -164,7 +168,8 @@ export interface MatchFilter {
 
 /** The conditions of each bucket, written once against the table alias `m`. Pairs the matcher has set aside are in no bucket but their own. */
 const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
-  review: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class <> 'not_comparable'`,
+  review: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack')`,
+  substitutes: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'comparable'`,
   unclear: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'not_comparable'`,
   confirmed: sql`m.status = 'accepted'`,
   rejected: sql`m.status = 'rejected'`,
@@ -204,7 +209,7 @@ export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
            m.tier, m.evidence, m.engine_version as "engineVersion", m.needs_reevaluation as "needsReevaluation", m.superseded_at as "supersededAt",
            ps.title as "sourceTitle", vs.title as "sourceVariantTitle", vs.price as "sourcePrice", vs.currency as "sourceCurrency", vs.qty_label as "sourceSize", ps.brand as "sourceBrand", vs.url as "sourceUrl", ps.id as "sourceProductId",
            pc.title as "competitorTitle", vc.title as "competitorVariantTitle", vc.price as "competitorPrice", vc.currency as "competitorCurrency", vc.qty_label as "competitorSize", pc.brand as "competitorBrand", vc.url as "competitorUrl", pc.id as "competitorProductId",
-           sc.name as "competitorSite", m.competitor_site_id as "competitorSiteId", m.source_variant_id as "sourceVariantId", m.competitor_variant_id as "competitorVariantId", m.decided_by is not null as "decidedByPerson",
+           sc.name as "competitorSite", m.competitor_site_id as "competitorSiteId", m.source_variant_id as "sourceVariantId", m.competitor_variant_id as "competitorVariantId", m.decided_by is not null as "decidedByPerson", (case when m.status = 'accepted' then (case when m.auto_confirmed_at is not null then 'automatic' else 'person' end) end) as "confirmedBy",
            vs.availability as "sourceAvailability", vs.observed_at as "sourceObservedAt", vs.gtin as "sourceGtin", vs.sku as "sourceSku", ps.category as "sourceCategory",
            vc.availability as "competitorAvailability", vc.observed_at as "competitorObservedAt", vc.gtin as "competitorGtin", vc.sku as "competitorSku", pc.category as "competitorCategory",
            ${grouped ? sql`grp.group_size::int` : sql`1`} as "groupSize"

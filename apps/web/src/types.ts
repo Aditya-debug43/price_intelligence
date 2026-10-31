@@ -26,6 +26,7 @@ export interface Settings {
   alertPrefs: { inApp: boolean; email: boolean; dailySummaryEmail: boolean; recipients: string[] };
   aiAdjudication: boolean;
   matchingEngine: 'v1' | 'v2_shadow' | 'v2';
+  matchingAutoConfirm?: boolean;
 }
 
 export interface SiteItem {

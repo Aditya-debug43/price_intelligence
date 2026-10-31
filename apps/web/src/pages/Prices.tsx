@@ -23,10 +23,12 @@ export function PricesPage() {
     setSp(n, { replace: true });
   };
   const page = Number(get('page', '1'));
-  const params = { q: get('q'), category: get('category'), siteId: get('siteId'), view: get('view', 'prices'), matchClass: get('matchClass'), freshness: get('freshness', 'any'), sort: get('sort', 'title'), dir: get('dir', 'asc'), page, pageSize: PAGE_SIZE };
+  const params = { q: get('q'), category: get('category'), siteId: get('siteId'), view: get('view', 'prices'), include: get('include', 'suggested'), matchClass: get('matchClass'), freshness: get('freshness', 'any'), sort: get('sort', 'title'), dir: get('dir', 'asc'), page, pageSize: PAGE_SIZE };
   const q = useOrgQuery<ComparisonResponse>(['comparison', params], `/comparison${qs(params)}`, { placeholderData: (prev) => prev });
   const d = q.data;
   const substitutes = params.view === 'substitutes';
+  const related = params.view === 'related';
+  const viewName = params.view as 'prices' | 'substitutes' | 'related';
   const unread = useUncollected();
   const readCompetitors = useCollectedCompetitors();
   const competitors = d?.facets.competitors ?? [];
@@ -38,15 +40,16 @@ export function PricesPage() {
       <PageHead
         eyebrow="Market"
         title="Price comparison"
-        subtitle={substitutes ? <>Products at your competitors that can <b>stand in for</b> yours — confirmed by you, and <b>never the same product</b>. Read the differences before comparing prices.</> : <>One row per product you sell, compared only with products you have confirmed are <b>the same</b>. Each tag shows the price as the website displays it, how it compares after conversion to <b>{reporting}</b>, and when it was last seen.</>}
+        subtitle={related ? <>Products that <b>go with</b> yours but are not interchangeable (a different part, kit or variety). Shown for context: their prices are <b>not compared</b> with yours.</> : substitutes ? <>Products at your competitors that can <b>stand in for</b> yours, and are <b>never the same product</b>. The differences that matter (power, light output, size, what it fits) are listed under each price, so read them before comparing.</> : <>One row per product you sell, compared only with the <b>same product</b> or the same product in another pack. Each tag shows the price as the website displays it, how it compares after conversion to <b>{reporting}</b>, and when it was last seen.</>}
         actions={<Link className="btn" to={`/o/${orgId}/matches`}>Review matches</Link>}
       />
-      <Tabs value={params.view as 'prices' | 'substitutes'} onChange={(v) => set({ view: v === 'prices' ? '' : v })} tabs={[{ id: 'prices', label: 'Same products' }, { id: 'substitutes', label: 'Substitutes' }]} />
+      <Tabs value={viewName} onChange={(v) => set({ view: v === 'prices' ? '' : v })} tabs={[{ id: 'prices', label: 'Same products' }, { id: 'substitutes', label: 'Substitutes' }, { id: 'related', label: 'Related' }]} />
       <div className="filters" role="search">
         <div className="field wide"><label htmlFor="f-q">Search products</label><input id="f-q" type="search" placeholder="e.g. ketchup, Heinz" defaultValue={params.q} onKeyDown={(e) => e.key === 'Enter' && set({ q: (e.target as HTMLInputElement).value })} onBlur={(e) => e.target.value !== params.q && set({ q: e.target.value })} /></div>
         <div className="field"><label htmlFor="f-c">Category</label><select id="f-c" value={params.category} onChange={(e) => set({ category: e.target.value })}><option value="">All categories</option>{d?.facets.categories.map((c) => <option key={c}>{c}</option>)}</select></div>
         <div className="field"><label htmlFor="f-s">Competitor</label><select id="f-s" value={params.siteId} onChange={(e) => set({ siteId: e.target.value })}><option value="">All competitors</option>{competitors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-        {!substitutes && <div className="field"><label htmlFor="f-m">Match type</label><select id="f-m" value={params.matchClass} onChange={(e) => set({ matchClass: e.target.value })}><option value="">All</option><option value="identical">The same product</option><option value="different_pack">Same product, different pack</option></select></div>}
+        {viewName === 'prices' && <div className="field"><label htmlFor="f-m">Match type</label><select id="f-m" value={params.matchClass} onChange={(e) => set({ matchClass: e.target.value })}><option value="">All</option><option value="identical">The same product</option><option value="different_pack">Same product, different pack</option></select></div>}
+        <div className="field"><label htmlFor="f-i">Show</label><select id="f-i" value={params.include} onChange={(e) => set({ include: e.target.value === 'suggested' ? '' : e.target.value })}><option value="suggested">Confirmed and suggested</option><option value="confirmed">Confirmed only</option></select></div>
         <div className="field"><label htmlFor="f-f">Freshness</label><select id="f-f" value={params.freshness} onChange={(e) => set({ freshness: e.target.value })}><option value="any">Any</option><option value="fresh">Fresh only</option><option value="stale">Stale only</option></select></div>
         <div className="field"><label htmlFor="f-o">Sort by</label><select id="f-o" value={`${params.sort}:${params.dir}`} onChange={(e) => { const [s, dir] = e.target.value.split(':'); set({ sort: s!, dir: dir! }); }}>
           <option value="title:asc">Product A–Z</option><option value="gap:desc">Largest price gap</option><option value="gap:asc">Smallest price gap</option><option value="freshness:asc">Oldest data first</option><option value="category:asc">Category</option>
@@ -60,10 +63,13 @@ export function PricesPage() {
       )}
       {substitutes && (
         <div className="callout info" role="note" style={{ marginBottom: 12 }}>
-          A substitute is a <b>different product</b> that can stand in for yours. Its price is shown for orientation and is never counted as a price for the same product — check what differs first.
+          A substitute is a <b>different product</b> that can stand in for yours. Its price is shown for orientation and is never counted as a price for the same product — check what differs first.{params.include === 'suggested' && <> Substitutes marked <i>suggested</i> are the matcher’s own judgement from the listings; nobody has confirmed them.</>}
         </div>
       )}
-      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : comparisonEmpty(params.view as 'prices' | 'substitutes', d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : comparisonEmpty(params.view as 'prices' | 'substitutes', d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
+      {viewName === 'prices' && params.include === 'suggested' && (
+        <div className="small muted" style={{ marginBottom: 8 }}>Prices marked <i>suggested</i> are for products the matcher thinks are the same but nobody has confirmed: they are shown, but never counted in “cheapest” or “most expensive”. Choose “Confirmed only” to hide them.</div>
+      )}
+      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : related ? 'No related products found' : comparisonEmpty(viewName === 'related' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : related ? 'The matcher has not found a related product that goes with one of yours at the competitors collected so far.' : comparisonEmpty(viewName === 'related' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
         {(r) => (
           <Card pad={false}>
             <div className="table-wrap">
@@ -96,7 +102,9 @@ export function PricesPage() {
                         return (
                           <td key={s.id}>
                             <PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
-                              matchLabel={(c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute')) === 'exact' ? 'same product' : (c.relationship ?? (c.matchClass === 'different_pack' ? 'variant' : 'substitute')) === 'variant' ? 'other pack' : 'substitute'} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
+                              matchLabel={(() => { const r = c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute'); return `${r === 'exact' ? 'same product' : r === 'variant' ? 'other pack' : r === 'related' ? 'related' : 'substitute'}${c.confirmation === 'suggested' ? ' · suggested' : ''}`; })()} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
+                            <div className="small muted" style={{ marginTop: 2 }}>{c.confirmation === 'automatic' ? 'Confirmed automatically' : c.confirmation === 'suggested' ? 'Suggested, not confirmed' : c.confirmation === 'person' ? 'Confirmed by you' : ''}</div>
+                            {(substitutes || related) && (c.differences ?? []).length > 0 && <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--amber)' }}>{(c.differences ?? []).slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul>}
                             {(c.caveats.length > 0 || c.reasons.length > 0) && (
                               <details className="ev">
                                 <summary>{(c.relationship ?? c.matchClass) === 'substitute' || c.matchClass === 'comparable' ? 'A substitute — what differs?' : 'Why this match?'}</summary>

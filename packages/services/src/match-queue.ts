@@ -1,14 +1,14 @@
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { productMatches, matchRuns, orgSettings, type DbLike } from '@ci/database';
 import type { MatchingEngine } from '@ci/shared';
 
 /**
- * The pairs that wait for a person: current (not set aside), not yet decided, and something a person can confirm as the same product, the same
- * product in another pack or a substitute. ("Related" and "not enough information" pairs are listed separately; they never count as work to do.)
+ * The pairs that wait for a person: current (not set aside), not yet decided, and something a person can confirm as the same product or the same product in another pack.
+ * Substitutes, "related" and "not enough information" pairs are listed separately: they are shown with their differences and never count as work to do.
  * `auto` is what the earlier engine called a pair it accepted itself; since nothing is accepted without a person, those wait too.
  */
 export const awaitingReview = (orgId: string) =>
-  and(eq(productMatches.orgId, orgId), inArray(productMatches.status, ['needs_review', 'auto']), isNull(productMatches.supersededAt), ne(productMatches.matchClass, 'not_comparable'));
+  and(eq(productMatches.orgId, orgId), inArray(productMatches.status, ['needs_review', 'auto']), isNull(productMatches.supersededAt), inArray(productMatches.matchClass, ['identical', 'different_pack']));
 
 export async function countAwaitingReview(db: DbLike, orgId: string): Promise<number> {
   const [{ n } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(awaitingReview(orgId));
@@ -19,8 +19,12 @@ export interface MatchSummary {
   engine: MatchingEngine;
   lastRun: { id: string; engine: MatchingEngine; engineVersion: string | null; startedAt: string; finishedAt: string | null; error: string | null; stats: Record<string, unknown> } | null;
   counts: {
-    /** Suggestions waiting for a person (same product, other pack, or substitute). */
+    /** Suggestions waiting for a person (the same product, or the same product in another pack). */
     awaiting: number;
+    /** Substitutes the matcher suggests, shown in the substitutes view with their differences; confirming one is optional. */
+    suggestedSubstitutes: number;
+    /** Confirmations the matcher made itself under the workspace's auto-confirmation setting (included in `confirmedSame`). */
+    autoConfirmed: number;
     /** The same waiting suggestions counted as product pairs (your product against one competitor product): a product with many variants is one item to look at. */
     awaitingProductPairs: number;
     /** Related products and pairs without enough information: kept for reference, never work to do. */
@@ -51,7 +55,9 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
   const [run] = await db.select().from(matchRuns).where(eq(matchRuns.orgId, orgId)).orderBy(sql`${matchRuns.startedAt} desc`).limit(1);
   const c = await db.execute<Record<string, string>>(sql`
     select
-      count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class <> 'not_comparable')::text as awaiting,
+      count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class in ('identical','different_pack'))::text as awaiting,
+      count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class = 'comparable')::text as suggested_substitutes,
+      count(*) filter (where status = 'accepted' and auto_confirmed_at is not null)::text as auto_confirmed,
       count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class = 'not_comparable')::text as unclear,
       count(*) filter (where status = 'accepted' and match_class in ('identical','different_pack'))::text as confirmed_same,
       count(*) filter (where status = 'accepted' and match_class = 'comparable')::text as confirmed_substitutes,
@@ -65,18 +71,18 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
   const pp = await db.execute<{ n: string }>(sql`
     select count(distinct (vs.product_id, vc.product_id))::text as n from product_matches m
     join variants vs on vs.id = m.source_variant_id join variants vc on vc.id = m.competitor_variant_id
-    where m.org_id = ${orgId} and m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class <> 'not_comparable'`);
+    where m.org_id = ${orgId} and m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack')`);
   const cat = await db.execute<Record<string, string>>(sql`
     select count(*) filter (where s.role = 'source')::text as mine, count(*) filter (where s.role = 'competitor')::text as theirs, count(distinct s.id) filter (where s.role = 'competitor')::text as sites
     from variants v join products p on p.id = v.product_id join sites s on s.id = p.site_id
     where v.org_id = ${orgId} and s.active and p.delisted_at is null`);
   const k = cat.rows[0] ?? {};
   const counts = {
-    awaiting: n('awaiting'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
+    awaiting: n('awaiting'), suggestedSubstitutes: n('suggested_substitutes'), autoConfirmed: n('auto_confirmed'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
     rejected: n('rejected'), needLookAgain: n('look_again'), setAside: n('set_aside'),
   };
   const catalogue = { yourProducts: Number(k['mine'] ?? 0), competitorProducts: Number(k['theirs'] ?? 0), competitorWebsites: Number(k['sites'] ?? 0) };
-  const everyone = counts.awaiting + counts.unclear + counts.confirmedSame + counts.confirmedSubstitutes + counts.confirmedRelated + counts.rejected;
+  const everyone = counts.awaiting + counts.suggestedSubstitutes + counts.unclear + counts.confirmedSame + counts.confirmedSubstitutes + counts.confirmedRelated + counts.rejected;
   const stats = (run?.stats ?? {}) as Record<string, unknown>;
   const state: MatchSummary['state'] =
     catalogue.competitorProducts === 0 ? 'no_competitors' : !run && everyone === 0 ? 'never_run' : everyone === 0 && engine === 'v2_shadow' ? 'shadow' : everyone === 0 ? 'no_candidates' : counts.confirmedSame + counts.confirmedSubstitutes === 0 ? 'none_confirmed' : 'ok';
