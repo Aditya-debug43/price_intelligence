@@ -58,7 +58,12 @@ export async function recordMatchEvents(db: DbLike, orgId: string, matchIds: str
 export async function persistSuggestions(db: DbLike, orgId: string, suggestions: Suggestion[], now: Date, opts: { autoConfirm?: boolean } = {}): Promise<PersistResult> {
   const r: PersistResult = { created: 0, changed: 0, unchanged: 0, reinstated: 0, superseded: 0, flagged: 0, baselined: 0, protectedDecisions: 0, autoConfirmed: 0, autoWithdrawn: 0 };
   const autoOn = opts.autoConfirm === true;
-  const existing = await db.select().from(productMatches).where(eq(productMatches.orgId, orgId));
+  // only what the comparison below reads (never the evidence text itself, which is large: one sentence of it is enough to tell whether a row changed)
+  const existing = await db.select({
+    id: productMatches.id, sourceVariantId: productMatches.sourceVariantId, competitorVariantId: productMatches.competitorVariantId, status: productMatches.status, relationship: productMatches.relationship,
+    tier: productMatches.tier, pairHash: productMatches.pairHash, engineVersion: productMatches.engineVersion, supersededAt: productMatches.supersededAt, autoConfirmedAt: productMatches.autoConfirmedAt,
+    decidedAt: productMatches.decidedAt, summary: sql<string | null>`${productMatches.evidence}->>'summary'`,
+  }).from(productMatches).where(eq(productMatches.orgId, orgId));
   const byPair = new Map(existing.map((m) => [`${m.sourceVariantId}|${m.competitorVariantId}`, m]));
   const seen = new Set<string>();
   const ids: Record<'suggested' | 'changed' | 'reinstated' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn', string[]> = { suggested: [], changed: [], reinstated: [], flagged: [], auto_confirmed: [], auto_withdrawn: [] };
@@ -98,7 +103,7 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
       insertAuto.push(eligible);
       continue;
     }
-    const same = ex.relationship === s.relationship && ex.tier === s.tier && ex.pairHash === s.pairHash && ex.engineVersion === s.engineVersion && ex.evidence?.summary === s.evidence.summary && ex.supersededAt === null && ex.status === values.status && (ex.autoConfirmedAt !== null) === eligible;
+    const same = ex.relationship === s.relationship && ex.tier === s.tier && ex.pairHash === s.pairHash && ex.engineVersion === s.engineVersion && ex.summary === s.evidence.summary && ex.supersededAt === null && ex.status === values.status && (ex.autoConfirmedAt !== null) === eligible;
     if (same) {
       r.unchanged++;
       continue;
