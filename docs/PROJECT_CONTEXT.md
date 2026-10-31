@@ -8,13 +8,22 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-10-31, after directive 20 (see "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-10-31, after directive 21 (see "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
 
 ---
+
+# Update 21 — directive of 2026-10-31: My Stock "2,381 products" against the admin's 3,316 (CURRENT STATE — read with Updates 10, 11 and 20)
+
+Verbatim directive: `docs/original-prompt/21_DIRECTIVE_MY_STOCK_PRODUCT_COUNT_2026-10-31.md`. Details: `docs/WORK_LOG.md` (directive 21).
+
+* **Finding (re-verified on production, read-only):** the public catalogue of groceriestogoaruba.com is **2,381 products / 2,385 variants** — feed, product sitemaps and database are the same id set (0 differences either way); no duplicates, none delisted; all 2,381 public products are available. The owner's 3,316 is the store admin's figure; the **935** difference (931 against items) is not reachable from the public website (drafts, archived, not on the Online Store, or similar: the split is only visible in the owner's admin) and no authorised store connection exists (0 connections; Shopify app credentials not set on the server). Nothing was bypassed, hard-coded or invented.
+* **Changed:** My Stock now states what its numbers cover, from the real collection record (`StockView.coverage` ← latest finished discovery scan): "Your website lists N products publicly and Shelfwatch collected all of them (age). A total in your store admin can be higher…". Counts and stock values untouched; no migration. New `scripts/ops-collect-site.ts` (start one named website's collection, like the Collect button).
+* **Verified:** 1,172 tests; production backup + update (head `75e9de9`); two real collections of the owner's website (the second rate-limited, continued by itself, finished complete in 15 requests); fingerprints before/after identical apart from new price observations and the 3 follow-up match rows; My Stock via the real code: 2,385 items, 2,381 products, coverage 2,381 complete.
+* **Limit / decision for the owner:** the 935 cannot be added by connecting the store as it works today — the connection (Shopify OAuth, needs a registered Shopify app and its credentials on the server) only supplies exact unit counts for products already collected. Importing unpublished products from the admin would be a new feature (and would make Shelfwatch count products that customers cannot see). To settle what the 935 are: Shopify admin → Products, filter by Status (Draft, Archived) and by sales channel.
 
 # Update 20 — directive of 2026-10-31: the new matcher is ACTIVE (CURRENT STATE — read with Updates 17–19 and 5–14)
 
