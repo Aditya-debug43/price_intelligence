@@ -1,6 +1,7 @@
 import type { MatchableVariant, PreparedVariant } from '../matching.ts';
 import { normalizeGtin } from '../gtin.ts';
 import { stripQuantityText } from '../quantity.ts';
+import { measureQuantity, type MeasuredQuantity } from '../quantity-policy.ts';
 import { normalizeBrand } from '../text.ts';
 
 /**
@@ -64,6 +65,8 @@ export interface Dossier {
   colours: { values: string[]; source: FactSource; fromOptionAxis: boolean };
   /** Items in the offer when it says so ("2 Bulbs", "pack of 4"); null = not stated. */
   packCount: number | null;
+  /** What the product holds (its actual quantity: volume, weight, count, length or area), read for the quantity-compatibility policy (quantity-policy.ts). */
+  quantity: MeasuredQuantity;
   /** Words after "not for" / "does not fit": explicit compatibility exclusions. */
   exclusions: string[];
   bundleMarkers: string[];
@@ -107,6 +110,8 @@ export interface DossierInput extends MatchableVariant {
   tags?: string[] | null;
   /** The product page's own description. Only read for a "Location | Bulb Size | … | Watt/Lumens" chart (see `chartFacts`); never kept. */
   description?: string | null;
+  /** A labelled net-content statement taken from the description ("Net weight: 500 g"); only read when nothing else states a quantity. */
+  netContent?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────── vocabulary (language-level, not product-level)
@@ -501,6 +506,7 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     specs,
     colours,
     packCount: pack,
+    quantity: measureQuantity(legacy.qty, { title: legacy.fullTitle, options, sizeHints: input.sizeHints, netContent: input.netContent }),
     exclusions,
     bundleMarkers: bundleMarkersIn(fullText),
     kind: kindOf(input.title),

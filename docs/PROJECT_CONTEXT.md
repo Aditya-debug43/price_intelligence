@@ -8,13 +8,22 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-11-01, after directive 22 (see "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-11-02, after directive 23 (see "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
 
 ---
+
+# Update 23 — directive of 2026-11-02: products with different quantities are incomparable (CURRENT STATE — read with Updates 22, 20 and 5–14)
+
+Verbatim directive: `docs/original-prompt/23_DIRECTIVE_DIFFERENT_QUANTITIES_INCOMPARABLE_2026-11-02.md`. Rules, data model, limits: **`docs/matching-engine-v2.md` §11**; evidence: `docs/WORK_LOG.md` (directive 23).
+
+* **The rule (policy `quantity-1`):** products that hold different actual quantities (10 L vs 20 L, 500 g vs 1 kg, 6 vs 12, a kilogram vs a litre) are left out of price comparison with the recorded reason `INCOMPARABLE_QUANTITY_MISMATCH` and the values read; equal quantities in other units (1 L = 1000 ml, 2 m = 200 cm; 2 × 1 L = 1 × 2 L with the packaging kept apart) stay eligible; a quantity not stated is never a match. Nothing is converted to a price per unit any more (this replaces the per-unit comparison of directive 20 and the unit-price lines of the original brief).
+* **Where:** engine (assessment on every pair; automatic confirmation only when quantities are shown equal), migration 0015 (3 nullable columns on `product_matches`), the price/substitute views and insights, Match review ("Different quantity" view; excluded pairs wait for nobody), `scripts/ops-quantity-audit.ts`. A person's decision on such a pair is kept untouched with its history; the pair is just not used for price.
+* **Verified locally:** 1,229 tests in 79 files; real-browser check of Price comparison and Match review; read-only audit on the local copy of real catalogues (52 of 73, 968 of 2,053, 971 of 2,053 pairs differ in the three workspaces that hold pairs).
+* **NOT deployed, NOT audited on production:** SSH timed out (the firewall allows one address; this machine's address is not on the list). The code is committed locally and not pushed (the website would deploy alone and mislabel the old server's per-unit figures). **Ask the user:** allow SSH from the current address (`curl https://checkip.amazonaws.com`), then run the steps in the work-log entry.
 
 # Update 22 — directive of 2026-11-01: Reports dropdown and section tabs (CURRENT STATE — read with Updates 21, 20 and 5–14)
 

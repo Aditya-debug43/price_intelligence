@@ -4,6 +4,7 @@ export * from './robots.ts';
 export * from './price.ts';
 export * from './gtin.ts';
 export * from './quantity.ts';
+export * from './quantity-policy.ts';
 export * from './text.ts';
 export * from './currency.ts';
 export * from './stock.ts';

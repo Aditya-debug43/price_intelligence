@@ -36,7 +36,9 @@ import type {
   OfferReviewStatus,
   OfferStatus,
   OfferVerification,
+  PriceExclusion,
   Provenance,
+  QuantityCheck,
   QuantitySource,
   ReportFormat,
   ReportStatus,
@@ -618,6 +620,13 @@ export const productMatches = pgTable(
     needsReevaluation: boolean('needs_reevaluation').notNull().default(false),
     /** Set when the ENGINE confirmed this pair under the auto-confirmation policy (status 'accepted', no person decided it). A person's later decision clears it; the engine may only revert a confirmation that carries it. */
     autoConfirmedAt: ts('auto_confirmed_at'),
+    // ── quantity-compatibility policy (migration 0015). All nullable: a row written before the policy has none and is read from the sizes stored with its products.
+    /** Set when the two products hold DIFFERENT actual quantities (10 L against 20 L): the pair is left out of every price comparison, whatever its relationship or status. A person’s decision on the pair is never changed by it. */
+    priceExclusion: text('price_exclusion').$type<PriceExclusion>(),
+    /** When the pair was first left out of price comparison by the policy. */
+    priceExcludedAt: ts('price_excluded_at'),
+    /** What the policy found: the quantity each product holds (the values and where they were read), whether they match, and how the packs are configured. */
+    quantityCheck: jsonb('quantity_check').$type<QuantityCheck>(),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -643,7 +652,7 @@ export const matchEvents = pgTable(
     sourceVariantId: uuid('source_variant_id').notNull(),
     competitorVariantId: uuid('competitor_variant_id').notNull(),
     matchId: uuid('match_id'),
-    kind: text('kind').$type<'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged'>().notNull(),
+    kind: text('kind').$type<'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn' | 'quantity_excluded' | 'quantity_released'>().notNull(),
     relationship: text('relationship').$type<MatchRelationship>(),
     tier: text('tier').$type<EvidenceTier>(),
     status: text('status').$type<MatchStatus>(),

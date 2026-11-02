@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { buildApp } from '../../apps/api/src/app.ts';
 import { matchEvents, matchRuns, productMatches } from '@ci/database';
 import { ENGINE_VERSION, type Suggestion } from '@ci/core';
+import type { QuantityCheck } from '@ci/shared';
 import { createOrganization, decideMatch, persistSuggestions, runMatching, startScan, withdrawAutoConfirmations } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
 import { ApiClient } from '../support/api-client.ts';
@@ -27,8 +28,10 @@ const base = () => `/api/v1/orgs/${org}`;
 const db = () => h.db.worker;
 const now = () => new Date();
 
+// what the quantity policy says about a pair whose products hold the same quantity (a suggestion always carries it)
+const sameQuantity: QuantityCheck = { policy: 'quantity-1', verdict: 'same', exclusion: null, note: 'Same total volume (1 L)', a: { dimension: 'volume', total: 1000, unit: 'ml', label: '1 L', source: 'title' }, b: { dimension: 'volume', total: 1000, unit: 'ml', label: '1 L', source: 'title' }, packaging: { a: null, b: null, differs: false } };
 const suggestion = (o: Partial<Suggestion> = {}): Suggestion => ({
-  ...pair, relationship: 'exact', tier: 'medium', method: 'attributes', autoEligible: true, rank: 0.9, pairHash: 'hash-1', engineVersion: ENGINE_VERSION,
+  ...pair, quantity: sameQuantity, relationship: 'exact', tier: 'medium', method: 'attributes', autoEligible: true, rank: 0.9, pairHash: 'hash-1', engineVersion: ENGINE_VERSION,
   evidence: { items: [{ kind: 'name', effect: 'supports', strength: 'moderate', text: 'The names say the same thing' }], signals: 1, summary: 'Looks like the same product.' }, ...o,
 });
 const rows = () => db().select().from(productMatches).where(eq(productMatches.orgId, org));

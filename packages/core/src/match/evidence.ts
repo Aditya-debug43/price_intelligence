@@ -1,5 +1,6 @@
-import type { EvidenceItem, EvidenceTier, MatchEvidence, MatchRelationship } from '@ci/shared';
+import type { EvidenceItem, EvidenceTier, MatchEvidence, MatchRelationship, QuantityCheck } from '@ci/shared';
 import { compareQuantities } from '../quantity.ts';
+import { assessQuantities, automaticEligible } from '../quantity-policy.ts';
 import { labelledNumbersIn, modelNumbersIn, scorePair, variantDifference, type MatchCandidate } from '../matching.ts';
 import { fitmentYears, type Corpus } from './corpus.ts';
 import { alignNames, kindHead, typeWords } from './names.ts';
@@ -33,6 +34,8 @@ export interface PairEvaluation {
    * titles with the same name and the sizes both stated and consistent. The policy was written before it was measured (docs/matching-validation-2026-10-31.md); whether a workspace uses it is its own setting.
    */
   auto: boolean;
+  /** The quantity-compatibility policy applied to this pair (quantity-policy.ts): whether the two products hold the same actual quantity, and so whether the pair may be compared on price. */
+  quantity: QuantityCheck;
   legacy: MatchCandidate | null;
 }
 
@@ -191,6 +194,8 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   let qty = compareQuantities(a.legacy.qty, b.legacy.qty);
   if (qty === 'incompatible' && ((ozAsWeight(a.legacy.qty) && b.legacy.qty.kind === 'volume') || (ozAsWeight(b.legacy.qty) && a.legacy.qty.kind === 'volume'))) qty = 'unknown';
   const add = (i: EvidenceItem) => items.push(i);
+  // the quantity-compatibility policy: products that hold different actual quantities are not compared on price, whatever else agrees
+  const qa = assessQuantities(a.quantity, b.quantity);
 
   // ── identifiers
   const gtinEqual = !!a.identifiers.gtin && !!b.identifiers.gtin && a.identifiers.gtin.value === b.identifiers.gtin.value;
@@ -287,8 +292,8 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   const packB = b.packCount;
   const packDiffers = (packA && packB && packA !== packB) || qty === 'different_total';
   if (qty === 'same_total') add({ kind: 'size', effect: 'supports', strength: 'moderate', text: `Same total size (${a.legacy.qty.label})`, a: a.legacy.qty.label, b: b.legacy.qty.label });
-  else if (qty === 'different_total') add({ kind: 'size', effect: 'differs', strength: 'strong', text: `Different size or pack (${a.legacy.qty.label ?? '?'} vs ${b.legacy.qty.label ?? '?'}): compare per unit`, a: a.legacy.qty.label, b: b.legacy.qty.label });
-  else if (packA && packB && packA !== packB) add({ kind: 'pack', effect: 'differs', strength: 'strong', text: `Different pack (${packA} vs ${packB} items): compare per item`, a: String(packA), b: String(packB) });
+  else if (qty === 'different_total') add({ kind: 'size', effect: 'differs', strength: 'strong', text: `Different size or pack (${a.legacy.qty.label ?? '?'} vs ${b.legacy.qty.label ?? '?'}): not compared on price`, a: a.legacy.qty.label, b: b.legacy.qty.label });
+  else if (packA && packB && packA !== packB) add({ kind: 'pack', effect: 'differs', strength: 'strong', text: `Different pack (${packA} vs ${packB} items): not compared on price`, a: String(packA), b: String(packB) });
   else if (packA && packB) add({ kind: 'pack', effect: 'supports', strength: 'weak', text: `Same pack (${packA} items)` });
 
   // ── bundle markers on one side only
@@ -368,9 +373,18 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   }
   const hasConflict = conflicts.length > 0;
   const finish = (relationship: MatchRelationship, tier: EvidenceTier, method: PairEvaluation['method'], rank: number, auto = false): PairEvaluation => {
+    // what the policy found is recorded as evidence; a pair whose quantities differ is a different pack/size whatever the earlier rules called it, and is never confirmed automatically unless the quantities are shown equal
+    if (qa.verdict === 'different') {
+      items.push({ kind: 'size', effect: 'differs', strength: 'strong', text: `Not compared on price: ${qa.note}`, a: qa.a.label, b: qa.b.label });
+      if (relationship === 'exact') relationship = 'variant';
+    } else if (qa.verdict === 'unknown') {
+      if (!items.some((i) => (i.kind === 'size' || i.kind === 'pack') && i.effect !== 'supports')) items.push({ kind: 'size', effect: 'missing', strength: 'moderate', text: qa.note, a: qa.a.label, b: qa.b.label });
+    } else if (qa.packaging.differs) {
+      items.push({ kind: 'pack', effect: 'differs', strength: 'weak', text: `The same total quantity, packaged differently (${qa.a.label ?? '?'} vs ${qa.b.label ?? '?'})`, a: qa.a.label, b: qa.b.label });
+    }
     const supports = items.filter((i) => i.effect === 'supports');
     const specific = supports.filter((i) => i.kind === 'identifier' || i.kind === 'identity_code' || i.kind === 'fitment' || i.kind === 'spec').length;
-    return { relationship, tier, method, rank: Math.round(rank * 1000) / 1000, conflicts, legacy, auto, evidence: { items, signals: supports.length, summary: summarise(relationship, tier, items, conflicts, specific) } };
+    return { relationship, tier, method, rank: Math.round(rank * 1000) / 1000, conflicts, legacy, auto: auto && automaticEligible(qa.verdict), quantity: qa, evidence: { items, signals: supports.length, summary: summarise(relationship, tier, items, conflicts, specific) } };
   };
 
   // ── decisive incompatibilities end the question — unless the same barcode says it IS the same product
@@ -442,7 +456,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
         return finish('substitute', 'medium', 'name_similarity', 0.42);
       }
       add({ kind: 'brand', effect: 'supports', strength: 'weak', text: 'Both titles start with the same maker name', a: a.title, b: b.title });
-      if (sizeDiffers && qty !== 'different_total' && !(packA && packB)) add({ kind: 'size', effect: 'differs', strength: 'moderate', text: `The sizes differ (${a.legacy.qty.label ?? '?'} vs ${b.legacy.qty.label ?? '?'}) and are stated in different kinds of unit: compare per unit where possible`, a: a.legacy.qty.label, b: b.legacy.qty.label });
+      if (sizeDiffers && qty !== 'different_total' && !(packA && packB)) add({ kind: 'size', effect: 'differs', strength: 'moderate', text: `The sizes differ (${a.legacy.qty.label ?? '?'} vs ${b.legacy.qty.label ?? '?'}) and are stated in different kinds of unit: not compared on price`, a: a.legacy.qty.label, b: b.legacy.qty.label });
       // auto-confirmation policy: the same maker named in both titles, a name that contains the other with almost nothing added, and both sizes stated and consistent
       const sameKindSized = sizedBoth && a.legacy.qty.kind === b.legacy.qty.kind;
       const auto = makerBy !== null && al.relation === 'equal' && !al.editionOneSided && (sizeDiffers ? sameKindSized && qty === 'different_total' && !(packA && packB && packA === packB) : qty === 'same_total') && al.extraShare <= 0.15;
@@ -531,7 +545,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     const headOk = !!hA && !!hB && hA.head === hB.head && (hA.final || hB.final);
     if (headOk && sharedType.some((w) => corpus.nameIdf(w) >= 3) && wt(sharedType) >= 3.5 && wt(sharedType) >= 0.5 * (wt(sharedType) + wt(onlyType)) && !nameDiffers && ratio <= 5 && colourRel !== 'disjoint') {
       add({ kind: 'product_type', effect: 'supports', strength: 'moderate', text: `Both are “${sharedType.slice(0, 4).join(' ')}” products from different makers`, a: ta.join(' '), b: tb.join(' ') });
-      if (qty === 'different_total') add({ kind: 'size', effect: 'differs', strength: 'moderate', text: `Different size or pack (${a.legacy.qty.label ?? '?'} vs ${b.legacy.qty.label ?? '?'}): compare per unit`, a: a.legacy.qty.label, b: b.legacy.qty.label });
+      if (qty === 'different_total') add({ kind: 'size', effect: 'differs', strength: 'moderate', text: `Different size or pack (${a.legacy.qty.label ?? '?'} vs ${b.legacy.qty.label ?? '?'}): not compared on price`, a: a.legacy.qty.label, b: b.legacy.qty.label });
       else if (qty !== 'same_total') add({ kind: 'size', effect: 'missing', strength: 'weak', text: 'The sizes cannot be compared (one listing leaves the size out or states it in another kind of unit)' });
       return finish('substitute', 'medium', 'cross_brand', 0.3 + 0.05 * Math.min(4, wt(sharedType) / 3.5));
     }

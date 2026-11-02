@@ -207,11 +207,14 @@ describe('5. product matching and price comparison', () => {
     expect(json.diffPct).toBeCloseTo(((jsonFix.price - sourceFix.price) / sourceFix.price) * 100, 1); // same currency: ratio unaffected by FX
     expect(row.position).not.toBe('no_data');
 
-    // different pack sizes are compared by unit price, never as a shelf-price difference
-    const pack = cmp.flatMap((r) => r.cells.filter((c) => c.matchClass === 'different_pack'));
-    expect(pack.length).toBeGreaterThan(0);
-    expect(pack.every((c) => !c.directlyComparable && c.caveats.some((x) => /unit price/i.test(x)))).toBe(true);
-    expect(pack.some((c) => c.unitDiffPct !== null)).toBe(true);
+    // products that hold different quantities are not compared at all: not as a shelf-price difference, and not converted to a price per unit
+    const excluded = await readDb().select().from(productMatches).where(and(eq(productMatches.orgId, t.orgId), eq(productMatches.matchClass, 'different_pack')));
+    expect(excluded.length).toBeGreaterThan(0); // other-size pairs exist, and each is recorded as left out, with the quantities it was judged on
+    expect(excluded.every((m) => m.priceExclusion === 'INCOMPARABLE_QUANTITY_MISMATCH' && m.quantityCheck?.verdict === 'different' && !!m.quantityCheck.a.label && !!m.quantityCheck.b.label)).toBe(true);
+    const leftIn = new Set(cmp.flatMap((r) => r.cells.map((c) => c.matchId)));
+    expect(excluded.some((m) => leftIn.has(m.id))).toBe(false);
+    expect(cmp.flatMap((r) => r.cells).every((c) => c.quantity?.verdict !== 'different' && c.unitPrice.value === null)).toBe(true);
+    expect(cmp.every((r) => r.sourceUnitPrice.value === null)).toBe(true);
   });
 
   it('keeps human decisions across re-matching', async () => {

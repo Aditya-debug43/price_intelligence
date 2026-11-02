@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { type SiteStatusView, CAPABILITY_EXPLANATIONS, CAPABILITY_LABELS, PROVENANCE_HELP, PROVENANCE_LABELS, formatAge, formatDateTime, formatMoney, formatPct, sourceLink, type PriceView, type Provenance, type UnitPriceView } from '@ci/shared';
+import { type SiteStatusView, CAPABILITY_EXPLANATIONS, CAPABILITY_LABELS, PROVENANCE_HELP, PROVENANCE_LABELS, formatAge, formatDateTime, formatMoney, formatPct, sourceLink, type PriceView, type Provenance } from '@ci/shared';
 import { ApiError, errorMessage } from './api';
 
 // ───────────────────────────────────────────────────────────── icons
@@ -313,13 +313,12 @@ export function Pct({ value, invert }: { value: number | null | undefined; inver
 }
 
 /**
- * The shelf-edge price tag: shows the price AS DISPLAYED (original currency), the unit-price strip, how it compares, and when it
+ * The shelf-edge price tag: shows the price AS DISPLAYED (original currency), how it compares, and when it
  * was last observed. Stale observations get a dashed border and are never styled as fresh.
  */
-export function PriceTag({ site, price, unit, diffPct, unitDiffPct, directlyComparable, you, stale, matchLabel, href, product, availability, offer, reporting }: {
+export function PriceTag({ site, price, diffPct, unitDiffPct, directlyComparable, you, stale, matchLabel, href, product, availability, offer, reporting }: {
   site: string;
   price: PriceView;
-  unit?: UnitPriceView;
   diffPct?: number | null;
   unitDiffPct?: number | null;
   directlyComparable?: boolean;
@@ -354,13 +353,12 @@ export function PriceTag({ site, price, unit, diffPct, unitDiffPct, directlyComp
       </div>
       {!you ? (
         <div className={`ptag-strip ${cls}`}>
-          <span>{directlyComparable ? (diff === null || diff === undefined ? 'no comparison' : `${formatPct(diff)} vs you`) : unit?.value != null && unitDiffPct != null ? `${formatPct(unitDiffPct)} per unit` : unit?.value != null ? `${unit.value.toFixed(2)} ${unit.unit ?? ''}` : 'unit price n/a'}</span>
+          <span>{directlyComparable ? (diff === null || diff === undefined ? 'no comparison' : `${formatPct(diff)} vs you`) : unitDiffPct != null ? `${formatPct(unitDiffPct)} vs you · same quantity` : 'not compared on price'}</span>
           {different && price.normalized !== null && <span className="num" title={`Converted: ${formatMoney(price.normalized, reporting)} (${price.fxSource ?? 'rate'})`}>≈{price.normalized.toFixed(2)} {reporting}</span>}
         </div>
       ) : (
         <div className="ptag-strip">
           <span>Your price</span>
-          {unit?.value != null && <span className="num">{unit.value.toFixed(2)} {unit.unit}</span>}
         </div>
       )}
       <div className="ptag-foot">

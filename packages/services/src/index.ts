@@ -24,6 +24,8 @@ export * from './comparison.ts';
 export * from './coverage.ts';
 export * from './report.ts';
 export * from './exports.ts';
+export * from './quantity-check.ts';
+export * from './net-content.ts';
 export * from './scheduler.ts';
 export * from './retention.ts';
 export * from './social-sync.ts';

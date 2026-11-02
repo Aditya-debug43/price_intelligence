@@ -210,7 +210,7 @@ export function scorePair(a: PreparedVariant, b: PreparedVariant): MatchCandidat
     return { ...m, matchClass: 'comparable', status: 'needs_review', confidence: Math.min(m.confidence, 0.6), reasons: [...m.reasons.filter((r) => !/Names and sizes agree/.test(r)), `One name gives a year (${years}) that the other does not, so these may be different vintages or editions`] };
   }
   if (m.matchClass === 'identical' && packOf(a.qty) !== packOf(b.qty)) {
-    return { ...m, matchClass: 'different_pack', status: 'needs_review', confidence: Math.min(m.confidence, 0.7), reasons: [...m.reasons, `The total is the same but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`] };
+    return { ...m, matchClass: 'different_pack', status: 'needs_review', confidence: Math.min(m.confidence, 0.7), reasons: [...m.reasons, `The total is the same but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): not compared on price`] };
   }
   const lone = [...modelNumbersIn(a.fullTitle).filter((n) => !digitRuns(b.fullTitle).has(n)), ...modelNumbersIn(b.fullTitle).filter((n) => !digitRuns(a.fullTitle).has(n))];
   if (lone.length) {
@@ -393,12 +393,12 @@ function scorePairCore(a: PreparedVariant, b: PreparedVariant): MatchCandidate |
       sim >= 0.9 && qtyRel === 'different_total' && a.qty.kind === b.qty.kind && oneItem(a.qty) !== null && oneItem(b.qty) !== null &&
       Math.abs(oneItem(a.qty)! - oneItem(b.qty)!) / Math.max(oneItem(a.qty)!, oneItem(b.qty)!) <= 0.01
     ) {
-      reasons.push(`Names agree and one item is the same size, but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`, `Name similarity ${r2(sim)}`);
+      reasons.push(`Names agree and one item is the same size, but the pack is different (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): not compared on price`, `Name similarity ${r2(sim)}`);
       return { ...base, matchClass: 'different_pack', confidence: r2(Math.min(0.7, 0.4 + 0.35 * sim)), status: 'needs_review', method: 'name_similarity', reasons, components: comps() };
     }
     // the same product in another size ("Almond Breeze Vanilla 32 oz" and "… 64 fl oz"): the original brief's "same product, different pack size", compared per unit
     if (sim >= 0.9 && qtyRel === 'different_total' && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
-      reasons.push(`Names agree but the size differs (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): compare per unit`, `Name similarity ${r2(sim)}`);
+      reasons.push(`Names agree but the size differs (${a.qty.label ?? '?'} vs ${b.qty.label ?? '?'}): not compared on price`, `Name similarity ${r2(sim)}`);
       return { ...base, matchClass: 'different_pack', confidence: r2(Math.min(0.65, 0.35 + 0.3 * sim)), status: 'needs_review', method: 'name_similarity', reasons, components: comps() };
     }
     if (sim >= 0.7 && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
@@ -416,11 +416,11 @@ function scorePairCore(a: PreparedVariant, b: PreparedVariant): MatchCandidate |
     return null;
   }
 
-  // 5 ── different brands: only ever "comparable", compared on unit price
+  // 5 ── different brands: only ever "comparable" (compared on price only when both hold the same quantity)
   if (sim >= 0.7 && a.qty.kind === b.qty.kind && a.qty.kind !== 'unknown' && cat !== 'conflicting') {
     reasons.push(
       `Different brands ("${a.brand}" vs "${b.brand}") with a similar product (name similarity ${r2(sim)})`,
-      'Compare by unit price, not shelf price',
+      'Compared on price only when both hold the same quantity',
     );
     const conf = clamp(0.3 + 0.4 * sim, 0, 0.7);
     return {

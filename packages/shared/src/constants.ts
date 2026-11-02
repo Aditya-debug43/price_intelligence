@@ -109,6 +109,36 @@ export interface MatchEvidence {
   signals: number;
 }
 
+/**
+ * The quantity-compatibility policy (core/quantity-policy.ts): products that hold different actual quantities are incomparable for price comparison, whatever their names say.
+ * A pair keeps its relationship (it can still be "the same product in another pack"); the policy adds a recorded reason it is not compared on price.
+ */
+export const INCOMPARABLE_QUANTITY_MISMATCH = 'INCOMPARABLE_QUANTITY_MISMATCH' as const;
+export type PriceExclusion = typeof INCOMPARABLE_QUANTITY_MISMATCH;
+export type QuantityDimension = 'volume' | 'mass' | 'count' | 'length' | 'area';
+export type QuantityVerdict = 'same' | 'different' | 'unknown';
+/** What one product says it holds, in the base unit of its dimension (ml, g, pieces, mm, mm²). */
+export interface QuantitySide {
+  dimension: QuantityDimension | null;
+  total: number | null;
+  unit: 'ml' | 'g' | 'pcs' | 'mm' | 'mm²' | null;
+  label: string | null;
+  /** Where it was read from. */
+  source: 'title' | 'option' | 'size_hint' | 'description' | null;
+}
+/** The recorded outcome of comparing the quantities of the two products of a pair: the evidence behind the exclusion. */
+export interface QuantityCheck {
+  policy: string;
+  verdict: QuantityVerdict;
+  /** Set only when the products hold different actual quantities. */
+  exclusion: PriceExclusion | null;
+  note: string;
+  a: QuantitySide;
+  b: QuantitySide;
+  /** The pack configuration, kept apart from the total (2 × 1 L and 1 × 2 L are the same quantity packaged differently). */
+  packaging: { a: string | null; b: string | null; differs: boolean };
+}
+
 /** The relationships a person can state when they decide (the machine never states "non_match" as a suggestion; a rejection records it). */
 export const DECIDABLE_RELATIONSHIPS = ['exact', 'variant', 'substitute', 'related'] as const;
 export type DecidableRelationship = (typeof DECIDABLE_RELATIONSHIPS)[number];

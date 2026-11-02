@@ -77,7 +77,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get('/matches', async (req) => {
     const q = parse(
       paginationSchema.extend({
-        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside']).optional(),
+        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside', 'quantity']).optional(),
         status: z.enum(MATCH_STATUSES).optional(),
         class: z.enum(MATCH_CLASSES).optional(),
         relationship: z.enum(MATCH_RELATIONSHIPS).optional(),

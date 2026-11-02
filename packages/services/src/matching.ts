@@ -25,6 +25,8 @@ import { MATCH_CLASSES, classOfRelationship, relationshipOfClass, type Decidable
 import { orgSettings, productMatches, products, sites, variants, auditEvents, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { recordMatchEvents, runEngineOnInputs } from './matching-v2.ts';
+import { loadNetContent } from './net-content.ts';
+import { checkOf, measureVariants } from './quantity-check.ts';
 
 const verdictSchema = z.object({ verdict: z.enum(MATCH_CLASSES), confidence: z.number().min(0).max(1), rationale: z.string().max(400) });
 
@@ -103,6 +105,9 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
     const now = svc.clock();
     const descriptions = await loadDescriptions(db, orgId);
     for (const m of matchables) m.description = descriptions.get(m.productId) ?? null;
+    // a labelled net-content line ("Net weight: 500 g") is a quantity the title may leave out: read only when nothing else states one
+    const netContent = await loadNetContent(db, orgId);
+    for (const m of matchables) m.netContent = netContent.get(m.productId) ?? null;
     const { summary, result } = await runEngineOnInputs(db, orgId, engine, matchables.filter((m) => m.role === 'source'), matchables.filter((m) => m.role === 'competitor'), now, { autoConfirm: settings?.matchingAutoConfirm === true });
     const p = summary.persisted;
     const rel = summary.byRelationship;
@@ -150,6 +155,8 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
     sources: sources.length, competitors: competitors.length, candidates: candidates.length, created: 0, updated: 0, removed: 0, preservedManual: 0, adjudicated,
     byClass: { identical: 0, different_pack: 0, comparable: 0, not_comparable: 0 }, needsReview: 0,
   };
+  // the quantity policy applies to every pair this matcher proposes too
+  const measured = await measureVariants(db, orgId, [...new Set(candidates.flatMap((c) => [c.sourceVariantId, c.competitorVariantId]))]);
   for (const c of candidates) {
     const key = `${c.sourceVariantId}|${c.competitorVariantId}`;
     seen.add(key);
@@ -161,7 +168,8 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
     result.byClass[c.matchClass]++;
     // Nothing a run proposes is accepted by the run: a person confirms every pair (what the earlier engine called "auto" waits for review too).
     result.needsReview++;
-    const values = { matchClass: c.matchClass, confidence: c.confidence, status: 'needs_review' as const, method: c.method, reasons: c.reasons, components: c.components as unknown as Record<string, unknown>, supersededAt: null, updatedAt: now };
+    const q = checkOf(measured, c.sourceVariantId, c.competitorVariantId);
+    const values = { matchClass: c.matchClass, confidence: c.confidence, status: 'needs_review' as const, method: c.method, reasons: c.reasons, components: c.components as unknown as Record<string, unknown>, supersededAt: null, updatedAt: now, priceExclusion: q.exclusion, priceExcludedAt: q.exclusion ? (ex?.priceExcludedAt ?? now) : null, quantityCheck: q };
     if (ex) {
       await db.update(productMatches).set(values).where(eq(productMatches.id, ex.id));
       result.updated++;
@@ -211,6 +219,8 @@ export async function bulkAcceptMatches(db: DbLike, orgId: string, userId: strin
     eq(productMatches.orgId, orgId),
     inArray(productMatches.status, ['needs_review', 'auto']),
     isNull(productMatches.supersededAt),
+    // a pair the quantity policy leaves out of price comparison is not "the same product to compare": it is never accepted in bulk
+    isNull(productMatches.priceExclusion),
     eq(productMatches.matchClass, p.matchClass),
     or(and(isNull(productMatches.relationship), gte(productMatches.confidence, p.minConfidence)), eq(productMatches.tier, 'strong')),
     ...(p.siteId ? [eq(productMatches.competitorSiteId, p.siteId)] : []),
@@ -391,8 +401,10 @@ export async function setManualMatch(
   if (!src || !comp) throw new MatchError('Product not found');
   if (src.role !== 'source' || comp.role !== 'competitor') throw new MatchError('A match pairs one of your products with a competitor’s product.', 400);
 
-  const values = { matchClass: classOfRelationship(relationship), confidence: 1, status: 'accepted' as const, method: 'manual', reasons: ['Chosen by a person'], relationship, supersededAt: null, needsReevaluation: false, decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null, updatedAt: now };
   const [existing] = await db.select().from(productMatches).where(and(eq(productMatches.sourceVariantId, p.sourceVariantId), eq(productMatches.competitorVariantId, p.competitorVariantId)));
+  // the person’s choice is recorded as they made it; whether the two products hold the same quantity is recorded beside it, and decides whether the pair is compared on price
+  const q = checkOf(await measureVariants(db, orgId, [p.sourceVariantId, p.competitorVariantId]), p.sourceVariantId, p.competitorVariantId);
+  const values = { matchClass: classOfRelationship(relationship), confidence: 1, status: 'accepted' as const, method: 'manual', reasons: ['Chosen by a person'], relationship, supersededAt: null, needsReevaluation: false, decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null, updatedAt: now, priceExclusion: q.exclusion, priceExcludedAt: q.exclusion ? (existing?.priceExcludedAt ?? now) : null, quantityCheck: q };
   const row = existing
     ? (await db.update(productMatches).set(values).where(eq(productMatches.id, existing.id)).returning())[0]!
     : (await db.insert(productMatches).values({ orgId, sourceVariantId: p.sourceVariantId, competitorVariantId: p.competitorVariantId, competitorSiteId: comp.siteId, components: {}, ...values }).returning())[0]!;

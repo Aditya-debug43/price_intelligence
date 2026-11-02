@@ -145,7 +145,7 @@ export async function getEvidence(db: DbLike, orgId: string, id: string) {
 
 // ───────────────────────────────────────────────────────────── matches
 
-export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
+export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity';
 
 export interface MatchFilter {
   /** The tab of Match Review: what is waiting, what is only for reference, what a person decided, what needs a second look. */
@@ -168,13 +168,15 @@ export interface MatchFilter {
 
 /** The conditions of each bucket, written once against the table alias `m`. Pairs the matcher has set aside are in no bucket but their own. */
 const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
-  review: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack')`,
+  review: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack') and m.price_exclusion is null`,
   substitutes: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'comparable'`,
   unclear: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'not_comparable'`,
   confirmed: sql`m.status = 'accepted'`,
   rejected: sql`m.status = 'rejected'`,
   look_again: sql`m.needs_reevaluation`,
   set_aside: sql`m.superseded_at is not null and m.status in ('needs_review','auto')`,
+  // pairs the quantity policy leaves out of price comparison (different actual quantities), whatever was decided about them; a person’s decision is shown as it is
+  quantity: sql`m.price_exclusion is not null and m.status <> 'rejected' and m.superseded_at is null`,
 };
 
 export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
@@ -206,7 +208,7 @@ export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
   const rows = await db.execute<Record<string, unknown>>(sql`
     select m.id, m.match_class as "matchClass", m.confidence, m.status, m.method, m.reasons, m.components, m.decided_at as "decidedAt", m.decision_note as "decisionNote",
            coalesce(m.relationship, case m.match_class when 'identical' then 'exact' when 'different_pack' then 'variant' when 'comparable' then 'substitute' else 'non_match' end) as relationship,
-           m.tier, m.evidence, m.engine_version as "engineVersion", m.needs_reevaluation as "needsReevaluation", m.superseded_at as "supersededAt",
+           m.tier, m.evidence, m.engine_version as "engineVersion", m.needs_reevaluation as "needsReevaluation", m.superseded_at as "supersededAt", m.price_exclusion as "priceExclusion", m.quantity_check as "quantityCheck",
            ps.title as "sourceTitle", vs.title as "sourceVariantTitle", vs.price as "sourcePrice", vs.currency as "sourceCurrency", vs.qty_label as "sourceSize", ps.brand as "sourceBrand", vs.url as "sourceUrl", ps.id as "sourceProductId",
            pc.title as "competitorTitle", vc.title as "competitorVariantTitle", vc.price as "competitorPrice", vc.currency as "competitorCurrency", vc.qty_label as "competitorSize", pc.brand as "competitorBrand", vc.url as "competitorUrl", pc.id as "competitorProductId",
            sc.name as "competitorSite", m.competitor_site_id as "competitorSiteId", m.source_variant_id as "sourceVariantId", m.competitor_variant_id as "competitorVariantId", m.decided_by is not null as "decidedByPerson", (case when m.status = 'accepted' then (case when m.auto_confirmed_at is not null then 'automatic' else 'person' end) end) as "confirmedBy",

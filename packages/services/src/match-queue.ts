@@ -6,9 +6,10 @@ import type { MatchingEngine } from '@ci/shared';
  * The pairs that wait for a person: current (not set aside), not yet decided, and something a person can confirm as the same product or the same product in another pack.
  * Substitutes, "related" and "not enough information" pairs are listed separately: they are shown with their differences and never count as work to do.
  * `auto` is what the earlier engine called a pair it accepted itself; since nothing is accepted without a person, those wait too.
+ * A pair the quantity policy leaves out of price comparison (the two products hold different quantities) waits for nobody: it has its own view.
  */
 export const awaitingReview = (orgId: string) =>
-  and(eq(productMatches.orgId, orgId), inArray(productMatches.status, ['needs_review', 'auto']), isNull(productMatches.supersededAt), inArray(productMatches.matchClass, ['identical', 'different_pack']));
+  and(eq(productMatches.orgId, orgId), inArray(productMatches.status, ['needs_review', 'auto']), isNull(productMatches.supersededAt), inArray(productMatches.matchClass, ['identical', 'different_pack']), isNull(productMatches.priceExclusion));
 
 export async function countAwaitingReview(db: DbLike, orgId: string): Promise<number> {
   const [{ n } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(productMatches).where(awaitingReview(orgId));
@@ -29,6 +30,9 @@ export interface MatchSummary {
     awaitingProductPairs: number;
     /** Related products and pairs without enough information: kept for reference, never work to do. */
     unclear: number;
+    /** Pairs left out of price comparison because the two products hold different quantities (current ones, whatever was decided about them), and how many of those a person or the matcher had confirmed. */
+    quantityExcluded: number;
+    quantityExcludedConfirmed: number;
     confirmedSame: number;
     confirmedSubstitutes: number;
     confirmedRelated: number;
@@ -55,7 +59,9 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
   const [run] = await db.select().from(matchRuns).where(eq(matchRuns.orgId, orgId)).orderBy(sql`${matchRuns.startedAt} desc`).limit(1);
   const c = await db.execute<Record<string, string>>(sql`
     select
-      count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class in ('identical','different_pack'))::text as awaiting,
+      count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class in ('identical','different_pack') and price_exclusion is null)::text as awaiting,
+      count(*) filter (where price_exclusion is not null and status <> 'rejected' and superseded_at is null)::text as quantity_excluded,
+      count(*) filter (where price_exclusion is not null and status = 'accepted' and superseded_at is null)::text as quantity_excluded_confirmed,
       count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class = 'comparable')::text as suggested_substitutes,
       count(*) filter (where status = 'accepted' and auto_confirmed_at is not null)::text as auto_confirmed,
       count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class = 'not_comparable')::text as unclear,
@@ -71,14 +77,14 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
   const pp = await db.execute<{ n: string }>(sql`
     select count(distinct (vs.product_id, vc.product_id))::text as n from product_matches m
     join variants vs on vs.id = m.source_variant_id join variants vc on vc.id = m.competitor_variant_id
-    where m.org_id = ${orgId} and m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack')`);
+    where m.org_id = ${orgId} and m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack') and m.price_exclusion is null`);
   const cat = await db.execute<Record<string, string>>(sql`
     select count(*) filter (where s.role = 'source')::text as mine, count(*) filter (where s.role = 'competitor')::text as theirs, count(distinct s.id) filter (where s.role = 'competitor')::text as sites
     from variants v join products p on p.id = v.product_id join sites s on s.id = p.site_id
     where v.org_id = ${orgId} and s.active and p.delisted_at is null`);
   const k = cat.rows[0] ?? {};
   const counts = {
-    awaiting: n('awaiting'), suggestedSubstitutes: n('suggested_substitutes'), autoConfirmed: n('auto_confirmed'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
+    awaiting: n('awaiting'), suggestedSubstitutes: n('suggested_substitutes'), autoConfirmed: n('auto_confirmed'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), quantityExcluded: n('quantity_excluded'), quantityExcludedConfirmed: n('quantity_excluded_confirmed'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
     rejected: n('rejected'), needLookAgain: n('look_again'), setAside: n('set_aside'),
   };
   const catalogue = { yourProducts: Number(k['mine'] ?? 0), competitorProducts: Number(k['theirs'] ?? 0), competitorWebsites: Number(k['sites'] ?? 0) };

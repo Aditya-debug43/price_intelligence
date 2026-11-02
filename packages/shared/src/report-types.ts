@@ -16,6 +16,7 @@ import type {
   ScanStatus,
   StockState,
   QuantitySource,
+  QuantityVerdict,
   CapabilityStatus,
   SiteRole,
   SiteState,
@@ -68,11 +69,18 @@ export interface ComparisonCell {
   needsReevaluation: boolean;
   price: PriceView;
   availability: Availability;
+  /** Always empty: prices are not converted into a price per litre, per kilogram or per item (older saved reports may carry a value). */
   unitPrice: UnitPriceView;
   /** Difference vs source in reporting currency (competitor minus source). Null if not computable. */
   diffAbs: number | null;
   diffPct: number | null;
+  /**
+   * The price difference of a pair that is not a direct comparison (a substitute, a pack that differs only in how it is packaged, a suggestion) whose two products hold the SAME quantity.
+   * Never a price-per-unit comparison: pairs with different quantities are not compared at all (see the quantity-compatibility policy). Older saved reports may hold a per-unit figure here.
+   */
   unitDiffPct: number | null;
+  /** What the quantity-compatibility policy found for the pair (absent from reports saved before it). */
+  quantity?: { verdict: QuantityVerdict; note: string; packagingDiffers: boolean };
   /** Same-pack direct comparison is only valid for identical matches that are confirmed. */
   directlyComparable: boolean;
   /** Who stands behind this pair: a person confirmed it, the matcher confirmed it automatically (an identifier, or the same maker with identical names and consistent sizes), or it is only a suggestion nobody has confirmed. */

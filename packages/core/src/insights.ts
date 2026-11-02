@@ -152,6 +152,7 @@ export function generateInsights(i: InsightInputs): InsightRow[] {
     );
     if (!cells.length) continue;
     const direct = cells.filter((c) => c.directlyComparable && c.diffPct !== null);
+    // not a direct comparison, but a confirmed pair whose two products hold the SAME quantity (a substitute): never a per-unit comparison, products with different quantities are not compared
     const unitBased = cells.filter((c) => !c.directlyComparable && c.unitDiffPct !== null && c.matchStatus !== 'needs_review');
     const pool = direct.length ? direct : unitBased;
     if (!pool.length) continue;
@@ -168,7 +169,7 @@ export function generateInsights(i: InsightInputs): InsightRow[] {
     ];
     const worstObserved = [row.sourcePrice.observedAt, cheapest.price.observedAt].filter(Boolean).sort()[0] ?? null;
     const fresh = freshnessFactor(worstObserved, i.now, i.staleAfterHours);
-    const basis = useUnit ? ` (unit price, ${cheapest.matchClass.replace('_', ' ')} match)` : '';
+    const basis = useUnit ? ` (the same quantity, ${cheapest.matchClass.replace('_', ' ')} match)` : '';
     const matchWeight = useUnit ? (cheapest.matchClass === 'different_pack' ? 0.8 : 0.5) : 1;
 
     if (Math.abs(pct(cheapest)) >= largeGap || Math.abs(pct(priciest)) >= largeGap) {
@@ -188,7 +189,7 @@ export function generateInsights(i: InsightInputs): InsightRow[] {
           currency: cur,
           gapPct: round(pct(c), 2),
           competitor: c.siteName,
-          basis: useUnit ? 'unit_price' : 'shelf_price',
+          basis: useUnit ? 'same_quantity' : 'shelf_price',
         },
         evidence: evidence(c),
         siteId: c.siteId,

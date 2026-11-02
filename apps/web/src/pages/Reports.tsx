@@ -206,8 +206,8 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
                 <tbody>{data.comparisons.slice(0, 150).map((row) => (
                   <tr key={row.sourceVariantId}>
                     <td><div className="title">{row.title}</div><div className="sub">{[row.brand, row.sizeLabel].filter(Boolean).join(' · ')}</div></td>
-                    <td><PriceTag you site="Your shop" price={row.sourcePrice} unit={row.sourceUnitPrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
-                    <td><div className="row" style={{ alignItems: 'flex-start' }}>{row.cells.map((c) => <div key={c.variantId} style={{ width: 170 }}><PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting} matchLabel={`${c.matchClass === 'identical' ? 'same' : c.matchClass === 'different_pack' ? 'pack' : 'similar'} ${Math.round(c.confidence * 100)}%`} availability={c.availability} offer={c.offerSummary} href={c.url ?? null} product={c.title} /></div>)}</div></td>
+                    <td><PriceTag you site="Your shop" price={row.sourcePrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
+                    <td><div className="row" style={{ alignItems: 'flex-start' }}>{row.cells.map((c) => <div key={c.variantId} style={{ width: 170 }}><PriceTag site={c.siteName} price={c.price} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting} matchLabel={`${c.matchClass === 'identical' ? 'same' : c.matchClass === 'different_pack' ? 'pack' : 'similar'} ${Math.round(c.confidence * 100)}%`} availability={c.availability} offer={c.offerSummary} href={c.url ?? null} product={c.title} /></div>)}</div></td>
                   </tr>
                 ))}</tbody>
               </table></div>

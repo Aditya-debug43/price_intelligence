@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { productMatches, sites, variants } from '@ci/database';
 import type { ComparisonRow, ReportData } from '@ci/shared';
-import { comparisonTable, ensureFxRates, generateReport, loadComparison, loadFxTable, runMatching, startScan } from '@ci/services';
+import { comparisonTable, ensureFxRates, generateReport, loadComparison, loadFxTable, renderCsv, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness, type Tenant } from '../support/harness.ts';
 import { confirmSuggestions } from '../support/confirm.ts';
 
@@ -111,10 +111,11 @@ describe('the Price Comparison links each card to that product’s own page', ()
     }
   });
 
-  it('keeps a link on a different package size, to that size’s own page', async () => {
+  it('leaves a different package size out of the comparison; one that is the same quantity keeps a link to its own page', async () => {
     const cmp = await compare();
     const packs = cmp.flatMap((r) => r.cells.filter((c) => c.matchClass === 'different_pack').map((c) => ({ r, c })));
-    expect(packs.length).toBeGreaterThan(0);
+    // a pack that holds another quantity is never shown beside a price (see the quantity policy); any pack left is the same total, or not stated
+    expect(packs.every(({ c }) => c.quantity?.verdict !== 'different')).toBe(true);
     for (const { r, c } of packs) {
       expect(c.url, c.title).toBeTruthy();
       expect(c.url).not.toBe(r.url);
@@ -210,6 +211,8 @@ describe('links survive new collections and saved reports', () => {
     cloned.comparisons[0]!.url = null;
     cloned.comparisons[0]!.cells[0]!.url = null;
     const table = comparisonTable(cloned);
-    expect(JSON.stringify(table.rows[0])).not.toMatch(/null/);
+    const urlColumns = [table.columns.indexOf('Competitor evidence URL'), table.columns.indexOf('Your product URL')];
+    expect(urlColumns.every((i) => i >= 0 && table.rows[0]![i] === '')).toBe(true);
+    expect(renderCsv(cloned, 'comparison').toString('utf8')).not.toMatch(/null/);
   });
 });

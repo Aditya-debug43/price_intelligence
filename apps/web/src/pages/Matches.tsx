@@ -16,6 +16,9 @@ interface MatchRow {
   competitorAvailability: string; competitorObservedAt: string | null; competitorGtin: string | null; competitorSku: string | null; competitorCategory: string | null;
   /** In the grouped "To review" list: how many variant pairs of this product pair are waiting (this row is the strongest of them). */
   groupSize?: number;
+  /** The quantity policy: set when the two products hold different quantities, so the pair is left out of price comparison (a decision on it is untouched). */
+  priceExclusion?: string | null;
+  quantityCheck?: { verdict: string; note: string; a: { label: string | null }; b: { label: string | null }; packaging?: { differs: boolean } } | null;
 }
 
 interface Candidate {
@@ -24,7 +27,7 @@ interface Candidate {
   suggestion: { relationship: string; tier: string; summary: string; reasons: string[] } | null;
 }
 
-type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside';
+type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity';
 
 /** What a person can say two products are. The wording is the contract: a stand-in is never called the same product. */
 const RELATIONSHIPS = [
@@ -37,7 +40,7 @@ const REL_LABEL: Record<string, string> = {
   exact: 'Same product', variant: 'Same product, other pack or colour', substitute: 'Substitute', related: 'Related product', non_match: 'Not a match', insufficient: 'Not enough information',
 };
 const REL_HELP: Record<string, string> = {
-  exact: 'The same product from the same maker.', variant: 'The same product, but a different pack size, quantity or colour: compared per unit.', substitute: 'A different product that can stand in for yours. It is never shown as the same product.',
+  exact: 'The same product from the same maker.', variant: 'The same product, but a different pack size, quantity or colour. When the quantity differs the pair is not compared on price.', substitute: 'A different product that can stand in for yours. It is never shown as the same product.',
   related: 'It goes with your product but cannot replace it.', non_match: 'Different products.', insufficient: 'The listings do not say enough to tell.',
 };
 const TIER_LABEL: Record<string, string> = { strong: 'Strong evidence', medium: 'Some evidence', insufficient: 'Not enough evidence' };
@@ -72,7 +75,7 @@ export function MatchesPage() {
     (r) => toast.push(`${r.rejected} suggestion${r.rejected === 1 ? '' : 's'} for these two products marked as not a match. Your decision is kept every time matching runs again.`),
   );
   const s = summary.data;
-  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside }[b]) : null);
+  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside, quantity: s.counts.quantityExcluded ?? 0 }[b]) : null);
   const label = (text: string, b: Bucket) => (count(b) === null ? text : `${text} (${count(b)})`);
   const tabs: { id: Bucket; label: string }[] = [
     { id: 'review', label: label('To review', 'review') },
@@ -80,6 +83,7 @@ export function MatchesPage() {
     { id: 'unclear', label: label('Related & unclear', 'unclear') },
     { id: 'confirmed', label: label('Confirmed', 'confirmed') },
     { id: 'rejected', label: label('Not a match', 'rejected') },
+    ...((count('quantity') ?? 0) > 0 ? [{ id: 'quantity' as Bucket, label: label('Different quantity', 'quantity') }] : []),
     ...((count('look_again') ?? 0) > 0 ? [{ id: 'look_again' as Bucket, label: label('Look again', 'look_again') }] : []),
     ...((count('set_aside') ?? 0) > 0 ? [{ id: 'set_aside' as Bucket, label: label('Set aside', 'set_aside') }] : []),
   ];
@@ -138,6 +142,7 @@ function emptyText(tab: Bucket, s: MatchSummaryView | undefined) {
   if (tab === 'unclear') return 'Related products and pairs without enough information are kept here for reference. They never count as work to do and never appear in a price comparison.';
   if (tab === 'confirmed') return 'Nothing confirmed yet. Confirm a suggestion and it is kept here, and used in the price comparison once it is the same product, or in the substitutes view once it is a substitute.';
   if (tab === 'rejected') return 'You have not rejected any suggestions. A rejected pair is never suggested again.';
+  if (tab === 'quantity') return 'No pair is left out of price comparison for holding different quantities.';
   if (tab === 'look_again') return 'No decided pair has a changed product.';
   return 'The matcher has not set any earlier suggestion aside.';
 }
@@ -215,6 +220,12 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
           {m.confirmedBy === 'automatic' && <div className="small muted">confirmed automatically</div>}
         </div>
       </div>
+      {m.priceExclusion && (
+        <div className="callout warn" role="status" style={{ margin: '8px 0' }}>
+          <b>Left out of price comparison: the two products hold different quantities</b>{m.quantityCheck ? ` (${m.quantityCheck.a.label ?? '?'} against ${m.quantityCheck.b.label ?? '?'})` : ''}. Prices are not compared when the quantity differs, and are not converted into a price per unit.
+          {decided && <> <b>Your decision on this pair is kept</b>; the pair is just not used for price until the quantities agree.</>}
+        </div>
+      )}
       {m.needsReevaluation && (
         <div className="callout info" role="status" style={{ margin: '8px 0' }}>
           A product in this pair changed after you decided. <b>Your decision still stands</b> — look at the two products again and, if it still holds, keep it.
@@ -251,7 +262,7 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
 function History({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const q = useOrgQuery<{ events: { id: string; kind: string; relationship: string | null; tier: string | null; decision: string | null; note: string | null; createdAt: string }[] }>(['matches', 'history', id], `/matches/${id}/history`, { enabled: open });
-  const WORDS: Record<string, string> = { suggested: 'Suggested', changed: 'Suggestion changed', superseded: 'Set aside (no longer suggested)', reinstated: 'Suggested again', decided: 'Decided', flagged: 'A product changed' };
+  const WORDS: Record<string, string> = { suggested: 'Suggested', changed: 'Suggestion changed', superseded: 'Set aside (no longer suggested)', reinstated: 'Suggested again', decided: 'Decided', flagged: 'A product changed', auto_confirmed: 'Confirmed automatically', auto_withdrawn: 'Automatic confirmation withdrawn', quantity_excluded: 'Left out of price comparison (different quantity)', quantity_released: 'No longer left out of price comparison' };
   return (
     <details className="ev" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary>History of this pair</summary>

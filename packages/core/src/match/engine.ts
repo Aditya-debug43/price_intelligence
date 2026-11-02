@@ -1,4 +1,4 @@
-import type { EvidenceTier, MatchEvidence, MatchRelationship } from '@ci/shared';
+import type { EvidenceTier, MatchEvidence, MatchRelationship, QuantityCheck } from '@ci/shared';
 import { buildCandidateIndex, DEFAULT_CANDIDATE_OPTIONS, retrieveCandidates, type CandidateOptions } from './candidates.ts';
 import { analyseCatalogue, type Corpus } from './corpus.ts';
 import type { Dossier, DossierInput } from './dossier.ts';
@@ -30,6 +30,8 @@ export interface Suggestion {
   relationship: MatchRelationship;
   tier: EvidenceTier;
   evidence: MatchEvidence;
+  /** The quantity-compatibility policy applied to this pair: when it says the quantities differ the pair is recorded as left out of price comparison. */
+  quantity: QuantityCheck;
   method: PairEvaluation['method'];
   /** The auto-confirmation policy allows this pair to be confirmed without a person (see `PairEvaluation.auto`). Whether a workspace uses that is its own setting. */
   autoEligible: boolean;
@@ -130,7 +132,7 @@ export function runEngine(sources: DossierInput[], competitors: DossierInput[], 
         stats.byTier[e.tier]++;
         stats.suggestions++;
         out.push({
-          sourceVariantId: s.variantId, competitorVariantId: d.variantId, competitorSiteId: siteId, relationship: e.relationship, tier: e.tier, evidence: e.evidence, method: e.method, autoEligible: e.auto && (e.relationship === 'exact' || e.relationship === 'variant'), rank: e.rank,
+          sourceVariantId: s.variantId, competitorVariantId: d.variantId, competitorSiteId: siteId, relationship: e.relationship, tier: e.tier, evidence: e.evidence, quantity: e.quantity, method: e.method, autoEligible: e.auto && (e.relationship === 'exact' || e.relationship === 'variant'), rank: e.rank,
           pairHash: hashText(`${dossierHash(s)}|${dossierHash(d)}`), engineVersion: ENGINE_VERSION,
         });
       }

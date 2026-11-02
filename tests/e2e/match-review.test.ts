@@ -102,12 +102,16 @@ describe('reviewing a proposed match', () => {
     expect((await list('needs_review')).some((m) => m.sourceVariantId === target.sourceVariantId && m.competitorVariantId === target.competitorVariantId)).toBe(false);
   });
 
-  it('the price comparison uses the person’s choice', async () => {
+  it('records the person’s choice and keeps it, but leaves it out of the price comparison when the two products hold different quantities', async () => {
     const cmp = (await owner.get(`${base()}/comparison?pageSize=500`)).body;
     const row = cmp.rows.find((r: { sourceVariantId: string }) => r.sourceVariantId === target.sourceVariantId);
-    const cell = row.cells.find((c: { variantId: string }) => c.variantId === chosenVariant);
-    expect(cell).toMatchObject({ matchStatus: 'accepted', matchClass: 'identical', confidence: 1 });
-    expect(row.cells.some((c: { variantId: string }) => c.variantId === target.competitorVariantId)).toBe(false);
+    // what the person decided stands (here a 500 g product was chosen for a 6 × 355 ml pack: the decision is theirs to make)
+    const kept = (await list('accepted')).find((m) => m.competitorVariantId === chosenVariant) as unknown as { status: string; method: string; confidence: number; priceExclusion: string | null; quantityCheck: { verdict: string } };
+    expect(kept).toMatchObject({ status: 'accepted', method: 'manual', confidence: 1, priceExclusion: 'INCOMPARABLE_QUANTITY_MISMATCH' });
+    expect(kept.quantityCheck.verdict).toBe('different');
+    // but products that hold different quantities are not compared on price, and the suggestion it corrected is not compared either
+    expect(row?.cells.some((c: { variantId: string }) => c.variantId === chosenVariant) ?? false).toBe(false);
+    expect(row?.cells.some((c: { variantId: string }) => c.variantId === target.competitorVariantId) ?? false).toBe(false);
   });
 
   it('refuses nonsense and other workspaces’ products', async () => {

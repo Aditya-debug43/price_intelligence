@@ -13,6 +13,9 @@ import { matchRuns, productMatches, type DbLike } from '@ci/database';
  *     else waits for a person (status 'needs_review'). A person's later decision clears the marker and is final; the engine only ever withdraws a confirmation it made itself
  *     (the policy no longer allows it, a product changed, the pair is no longer proposed, or the setting was turned off).
  *  4. Every change to a suggestion and every decision is appended to match_events with the evidence and a snapshot of both products.
+ *  5. The quantity-compatibility policy (core/quantity-policy.ts): a pair whose two products hold different actual quantities is recorded as left out of price comparison
+ *     (`price_exclusion`), and an automatic confirmation needs the quantities shown equal. The marker is bookkeeping about the products, not a decision: it is kept up to date
+ *     on a person’s decided pair too, while that pair’s status, relationship and decision note are never touched.
  */
 
 export interface PersistResult {
@@ -27,9 +30,12 @@ export interface PersistResult {
   /** Pairs the engine confirmed under the auto-confirmation policy in this run, and confirmations it withdrew. */
   autoConfirmed: number;
   autoWithdrawn: number;
+  /** Pairs newly left out of price comparison by the quantity policy in this run (decided or not), and pairs released from it because the quantities now agree. */
+  quantityExcluded: number;
+  quantityReleased: number;
 }
 
-type EventKind = 'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn';
+type EventKind = 'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn' | 'quantity_excluded' | 'quantity_released';
 
 const chunks = <T>(a: T[], n: number): T[][] => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, (i + 1) * n));
 const uuidList = (ids: string[]) => sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `);
@@ -56,17 +62,18 @@ export async function recordMatchEvents(db: DbLike, orgId: string, matchIds: str
 }
 
 export async function persistSuggestions(db: DbLike, orgId: string, suggestions: Suggestion[], now: Date, opts: { autoConfirm?: boolean } = {}): Promise<PersistResult> {
-  const r: PersistResult = { created: 0, changed: 0, unchanged: 0, reinstated: 0, superseded: 0, flagged: 0, baselined: 0, protectedDecisions: 0, autoConfirmed: 0, autoWithdrawn: 0 };
+  const r: PersistResult = { created: 0, changed: 0, unchanged: 0, reinstated: 0, superseded: 0, flagged: 0, baselined: 0, protectedDecisions: 0, autoConfirmed: 0, autoWithdrawn: 0, quantityExcluded: 0, quantityReleased: 0 };
   const autoOn = opts.autoConfirm === true;
   // only what the comparison below reads (never the evidence text itself, which is large: one sentence of it is enough to tell whether a row changed)
   const existing = await db.select({
     id: productMatches.id, sourceVariantId: productMatches.sourceVariantId, competitorVariantId: productMatches.competitorVariantId, status: productMatches.status, relationship: productMatches.relationship,
     tier: productMatches.tier, pairHash: productMatches.pairHash, engineVersion: productMatches.engineVersion, supersededAt: productMatches.supersededAt, autoConfirmedAt: productMatches.autoConfirmedAt,
     decidedAt: productMatches.decidedAt, summary: sql<string | null>`${productMatches.evidence}->>'summary'`,
+    priceExclusion: productMatches.priceExclusion, priceExcludedAt: productMatches.priceExcludedAt, quantityVerdict: sql<string | null>`${productMatches.quantityCheck}->>'verdict'`,
   }).from(productMatches).where(eq(productMatches.orgId, orgId));
   const byPair = new Map(existing.map((m) => [`${m.sourceVariantId}|${m.competitorVariantId}`, m]));
   const seen = new Set<string>();
-  const ids: Record<'suggested' | 'changed' | 'reinstated' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn', string[]> = { suggested: [], changed: [], reinstated: [], flagged: [], auto_confirmed: [], auto_withdrawn: [] };
+  const ids: Record<'suggested' | 'changed' | 'reinstated' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn' | 'quantity_excluded' | 'quantity_released', string[]> = { suggested: [], changed: [], reinstated: [], flagged: [], auto_confirmed: [], auto_withdrawn: [], quantity_excluded: [], quantity_released: [] };
   const inserts: (typeof productMatches.$inferInsert)[] = [];
   const insertAuto: boolean[] = [];
 
@@ -84,10 +91,18 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
       decisionNote: eligible ? 'Confirmed automatically: the same identifier, or the same maker with identical names and consistent sizes.' : null,
       components: { engine: ENGINE_VERSION, signals: s.evidence.signals } as Record<string, unknown>, relationship: s.relationship, tier: s.tier, evidence: s.evidence, engineVersion: s.engineVersion,
       pairHash: s.pairHash, supersededAt: null, needsReevaluation: false, updatedAt: now,
+      priceExclusion: s.quantity.exclusion, priceExcludedAt: s.quantity.exclusion ? (ex?.priceExcludedAt ?? now) : null, quantityCheck: s.quantity,
     };
+    // the policy marker follows the products, on any pair (see rule 5); `quantityMoved` says it changed, so the change is recorded
+    const quantityMoved = !!ex && ex.priceExclusion !== s.quantity.exclusion;
+    const quantityChanged = !!ex && (quantityMoved || ex.quantityVerdict !== s.quantity.verdict);
     if (ex && (ex.status === 'accepted' || ex.status === 'rejected') && !engineOwned) {
       // a person decided this pair: the run may only notice that a product changed since
       r.protectedDecisions++;
+      if (quantityChanged) {
+        await db.update(productMatches).set({ priceExclusion: values.priceExclusion, priceExcludedAt: values.priceExcludedAt, quantityCheck: s.quantity }).where(eq(productMatches.id, ex.id));
+        if (quantityMoved) (s.quantity.exclusion ? ids.quantity_excluded : ids.quantity_released).push(ex.id);
+      }
       if (ex.pairHash === null) {
         await db.update(productMatches).set({ pairHash: s.pairHash }).where(eq(productMatches.id, ex.id));
         r.baselined++;
@@ -103,7 +118,7 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
       insertAuto.push(eligible);
       continue;
     }
-    const same = ex.relationship === s.relationship && ex.tier === s.tier && ex.pairHash === s.pairHash && ex.engineVersion === s.engineVersion && ex.summary === s.evidence.summary && ex.supersededAt === null && ex.status === values.status && (ex.autoConfirmedAt !== null) === eligible;
+    const same = ex.relationship === s.relationship && ex.tier === s.tier && ex.pairHash === s.pairHash && ex.engineVersion === s.engineVersion && ex.summary === s.evidence.summary && ex.supersededAt === null && ex.status === values.status && (ex.autoConfirmedAt !== null) === eligible && !quantityChanged;
     if (same) {
       r.unchanged++;
       continue;
@@ -111,6 +126,7 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
     const { updatedAt: _u, ...rest } = values;
     void _u;
     await db.update(productMatches).set({ ...rest, updatedAt: now }).where(eq(productMatches.id, ex.id));
+    if (quantityMoved) (s.quantity.exclusion ? ids.quantity_excluded : ids.quantity_released).push(ex.id);
     if (eligible && !engineOwned) {
       ids.auto_confirmed.push(ex.id);
       r.autoConfirmed++;
@@ -155,6 +171,10 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
   await recordMatchEvents(db, orgId, ids.auto_confirmed, 'auto_confirmed', { decision: 'accept', note: 'Confirmed automatically under the workspace\u2019s auto-confirmation setting.' });
   await recordMatchEvents(db, orgId, ids.auto_withdrawn, 'auto_withdrawn', { note: 'Automatic confirmation withdrawn: the pair no longer meets the policy, a product changed, or automatic confirmation was turned off.' });
   await recordMatchEvents(db, orgId, stale, 'superseded', { note: 'The matcher no longer proposes this pair.' });
+  await recordMatchEvents(db, orgId, ids.quantity_excluded, 'quantity_excluded', { note: 'Left out of price comparison by the quantity policy (INCOMPARABLE_QUANTITY_MISMATCH): the two products hold different quantities. Any decision on this pair is unchanged.' });
+  await recordMatchEvents(db, orgId, ids.quantity_released, 'quantity_released', { note: 'No longer left out of price comparison: the quantities of the two products no longer differ.' });
+  r.quantityExcluded = ids.quantity_excluded.length;
+  r.quantityReleased = ids.quantity_released.length;
   return r;
 }
 

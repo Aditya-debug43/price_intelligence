@@ -89,7 +89,7 @@ export function PricesPage() {
                         <div className="sub">{[row.brand, row.sizeLabel, row.category].filter(Boolean).join(' · ')}</div>
                         {row.position !== 'no_data' && <span className={`pill ${row.position === 'cheapest' ? 'good' : row.position === 'highest' ? 'bad' : ''}`} style={{ marginTop: 4 }}>{row.position === 'cheapest' ? 'Cheapest' : row.position === 'highest' ? 'Most expensive' : row.position === 'tied' ? 'Tied' : 'In the middle'}</span>}
                       </td>
-                      <td><PriceTag you site="Your shop" price={row.sourcePrice} unit={row.sourceUnitPrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
+                      <td><PriceTag you site="Your shop" price={row.sourcePrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
                       {shownSites.map((s) => {
                         const c = row.cells.find((x) => x.siteId === s.id);
                         if (!c) {
@@ -101,7 +101,7 @@ export function PricesPage() {
                         }
                         return (
                           <td key={s.id}>
-                            <PriceTag site={c.siteName} price={c.price} unit={c.unitPrice} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
+                            <PriceTag site={c.siteName} price={c.price} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
                               matchLabel={(() => { const r = c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute'); return `${r === 'exact' ? 'same product' : r === 'variant' ? 'other pack' : r === 'related' ? 'related' : 'substitute'}${c.confirmation === 'suggested' ? ' · suggested' : ''}`; })()} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
                             <div className="small muted" style={{ marginTop: 2 }}>{c.confirmation === 'automatic' ? 'Confirmed automatically' : c.confirmation === 'suggested' ? 'Suggested, not confirmed' : c.confirmation === 'person' ? 'Confirmed by you' : ''}</div>
                             {(substitutes || related) && (c.differences ?? []).length > 0 && <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--amber)' }}>{(c.differences ?? []).slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul>}
@@ -128,7 +128,7 @@ export function PricesPage() {
       {d && (
         <div className="stack-s" style={{ marginTop: 14 }}>
           <div className="small muted">
-            <b>Reading a tag:</b> the big number is the price exactly as the website displays it, in its own currency; the strip shows the difference to your price after conversion to {reporting} — only for products you confirmed are the same. Different pack sizes and substitutes are compared per unit (per 100 g / per litre / per item) where the size is known. A dashed border means the price is older than {36} hours.
+            <b>Reading a tag:</b> the big number is the price exactly as the website displays it, in its own currency; the strip shows the difference to your price after conversion to {reporting} — only for products you confirmed are the same. Products that hold a different quantity (another size or pack) are never compared on price; a substitute is compared only when it holds the same quantity as yours, and nothing is converted into a price per litre, per kilogram or per item. A dashed border means the price is older than {36} hours.
           </div>
           {d.fx.length > 0 && <div className="small muted"><b>Exchange rates used:</b> {d.fx.map((f) => `1 ${f.from} = ${f.rate.toFixed(4)} ${f.to} (${f.source}${f.isFixed ? ', fixed' : ''}, ${formatDateTime(f.fetchedAt)})`).join(' · ')}{d.fx.some((f) => f.source.includes('open.er-api.com')) && <> · <a href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer noopener">Rates By Exchange Rate API</a></>}</div>}
         </div>

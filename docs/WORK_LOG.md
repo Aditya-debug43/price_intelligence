@@ -848,3 +848,26 @@ Commit `1a3b3a3` pushed to `main`; Vercel now serves `index-D3PyXuLr.js` (identi
 ### Not verified
 
 The logged-in production page itself (no credentials entered): the owner should open the 28 October report once, pick a tab and press CSV.
+
+## 2026-11-02 — Directive 23: products with different quantities are incomparable (policy `quantity-1`) — built and tested; NOT yet deployed
+
+Request (verbatim: `docs/original-prompt/23_DIRECTIVE_DIFFERENT_QUANTITIES_INCOMPARABLE_2026-11-02.md`). Design, rules and limits: `docs/matching-engine-v2.md` §11.
+
+### Root cause
+The engine treated "the same product in another pack or size" as a comparable relationship: it was suggested, often confirmed automatically (the old policy auto-confirmed a pair with both sizes stated even when they differed), listed in the price comparison, compared per unit (`unitDiffPct`, "compare unit prices") and used for price-gap insights by a per-unit fallback. Nothing stopped a person's earlier confirmation of such a pair from feeding prices.
+
+### Change
+* `packages/core/src/quantity-policy.ts` (new, pure): reads a product's actual quantity (volume, mass, count, length, area; title, variant options, size hints, labelled net content), compares two (`same` / `different` / `unknown`, with the values, sources and the packaging kept apart), `INCOMPARABLE_QUANTITY_MISMATCH`. Types in `@ci/shared`.
+* Engine: `dossier.ts` (quantity on every dossier), `evidence.ts` (assessment on every pair; exact → variant when it differs; automatic confirmation only when `same`; evidence text no longer says "compare per unit"), `engine.ts`, v1 reasons in `matching.ts`.
+* Storage: migration `0015_quantity_policy` (3 nullable columns on `product_matches`); `matching-v2.ts` persists them on every pair including a person's decided one (decision fields never written) and appends `quantity_excluded` / `quantity_released` to the history; manual pairs, bulk accept (skips excluded pairs) and the first matcher record them too; `net-content.ts`, `quantity-check.ts` (measuring any stored pair, the audit).
+* Price comparison (`comparison.ts`): excluded pairs are dropped from the price and substitute views before any price is read; a person's confirmation with a quantity not stated still counts and is labelled; a machine confirmation is not a direct comparison unless the quantities are equal; per-unit prices are not computed; `insights.ts`: per-unit fallback removed.
+* Review (`match-queue.ts`, `queries.ts`, `Matches.tsx`): excluded pairs no longer wait for review; new "Different quantity" view with the recorded values; the card says the decision is kept. Price comparison page: no per-unit strip, help text rewritten.
+* `scripts/ops-quantity-audit.ts` (read-only by default).
+
+### Verified (local)
+* **1,229 tests in 79 files pass** (1,184 before; +45): 19 unit tests of the rule (all eleven cases of the directive and more), 12 engine-level tests (incl. same part number and same barcode with different quantities, auto-confirmation, model numbers), 14 end-to-end tests of stored decisions (decision columns byte-identical before and after the audit, history entries once, idempotent, withdrawal only of the matcher's own confirmation, bulk accept, hand-made pairs, review counts, comparison). Four existing tests that asserted the retired per-unit behaviour were changed to assert the new rule; nine only needed the new field on hand-built suggestions. Mutation check: removing the automatic-confirmation gate fails 5 engine tests. Lint 0 errors, typecheck and build clean.
+* Browser (real built app, throwaway database, fictional shops): Price comparison shows 44 competitor tags, all plain "% vs you", no per-unit strip; Match review "To review" 0, "Different quantity (7)" with the values; confirming one of them through the real button records the decision ("Confirmed" 55 → 56), the banner says the decision is kept, and the price comparison is unchanged (44 tags, the same-size product still compared).
+* Audit on the LOCAL copy of real catalogues (older first-matcher pairs; read-only transaction): aditya 52 of 73 pairs differ (31 accepted by a person, 21 waiting), 2 unknown; Exploration Workspace 968 of 2,053 (all waiting); AdityaGraphics 971 of 2,053 (250 accepted by a person). Person-accepted pairs it leaves out include "Tomato Vine 1 kg ↔ Tomato 5 oz", "Fiji 1 L ↔ Fiji 6 × 500 ml", "Amstel 24 × 8 oz ↔ one 25 cl can", "Huggies 28 ct ↔ 27 ct" and a weight accepted against a volume (M'M's 5.3 oz ↔ chocolate milk 1/2 gal).
+
+### Not done: production
+SSH to the server timed out on 2026-11-02 (the firewall allows one address; this machine's address is not on the list). So the production audit, backup, deployment, migration and the production run of the audit with `--apply` were NOT performed, and the code was committed locally and NOT pushed (the website would otherwise deploy on its own and show per-unit figures from the old server as "same quantity"). Steps once access is back: read-only audit (`--before-migration`) → backup → push → `sudo shelfwatch-update` (applies migration 0015) → `ops-quantity-audit.ts --apply` → matching run per workspace → verify the price comparison and Match review.
