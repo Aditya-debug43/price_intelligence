@@ -114,7 +114,13 @@ export interface MatchEvidence {
  * A pair keeps its relationship (it can still be "the same product in another pack"); the policy adds a recorded reason it is not compared on price.
  */
 export const INCOMPARABLE_QUANTITY_MISMATCH = 'INCOMPARABLE_QUANTITY_MISMATCH' as const;
-export type PriceExclusion = typeof INCOMPARABLE_QUANTITY_MISMATCH;
+/**
+ * The bundle-contents policy (core/match/bundle.ts): two automotive bundles (combos, kits) that do not hold the same contents are not comparable on price, however similar their
+ * main product, brand or vehicle fit. A bundle with an extra or a missing component, or a combo against a single item, is a verified mismatch; contents that cannot be established are "unknown", never assumed equal.
+ */
+export const INCOMPARABLE_BUNDLE_CONTENT_MISMATCH = 'INCOMPARABLE_BUNDLE_CONTENT_MISMATCH' as const;
+/** Why a pair is left out of price comparison (stored on the pair). */
+export type PriceExclusion = typeof INCOMPARABLE_QUANTITY_MISMATCH | typeof INCOMPARABLE_BUNDLE_CONTENT_MISMATCH;
 export type QuantityDimension = 'volume' | 'mass' | 'count' | 'length' | 'area';
 export type QuantityVerdict = 'same' | 'different' | 'unknown';
 /** What one product says it holds, in the base unit of its dimension (ml, g, pieces, mm, mm²). */
@@ -131,12 +137,42 @@ export interface QuantityCheck {
   policy: string;
   verdict: QuantityVerdict;
   /** Set only when the products hold different actual quantities. */
-  exclusion: PriceExclusion | null;
+  exclusion: typeof INCOMPARABLE_QUANTITY_MISMATCH | null;
   note: string;
   a: QuantitySide;
   b: QuantitySide;
   /** The pack configuration, kept apart from the total (2 × 1 L and 1 × 2 L are the same quantity packaged differently). */
   packaging: { a: string | null; b: string | null; differs: boolean };
+}
+
+export type BundleVerdict = 'equivalent' | 'mismatch' | 'unknown';
+/** What one listing includes, as read from its variant and title: the parts (with counts) and the bulb codes. */
+export interface BundleSide {
+  /** The listing is sold as several items together (a combo, a kit, "A + B"). */
+  bundle: boolean;
+  /** The components it names, e.g. "headlight", "2 × turn signal". */
+  items: string[];
+  /** Components it explicitly leaves out ("W/o fog lights"). */
+  without: string[];
+  /** The bulb codes it names. */
+  codes: string[];
+  /** Where the contents were read: the variant’s own option/title, or the product title. */
+  basis: 'variant' | 'title' | null;
+  /** The text the contents were read from. */
+  text: string | null;
+}
+/** The recorded outcome of comparing the contents of the two bundles of a pair: the evidence behind the exclusion. */
+export interface BundleCheck {
+  policy: string;
+  verdict: BundleVerdict;
+  /** Set only when the contents are shown to differ. */
+  exclusion: typeof INCOMPARABLE_BUNDLE_CONTENT_MISMATCH | null;
+  note: string;
+  a: BundleSide;
+  b: BundleSide;
+  /** What your bundle has that the other lacks, and the reverse. */
+  onlyA: string[];
+  onlyB: string[];
 }
 
 /** The relationships a person can state when they decide (the machine never states "non_match" as a suggestion; a rejection records it). */

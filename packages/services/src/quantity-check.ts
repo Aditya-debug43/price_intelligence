@@ -1,9 +1,9 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { assessQuantities, measureQuantity, measureStored, prepareVariant, sizeHintOf, type MeasuredQuantity } from '@ci/core';
-import type { QuantityCheck } from '@ci/shared';
+import type { PriceExclusion, QuantityCheck } from '@ci/shared';
 import { productMatches, products, variants, type DbLike } from '@ci/database';
 import { loadNetContent } from './net-content.ts';
-import { recordMatchEvents } from './matching-v2.ts';
+import { exclusionEvent, recordMatchEvents } from './matching-v2.ts';
 
 /**
  * The quantity-compatibility policy applied to pairs the engine did not just evaluate: pairs already stored (a person's confirmations included) and pairs a
@@ -78,13 +78,14 @@ export async function auditStoredPairs(db: DbLike, orgId: string, opts: { apply?
       id: productMatches.id, s: productMatches.sourceVariantId, c: productMatches.competitorVariantId, status: productMatches.status, relationship: productMatches.relationship, auto: productMatches.autoConfirmedAt,
       superseded: productMatches.supersededAt,
       exclusion: markers ? productMatches.priceExclusion : sql<null>`null`, excludedAt: markers ? productMatches.priceExcludedAt : sql<null>`null`, verdict: markers ? sql<string | null>`${productMatches.quantityCheck}->>'verdict'` : sql<null>`null`,
+      // a pair the bundle-contents policy left out stays left out: this audit sets and clears the quantity reason only
+      bundleExclusion: markers ? sql<string | null>`${productMatches.bundleCheck}->>'exclusion'` : sql<null>`null`,
     })
     .from(productMatches)
     .where(eq(productMatches.orgId, orgId));
   const measured = await measureVariants(db, orgId, rows.flatMap((r) => [r.s, r.c]));
   const a: QuantityAudit = { pairs: rows.length, different: 0, unknown: 0, differentBy: {}, same: 0, toWrite: 0, newlyExcluded: 0, released: 0, excludedByState: { personAccepted: 0, personRejected: 0, autoConfirmed: 0, waitingForReview: 0, setAside: 0 }, confirmedUnverified: { person: 0, automatic: 0 }, examples: [] };
-  const excludedIds: string[] = [];
-  const releasedIds: string[] = [];
+  const moved: Record<string, string[]> = { quantity_excluded: [], quantity_released: [], bundle_excluded: [], bundle_released: [] };
   const now = opts.now ?? new Date();
   const titles = new Map<string, string>();
   for (const r of rows) {
@@ -106,12 +107,15 @@ export async function auditStoredPairs(db: DbLike, orgId: string, opts: { apply?
       if (r.auto) a.confirmedUnverified.automatic++;
       else a.confirmedUnverified.person++;
     }
-    const changed = (r.exclusion ?? null) !== q.exclusion || r.verdict !== q.verdict;
+    const exclusionNow = (q.exclusion ?? r.bundleExclusion ?? null) as PriceExclusion | null;
+    const changed = (r.exclusion ?? null) !== exclusionNow || r.verdict !== q.verdict;
     if (!changed) continue;
     a.toWrite++;
-    if ((r.exclusion ?? null) === null && excluded) { a.newlyExcluded++; excludedIds.push(r.id); }
-    if ((r.exclusion ?? null) !== null && !excluded) { a.released++; releasedIds.push(r.id); }
-    if (opts.apply) await db.update(productMatches).set({ priceExclusion: q.exclusion, priceExcludedAt: excluded ? (r.excludedAt ?? now) : null, quantityCheck: q }).where(eq(productMatches.id, r.id));
+    if ((r.exclusion ?? null) === null && exclusionNow !== null) a.newlyExcluded++;
+    if ((r.exclusion ?? null) !== null && exclusionNow === null) a.released++;
+    const ev = exclusionEvent(r.exclusion, exclusionNow);
+    if (ev) moved[ev]!.push(r.id);
+    if (opts.apply) await db.update(productMatches).set({ priceExclusion: exclusionNow, priceExcludedAt: exclusionNow ? (r.excludedAt ?? now) : null, quantityCheck: q }).where(eq(productMatches.id, r.id));
   }
   if (a.examples.length) {
     const t = await db.select({ id: variants.id, title: products.title, vt: variants.title }).from(variants).innerJoin(products, eq(products.id, variants.productId)).where(inArray(variants.id, [...titles.keys()]));
@@ -119,8 +123,10 @@ export async function auditStoredPairs(db: DbLike, orgId: string, opts: { apply?
     for (const e of a.examples) { e.a = name.get(e.a) ?? e.a; e.b = name.get(e.b) ?? e.b; }
   }
   if (opts.apply) {
-    await recordMatchEvents(db, orgId, excludedIds, 'quantity_excluded', { note: 'Left out of price comparison by the quantity policy (INCOMPARABLE_QUANTITY_MISMATCH): the two products hold different quantities. Any decision on this pair is unchanged.' });
-    await recordMatchEvents(db, orgId, releasedIds, 'quantity_released', { note: 'No longer left out of price comparison: the quantities of the two products no longer differ.' });
+    await recordMatchEvents(db, orgId, moved.quantity_excluded!, 'quantity_excluded', { note: 'Left out of price comparison by the quantity policy (INCOMPARABLE_QUANTITY_MISMATCH): the two products hold different quantities. Any decision on this pair is unchanged.' });
+    await recordMatchEvents(db, orgId, moved.quantity_released!, 'quantity_released', { note: 'No longer left out of price comparison: the quantities of the two products no longer differ.' });
+    await recordMatchEvents(db, orgId, moved.bundle_excluded!, 'bundle_excluded', { note: 'Left out of price comparison by the bundle-contents policy (INCOMPARABLE_BUNDLE_CONTENT_MISMATCH). Any decision on this pair is unchanged.' });
+    await recordMatchEvents(db, orgId, moved.bundle_released!, 'bundle_released', { note: 'No longer left out of price comparison by the bundle-contents policy.' });
   }
   return a;
 }

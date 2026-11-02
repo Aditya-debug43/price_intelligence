@@ -21,10 +21,10 @@ import {
   type PreparedVariant,
   AUTO_ACCEPT_THRESHOLD,
 } from '@ci/core';
-import { MATCH_CLASSES, classOfRelationship, relationshipOfClass, type DecidableRelationship, type MatchClass, type MatchRelationship } from '@ci/shared';
+import { MATCH_CLASSES, classOfRelationship, relationshipOfClass, type BundleCheck, type DecidableRelationship, type MatchClass, type MatchRelationship } from '@ci/shared';
 import { orgSettings, productMatches, products, sites, variants, auditEvents, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
-import { recordMatchEvents, runEngineOnInputs } from './matching-v2.ts';
+import { exclusionEvent, recordMatchEvents, runEngineOnInputs } from './matching-v2.ts';
 import { loadNetContent } from './net-content.ts';
 import { checkOf, measureVariants } from './quantity-check.ts';
 
@@ -63,7 +63,7 @@ export interface MatchRunResult {
   needsReview: number;
 }
 
-async function loadMatchable(db: DbLike, orgId: string) {
+async function loadMatchable(db: DbLike, orgId: string, only?: string[]) {
   const rows = await db
     .select({
       variantId: variants.id, productId: products.id, siteId: products.siteId, role: sites.role, title: products.title, variantTitle: variants.title, brand: products.brand, category: products.category,
@@ -72,7 +72,7 @@ async function loadMatchable(db: DbLike, orgId: string) {
     .from(variants)
     .innerJoin(products, eq(products.id, variants.productId))
     .innerJoin(sites, eq(sites.id, products.siteId))
-    .where(and(eq(variants.orgId, orgId), eq(sites.active, true), isNull(products.delistedAt)));
+    .where(and(eq(variants.orgId, orgId), eq(sites.active, true), isNull(products.delistedAt), only ? inArray(variants.id, only) : undefined));
   return rows;
 }
 
@@ -89,15 +89,43 @@ export const tagContext = (attrs: Record<string, unknown> | null | undefined): s
 
 const tagList = (attrs: Record<string, unknown> | null | undefined): string[] => (Array.isArray(attrs?.['tags']) ? (attrs!['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : []);
 
-export async function runMatching(svc: Services, db: DbLike, orgId: string): Promise<MatchRunResult> {
-  const rows = await loadMatchable(db, orgId);
-  const [settings] = await db.select().from(orgSettings).where(eq(orgSettings.orgId, orgId));
+/** What the matcher reads for every active product of a workspace (the same inputs for a run, for a person’s search and for an audit). */
+function toMatchables(rows: Awaited<ReturnType<typeof loadMatchable>>): (DossierInput & { role: 'source' | 'competitor' })[] {
   // A vendor field that holds the shop's own name, the country or a platform default is not a brand (see core/brands.ts): matching uses none.
   const placeholders = placeholderBrandKeys(rows.map((r) => ({ siteId: r.siteId, brand: r.brand, title: r.title })));
-  const matchables: (DossierInput & { role: 'source' | 'competitor' })[] = rows.map((r) => ({
+  return rows.map((r) => ({
     variantId: r.variantId, productId: r.productId, siteId: r.siteId, role: r.role, title: r.title, variantTitle: r.variantTitle, brand: isPlaceholderBrand(placeholders, r.siteId, r.brand) ? null : r.brand, category: r.category, gtin: r.gtin, sku: r.sku,
     mpn: r.mpn, model: r.model, sizeHints: [r.qtyLabel, sizeHintOf(r.attrs)], context: tagContext(r.attrs), options: r.options, tags: tagList(r.attrs),
   }));
+}
+
+/** Everything engine v2 reads for a workspace, including the product pages’ own descriptions (bulb charts) and labelled net-content lines. */
+export async function loadEngineInputs(db: DbLike, orgId: string): Promise<(DossierInput & { role: 'source' | 'competitor' })[]> {
+  const matchables = toMatchables(await loadMatchable(db, orgId));
+  const descriptions = await loadDescriptions(db, orgId);
+  const netContent = await loadNetContent(db, orgId);
+  for (const m of matchables) { m.description = descriptions.get(m.productId) ?? null; m.netContent = netContent.get(m.productId) ?? null; }
+  return matchables;
+}
+
+/**
+ * The bundle-contents policy for ONE pair, read from the two products alone: used where a person records a pair (a manual match), so a confirmation of two bundles that do not hold the same
+ * contents is left out of price comparison from the start. It reads each product's title, variant options and bulb codes, exactly what the audit and a matching run read, but resolves codes
+ * against the two products rather than the whole catalogue; the next audit or matching run evaluates it against the catalogue and corrects any difference.
+ */
+export async function pairBundleCheck(db: DbLike, orgId: string, sourceVariantId: string, competitorVariantId: string): Promise<BundleCheck | null> {
+  const inputs = toMatchables(await loadMatchable(db, orgId, [sourceVariantId, competitorVariantId]));
+  const a = inputs.find((i) => i.variantId === sourceVariantId);
+  const b = inputs.find((i) => i.variantId === competitorVariantId);
+  if (!a || !b) return null;
+  const corpus = analyseCatalogue(inputs);
+  return evaluatePair(corpus.byVariant.get(a.variantId)!, corpus.byVariant.get(b.variantId)!, corpus).bundle;
+}
+
+export async function runMatching(svc: Services, db: DbLike, orgId: string): Promise<MatchRunResult> {
+  const rows = await loadMatchable(db, orgId);
+  const [settings] = await db.select().from(orgSettings).where(eq(orgSettings.orgId, orgId));
+  const matchables = toMatchables(rows);
 
   // Engine v2 (and its shadow mode) is chosen per workspace. Shadow computes and records the run and changes nothing a person can see.
   const engine = settings?.matchingEngine ?? 'v1';
@@ -169,7 +197,7 @@ export async function runMatching(svc: Services, db: DbLike, orgId: string): Pro
     // Nothing a run proposes is accepted by the run: a person confirms every pair (what the earlier engine called "auto" waits for review too).
     result.needsReview++;
     const q = checkOf(measured, c.sourceVariantId, c.competitorVariantId);
-    const values = { matchClass: c.matchClass, confidence: c.confidence, status: 'needs_review' as const, method: c.method, reasons: c.reasons, components: c.components as unknown as Record<string, unknown>, supersededAt: null, updatedAt: now, priceExclusion: q.exclusion, priceExcludedAt: q.exclusion ? (ex?.priceExcludedAt ?? now) : null, quantityCheck: q };
+    const values = { matchClass: c.matchClass, confidence: c.confidence, status: 'needs_review' as const, method: c.method, reasons: c.reasons, components: c.components as unknown as Record<string, unknown>, supersededAt: null, updatedAt: now, priceExclusion: q.exclusion ?? ex?.bundleCheck?.exclusion ?? null, priceExcludedAt: (q.exclusion ?? ex?.bundleCheck?.exclusion) ? (ex?.priceExcludedAt ?? now) : null, quantityCheck: q };
     if (ex) {
       await db.update(productMatches).set(values).where(eq(productMatches.id, ex.id));
       result.updated++;
@@ -404,7 +432,10 @@ export async function setManualMatch(
   const [existing] = await db.select().from(productMatches).where(and(eq(productMatches.sourceVariantId, p.sourceVariantId), eq(productMatches.competitorVariantId, p.competitorVariantId)));
   // the person’s choice is recorded as they made it; whether the two products hold the same quantity is recorded beside it, and decides whether the pair is compared on price
   const q = checkOf(await measureVariants(db, orgId, [p.sourceVariantId, p.competitorVariantId]), p.sourceVariantId, p.competitorVariantId);
-  const values = { matchClass: classOfRelationship(relationship), confidence: 1, status: 'accepted' as const, method: 'manual', reasons: ['Chosen by a person'], relationship, supersededAt: null, needsReevaluation: false, decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null, updatedAt: now, priceExclusion: q.exclusion, priceExcludedAt: q.exclusion ? (existing?.priceExcludedAt ?? now) : null, quantityCheck: q };
+  // and whether two bundles hold the same contents (the person's confirmation is kept either way; the pair is just not used for price when they differ)
+  const bc = await pairBundleCheck(db, orgId, p.sourceVariantId, p.competitorVariantId);
+  const exclusion = q.exclusion ?? bc?.exclusion ?? null;
+  const values = { matchClass: classOfRelationship(relationship), confidence: 1, status: 'accepted' as const, method: 'manual', reasons: ['Chosen by a person'], relationship, supersededAt: null, needsReevaluation: false, decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null, updatedAt: now, priceExclusion: exclusion, priceExcludedAt: exclusion ? (existing?.priceExcludedAt ?? now) : null, quantityCheck: q, bundleCheck: bc };
   const row = existing
     ? (await db.update(productMatches).set(values).where(eq(productMatches.id, existing.id)).returning())[0]!
     : (await db.insert(productMatches).values({ orgId, sourceVariantId: p.sourceVariantId, competitorVariantId: p.competitorVariantId, competitorSiteId: comp.siteId, components: {}, ...values }).returning())[0]!;
@@ -424,6 +455,9 @@ export async function setManualMatch(
     )
     .returning({ id: productMatches.id });
   await recordMatchEvents(db, orgId, [row.id], 'decided', { actorId: userId, decision: 'manual', note: p.note ?? null });
+  const moved = exclusionEvent(existing?.priceExclusion ?? null, exclusion);
+  if (moved === 'bundle_excluded') await recordMatchEvents(db, orgId, [row.id], moved, { note: 'Left out of price comparison by the bundle-contents policy (INCOMPARABLE_BUNDLE_CONTENT_MISMATCH): the two bundles hold different contents. Any decision on this pair is unchanged.' });
+  if (moved === 'bundle_released') await recordMatchEvents(db, orgId, [row.id], moved, { note: 'No longer left out of price comparison by the bundle-contents policy.' });
   if (superseded.length) await recordMatchEvents(db, orgId, superseded.map((s) => s.id), 'decided', { actorId: userId, decision: 'reject', note: 'Replaced by a manual choice' });
   await db.insert(auditEvents).values({ orgId, userId, action: 'match.manual', target: row.id, meta: { matchClass: values.matchClass, relationship, superseded: superseded.length, replaced: p.replaceMatchId ?? null } });
   return { match: row, superseded: superseded.length };

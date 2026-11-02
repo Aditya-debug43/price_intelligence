@@ -1,0 +1,1 @@
+ALTER TABLE "product_matches" ADD COLUMN "bundle_check" jsonb;

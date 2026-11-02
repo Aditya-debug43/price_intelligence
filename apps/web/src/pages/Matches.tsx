@@ -19,6 +19,8 @@ interface MatchRow {
   /** The quantity policy: set when the two products hold different quantities, so the pair is left out of price comparison (a decision on it is untouched). */
   priceExclusion?: string | null;
   quantityCheck?: { verdict: string; note: string; a: { label: string | null }; b: { label: string | null }; packaging?: { differs: boolean } } | null;
+  /** The bundle-contents policy: what each of two bundles (combos, kits) includes, and whether the contents are the same, different, or not established. */
+  bundleCheck?: { verdict: string; note: string; a: { items: string[]; without: string[] }; b: { items: string[]; without: string[] }; onlyA: string[]; onlyB: string[] } | null;
 }
 
 interface Candidate {
@@ -44,6 +46,7 @@ const REL_HELP: Record<string, string> = {
   related: 'It goes with your product but cannot replace it.', non_match: 'Different products.', insufficient: 'The listings do not say enough to tell.',
 };
 const TIER_LABEL: Record<string, string> = { strong: 'Strong evidence', medium: 'Some evidence', insufficient: 'Not enough evidence' };
+const bundleItems = (s: { items: string[]; without: string[] }) => (s.items.length ? s.items.join(' + ') : 'contents not stated') + (s.without.length ? ` (without ${s.without.join(', ')})` : '');
 const money = (p: number | null, c: string | null) => (p === null ? '—' : `${p.toFixed(2)} ${c ?? '?'}`);
 
 const EFFECT: Record<EvidenceItem['effect'], { icon: string; label: string; cls: string }> = {
@@ -83,7 +86,7 @@ export function MatchesPage() {
     { id: 'unclear', label: label('Related & unclear', 'unclear') },
     { id: 'confirmed', label: label('Confirmed', 'confirmed') },
     { id: 'rejected', label: label('Not a match', 'rejected') },
-    ...((count('quantity') ?? 0) > 0 ? [{ id: 'quantity' as Bucket, label: label('Different quantity', 'quantity') }] : []),
+    ...((count('quantity') ?? 0) > 0 ? [{ id: 'quantity' as Bucket, label: label('Not compared', 'quantity') }] : []),
     ...((count('look_again') ?? 0) > 0 ? [{ id: 'look_again' as Bucket, label: label('Look again', 'look_again') }] : []),
     ...((count('set_aside') ?? 0) > 0 ? [{ id: 'set_aside' as Bucket, label: label('Set aside', 'set_aside') }] : []),
   ];
@@ -142,7 +145,7 @@ function emptyText(tab: Bucket, s: MatchSummaryView | undefined) {
   if (tab === 'unclear') return 'Related products and pairs without enough information are kept here for reference. They never count as work to do and never appear in a price comparison.';
   if (tab === 'confirmed') return 'Nothing confirmed yet. Confirm a suggestion and it is kept here, and used in the price comparison once it is the same product, or in the substitutes view once it is a substitute.';
   if (tab === 'rejected') return 'You have not rejected any suggestions. A rejected pair is never suggested again.';
-  if (tab === 'quantity') return 'No pair is left out of price comparison for holding different quantities.';
+  if (tab === 'quantity') return 'No pair is left out of price comparison for holding different quantities or different bundle contents.';
   if (tab === 'look_again') return 'No decided pair has a changed product.';
   return 'The matcher has not set any earlier suggestion aside.';
 }
@@ -220,12 +223,23 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
           {m.confirmedBy === 'automatic' && <div className="small muted">confirmed automatically</div>}
         </div>
       </div>
-      {m.priceExclusion && (
+      {m.priceExclusion === 'INCOMPARABLE_BUNDLE_CONTENT_MISMATCH' && m.bundleCheck ? (
+        <div className="callout warn" role="status" style={{ margin: '8px 0' }}>
+          <b>Left out of price comparison: the two bundles do not hold the same contents.</b>
+          <div className="small" style={{ marginTop: 4 }}>
+            <div><b>Your bundle:</b> {bundleItems(m.bundleCheck.a)}</div>
+            <div><b>Competitor’s bundle:</b> {bundleItems(m.bundleCheck.b)}</div>
+            <div><b>Difference:</b> {m.bundleCheck.onlyA.length > 0 || m.bundleCheck.onlyB.length > 0 ? [m.bundleCheck.onlyA.length ? `only yours has ${m.bundleCheck.onlyA.join(', ')}` : '', m.bundleCheck.onlyB.length ? `only the competitor’s has ${m.bundleCheck.onlyB.join(', ')}` : ''].filter(Boolean).join('; ') : m.bundleCheck.note}</div>
+          </div>
+          A combo with an extra or a missing part is a different thing to buy, so its price is not set against another combo’s.
+          {decided && <> <b>Your decision on this pair is kept</b>; the pair is just not used for price until the contents agree.</>}
+        </div>
+      ) : m.priceExclusion ? (
         <div className="callout warn" role="status" style={{ margin: '8px 0' }}>
           <b>Left out of price comparison: the two products hold different quantities</b>{m.quantityCheck ? ` (${m.quantityCheck.a.label ?? '?'} against ${m.quantityCheck.b.label ?? '?'})` : ''}. Prices are not compared when the quantity differs, and are not converted into a price per unit.
           {decided && <> <b>Your decision on this pair is kept</b>; the pair is just not used for price until the quantities agree.</>}
         </div>
-      )}
+      ) : null}
       {m.needsReevaluation && (
         <div className="callout info" role="status" style={{ margin: '8px 0' }}>
           A product in this pair changed after you decided. <b>Your decision still stands</b> — look at the two products again and, if it still holds, keep it.
@@ -262,7 +276,7 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
 function History({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const q = useOrgQuery<{ events: { id: string; kind: string; relationship: string | null; tier: string | null; decision: string | null; note: string | null; createdAt: string }[] }>(['matches', 'history', id], `/matches/${id}/history`, { enabled: open });
-  const WORDS: Record<string, string> = { suggested: 'Suggested', changed: 'Suggestion changed', superseded: 'Set aside (no longer suggested)', reinstated: 'Suggested again', decided: 'Decided', flagged: 'A product changed', auto_confirmed: 'Confirmed automatically', auto_withdrawn: 'Automatic confirmation withdrawn', quantity_excluded: 'Left out of price comparison (different quantity)', quantity_released: 'No longer left out of price comparison' };
+  const WORDS: Record<string, string> = { suggested: 'Suggested', changed: 'Suggestion changed', superseded: 'Set aside (no longer suggested)', reinstated: 'Suggested again', decided: 'Decided', flagged: 'A product changed', auto_confirmed: 'Confirmed automatically', auto_withdrawn: 'Automatic confirmation withdrawn', quantity_excluded: 'Left out of price comparison (different quantity)', quantity_released: 'No longer left out of price comparison', bundle_excluded: 'Left out of price comparison (different bundle contents)', bundle_released: 'No longer left out of price comparison (bundle contents)' };
   return (
     <details className="ev" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary>History of this pair</summary>

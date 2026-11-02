@@ -181,7 +181,7 @@ describe('recording the policy on stored pairs (the audit)', () => {
 describe('what the matcher does with a pair whose quantities differ', () => {
   const sizes = (a: string, b: string) => assessQuantities(measureQuantity(parseQuantity(a), { title: a }), measureQuantity(parseQuantity(b), { title: b }));
   const suggest = (p: Pair, quantity: ReturnType<typeof sizes>, o: Partial<Suggestion> = {}): Suggestion => ({
-    sourceVariantId: p.s, competitorVariantId: p.c, competitorSiteId: '00000000-0000-0000-0000-000000000000', relationship: 'exact', tier: 'medium', method: 'attributes', autoEligible: false, rank: 0.9, pairHash: 'h1', engineVersion: ENGINE_VERSION, quantity,
+    sourceVariantId: p.s, competitorVariantId: p.c, competitorSiteId: '00000000-0000-0000-0000-000000000000', relationship: 'exact', tier: 'medium', method: 'attributes', autoEligible: false, rank: 0.9, pairHash: 'h1', engineVersion: ENGINE_VERSION, quantity, bundle: null,
     evidence: { items: [], signals: 1, summary: 'Looks like the same product.' }, ...o,
   });
 

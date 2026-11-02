@@ -1,6 +1,7 @@
-import type { EvidenceItem, EvidenceTier, MatchEvidence, MatchRelationship, QuantityCheck } from '@ci/shared';
+import type { BundleCheck, EvidenceItem, EvidenceTier, MatchEvidence, MatchRelationship, QuantityCheck } from '@ci/shared';
 import { compareQuantities } from '../quantity.ts';
 import { assessQuantities, automaticEligible } from '../quantity-policy.ts';
+import { assessBundles } from './bundle.ts';
 import { labelledNumbersIn, modelNumbersIn, scorePair, variantDifference, type MatchCandidate } from '../matching.ts';
 import { fitmentYears, type Corpus } from './corpus.ts';
 import { alignNames, kindHead, typeWords } from './names.ts';
@@ -36,6 +37,8 @@ export interface PairEvaluation {
   auto: boolean;
   /** The quantity-compatibility policy applied to this pair (quantity-policy.ts): whether the two products hold the same actual quantity, and so whether the pair may be compared on price. */
   quantity: QuantityCheck;
+  /** The bundle-contents policy applied to this pair (bundle.ts); null when it has nothing to say (neither is a lighting bundle). A verified mismatch leaves the pair out of price comparison. */
+  bundle: BundleCheck | null;
   legacy: MatchCandidate | null;
 }
 
@@ -213,6 +216,8 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
 
   // ── identity codes
   const codes = compareCodes(a, b, corpus);
+  // the bundle-contents policy: two bundles are compared on price only when they hold the same contents, whatever else agrees (brand, vehicle, name)
+  const bc = assessBundles(a.bundle, b.bundle, { a: codes.A, b: codes.B, shared: codes.shared });
   if (codes.state === 'agree') {
     const shown = codes.shared.map(up).join(' / ');
     add({
@@ -373,6 +378,18 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
   }
   const hasConflict = conflicts.length > 0;
   const finish = (relationship: MatchRelationship, tier: EvidenceTier, method: PairEvaluation['method'], rank: number, auto = false): PairEvaluation => {
+    // bundle contents: a combo with an extra, a missing or a different component (or a combo against a single item) is not the same product, not a stand-in and never confirmed automatically;
+    // contents that cannot be established are not taken as equal (a barcode or part number that proves the same item is the only thing that overrides "unknown")
+    if (bc) {
+      const comparable = relationship === 'exact' || relationship === 'variant' || relationship === 'substitute';
+      if (bc.verdict === 'mismatch') {
+        items.push({ kind: 'bundle', effect: 'differs', strength: 'strong', text: `Not compared on price: ${bc.note}`, a: bc.a.items.join(' + ') || bc.a.codes.join(' + ') || null, b: bc.b.items.join(' + ') || bc.b.codes.join(' + ') || null });
+        if (comparable) { relationship = 'related'; if (tier === 'strong') tier = 'medium'; }
+      } else if (bc.verdict === 'unknown') {
+        items.push({ kind: 'bundle', effect: 'missing', strength: 'moderate', text: bc.note, a: bc.a.items.join(' + ') || null, b: bc.b.items.join(' + ') || null });
+        if (comparable && !gtinEqual && !mpnEqual) { relationship = 'insufficient'; tier = 'insufficient'; }
+      } else items.push({ kind: 'bundle', effect: 'supports', strength: 'moderate', text: bc.note, a: bc.a.items.join(' + ') || null, b: bc.b.items.join(' + ') || null });
+    }
     // what the policy found is recorded as evidence; a pair whose quantities differ is a different pack/size whatever the earlier rules called it, and is never confirmed automatically unless the quantities are shown equal
     if (qa.verdict === 'different') {
       items.push({ kind: 'size', effect: 'differs', strength: 'strong', text: `Not compared on price: ${qa.note}`, a: qa.a.label, b: qa.b.label });
@@ -384,7 +401,7 @@ export function evaluatePair(a: Dossier, b: Dossier, corpus: Corpus): PairEvalua
     }
     const supports = items.filter((i) => i.effect === 'supports');
     const specific = supports.filter((i) => i.kind === 'identifier' || i.kind === 'identity_code' || i.kind === 'fitment' || i.kind === 'spec').length;
-    return { relationship, tier, method, rank: Math.round(rank * 1000) / 1000, conflicts, legacy, auto: auto && automaticEligible(qa.verdict), quantity: qa, evidence: { items, signals: supports.length, summary: summarise(relationship, tier, items, conflicts, specific) } };
+    return { relationship, tier, method, rank: Math.round(rank * 1000) / 1000, conflicts, legacy, auto: auto && automaticEligible(qa.verdict) && (!bc || bc.verdict === 'equivalent'), quantity: qa, bundle: bc, evidence: { items, signals: supports.length, summary: summarise(relationship, tier, items, conflicts, specific) } };
   };
 
   // ── decisive incompatibilities end the question — unless the same barcode says it IS the same product

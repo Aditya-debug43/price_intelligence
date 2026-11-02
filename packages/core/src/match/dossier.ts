@@ -2,6 +2,7 @@ import type { MatchableVariant, PreparedVariant } from '../matching.ts';
 import { normalizeGtin } from '../gtin.ts';
 import { stripQuantityText } from '../quantity.ts';
 import { measureQuantity, type MeasuredQuantity } from '../quantity-policy.ts';
+import { readBundle, type BundleContents } from './bundle.ts';
 import { normalizeBrand } from '../text.ts';
 
 /**
@@ -70,6 +71,8 @@ export interface Dossier {
   /** Words after "not for" / "does not fit": explicit compatibility exclusions. */
   exclusions: string[];
   bundleMarkers: string[];
+  /** What a bundle (combo, kit) listing includes: lamp positions, accessories, counts; read from the variant’s own option first, then the title (bundle.ts). */
+  bundle: BundleContents;
   /** The last descriptive words before "for/with/|": what kind of thing the listing is. */
   kind: { tail: string | null; companion: boolean; last3: string[]; last8?: string[] };
   /** Bulb sizes the description's own chart gives for this variant's position (empty when there is none): these replace the title's codes. */
@@ -509,6 +512,7 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     quantity: measureQuantity(legacy.qty, { title: legacy.fullTitle, options, sizeHints: input.sizeHints, netContent: input.netContent }),
     exclusions,
     bundleMarkers: bundleMarkersIn(fullText),
+    bundle: readBundle({ title: plain(input.title), variantText: plain((Object.keys(options).length ? Object.values(options) : variantTitle ? [variantTitle] : []).filter((v): v is string => typeof v === 'string').join(' | ')), hasCode: codeTokens.length > 0 }),
     kind: kindOf(input.title),
     chartCodes: chart?.codes ?? [],
     words,

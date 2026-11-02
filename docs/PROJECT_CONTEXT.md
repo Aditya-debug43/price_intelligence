@@ -8,11 +8,22 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-11-02, after directive 23 (see "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-11-02, after directive 24 (see "Update 24"; before that 2026-11-02, after directive 23, "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
+
+---
+
+# Update 24 — directive of 2026-11-02: automotive bundles with different contents are incomparable (CURRENT STATE — read with Updates 23, 22, 20 and 5–14)
+
+Verbatim directive: `docs/original-prompt/24_DIRECTIVE_BUNDLE_CONTENT_INCOMPARABLE_2026-11-02.md`. Rules, data model, limits: **`docs/matching-engine-v2.md` §12**; evidence: `docs/WORK_LOG.md` (directive 24).
+
+* **The rule (policy `bundle-1`):** two automotive combos / kits / bundles are compared on price only when what they include is equivalent. An extra, a missing or a different component or count, a different number of pairs, or a combo against a single item makes the pair incomparable (`INCOMPARABLE_BUNDLE_CONTENT_MISMATCH`, with both bundles and the difference stored); contents that cannot be established are "insufficient evidence", never assumed equal or different; colour options and bulb codes are not components; brand, vehicle fit and name similarity play no part. Grocery combos and every non-lighting listing are untouched.
+* **Where:** engine (assessment on every pair; mismatch → "related", never automatic; unknown → "insufficient"), migration 0016 (one nullable column `bundle_check`; the exclusion reason shares `price_exclusion` with the quantity policy), price / substitute views, insights, reports, Match review (the "Different quantity" view is now "Not compared" and shows Your bundle / Competitor's bundle / Difference), manual pairs (evaluated at once), `scripts/ops-bundle-audit.ts`. A person's decision on such a pair is kept with its history; the pair is just not used for price; the source product keeps its other valid matches.
+* **Verified locally:** see the work-log entry (unit, engine, end-to-end; lint, typecheck, build).
+* **Production status:** see the work-log entry for directive 24 (audit, backup, deployment and the numbers are recorded there).
 
 ---
 

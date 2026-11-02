@@ -27,6 +27,7 @@ import type {
   MarketingPlatform,
   EvidenceTier,
   MatchClass,
+  BundleCheck,
   MatchEvidence,
   MatchRelationship,
   MatchStatus,
@@ -627,6 +628,9 @@ export const productMatches = pgTable(
     priceExcludedAt: ts('price_excluded_at'),
     /** What the policy found: the quantity each product holds (the values and where they were read), whether they match, and how the packs are configured. */
     quantityCheck: jsonb('quantity_check').$type<QuantityCheck>(),
+    // ── bundle-contents policy (migration 0016), nullable: null = not assessed (not a lighting bundle, or written before the policy)
+    /** What the policy found for two bundles (combos, kits): what each includes and whether the contents are equivalent, shown to differ, or not established. A verified mismatch sets `price_exclusion` too. */
+    bundleCheck: jsonb('bundle_check').$type<BundleCheck>(),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -652,7 +656,7 @@ export const matchEvents = pgTable(
     sourceVariantId: uuid('source_variant_id').notNull(),
     competitorVariantId: uuid('competitor_variant_id').notNull(),
     matchId: uuid('match_id'),
-    kind: text('kind').$type<'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn' | 'quantity_excluded' | 'quantity_released'>().notNull(),
+    kind: text('kind').$type<'suggested' | 'changed' | 'superseded' | 'reinstated' | 'decided' | 'flagged' | 'auto_confirmed' | 'auto_withdrawn' | 'quantity_excluded' | 'quantity_released' | 'bundle_excluded' | 'bundle_released'>().notNull(),
     relationship: text('relationship').$type<MatchRelationship>(),
     tier: text('tier').$type<EvidenceTier>(),
     status: text('status').$type<MatchStatus>(),

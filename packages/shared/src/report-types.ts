@@ -17,6 +17,7 @@ import type {
   StockState,
   QuantitySource,
   QuantityVerdict,
+  BundleVerdict,
   CapabilityStatus,
   SiteRole,
   SiteState,
@@ -81,6 +82,8 @@ export interface ComparisonCell {
   unitDiffPct: number | null;
   /** What the quantity-compatibility policy found for the pair (absent from reports saved before it). */
   quantity?: { verdict: QuantityVerdict; note: string; packagingDiffers: boolean };
+  /** What the bundle-contents policy found, for a pair of bundles (combos, kits): equivalent, or not established. A pair shown to differ is not in the comparison at all. Absent when it does not apply. */
+  bundle?: { verdict: BundleVerdict; note: string };
   /** Same-pack direct comparison is only valid for identical matches that are confirmed. */
   directlyComparable: boolean;
   /** Who stands behind this pair: a person confirmed it, the matcher confirmed it automatically (an identifier, or the same maker with identical names and consistent sizes), or it is only a suggestion nobody has confirmed. */

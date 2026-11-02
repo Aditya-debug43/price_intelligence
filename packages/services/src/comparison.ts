@@ -14,6 +14,9 @@ import { productPageLink } from './source-url.ts';
  * against 1 kg, a pack of 6 against 12) is left out of the price and substitute views whatever its status, a person’s confirmation included (the confirmation itself is untouched). Prices are
  * never converted into a price per litre, per kilogram or per item to make such products comparable. A pair whose quantity is not stated on one side is not treated as a match: an automatic
  * confirmation is not a direct comparison, a person’s own confirmation still is.
+ *
+ * The bundle-contents policy (core/match/bundle.ts) works through the same marker: two bundles (combos, kits) whose contents differ are left out; bundles whose contents are not established are
+ * labelled, and an automatic confirmation of them is not a direct comparison either.
  */
 export type ComparisonView = 'prices' | 'substitutes' | 'related';
 
@@ -136,9 +139,11 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       const relationship: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
       // a price conclusion needs the quantities shown equal; a person’s own confirmation also stands where a quantity is simply not stated (they could see the products)
       const quantityOk = q.verdict === 'same' || (q.verdict === 'unknown' && confirmation === 'person');
-      const directlyComparable = relationship === 'exact' && bothPriced && confirmation !== 'suggested' && quantityOk;
+      const bc = m.bundleCheck ?? null;
+      const bundleOk = !bc || bc.verdict === 'equivalent' || (bc.verdict === 'unknown' && confirmation === 'person');
+      const directlyComparable = relationship === 'exact' && bothPriced && confirmation !== 'suggested' && quantityOk && bundleOk;
       // for a pair that is not a direct comparison the difference is shown only between equal quantities (so it is the plain price difference, never a per-unit one)
-      const unitDiffPct = which !== 'related' && !directlyComparable && q.verdict === 'same' ? diffPct : null;
+      const unitDiffPct = which !== 'related' && !directlyComparable && q.verdict === 'same' && bundleOk ? diffPct : null;
       // what differs, in the matcher's own words (older records carry only their reasons)
       const differences = (m.evidence?.items ?? []).filter((i) => i.effect === 'differs' || i.effect === 'conflicts').map((i) => i.text);
       const caveats: string[] = [];
@@ -149,7 +154,8 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       if (m.needsReevaluation) caveats.push('A product changed after you confirmed this pair. Your confirmation stands; check that it still holds.');
       if (q.verdict === 'same' && q.packaging.differs) caveats.push(`The same total quantity, packaged differently (${q.a.label ?? '?'} vs ${q.b.label ?? '?'})`);
       if (q.verdict === 'unknown' && which !== 'related') caveats.push(`Quantity not verified: ${q.note.replace(/^Quantity (unknown|unclear): /, '')}. The price difference may not be like for like.`);
-      if (confirmation === 'automatic' && q.verdict !== 'same') caveats.push('Not counted as a direct price comparison: the matcher confirmed it automatically but the quantities are not shown to be equal.');
+      if (bc?.verdict === 'unknown' && which !== 'related') caveats.push(`Bundle contents not verified: ${bc.note}. The price difference may not be like for like.`);
+      if (confirmation === 'automatic' && (q.verdict !== 'same' || !bundleOk)) caveats.push('Not counted as a direct price comparison: the matcher confirmed it automatically but the quantities or the bundle contents are not shown to be equal.');
       if (m.matchClass === 'comparable') caveats.push('A substitute, not the same product: check the differences below');
       if (which === 'related') caveats.push('A related product that goes with yours: shown for context, not a replacement and not compared on price');
       if (confirmation === 'suggested') caveats.push('Suggested by the matcher; nobody has confirmed it yet');
@@ -158,7 +164,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       cells.push({
         siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: pageLink(cv),
         matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, relationship, tier: m.tier, confidence: m.confidence, reasons: m.reasons, differences, needsReevaluation: m.needsReevaluation, price, availability: cv.availability, unitPrice: NO_UNIT_PRICE,
-        diffAbs, diffPct, unitDiffPct, directlyComparable, confirmation, quantity: { verdict: q.verdict, note: q.note, packagingDiffers: q.packaging.differs },
+        diffAbs, diffPct, unitDiffPct, directlyComparable, confirmation, quantity: { verdict: q.verdict, note: q.note, packagingDiffers: q.packaging.differs }, ...(bc ? { bundle: { verdict: bc.verdict, note: bc.note } } : {}),
         offerSummary: offer ? `On sale: was ${formatMoney(offer.originalPrice, offer.currency)}, now ${formatMoney(offer.salePrice, offer.currency)}${offer.claimedDiscountPct ? ` (claims ${offer.claimedDiscountPct}% off; ${offer.verification === 'verified' ? 'verified by history' : 'not historically verified'})` : ''}` : null,
         caveats,
       });
