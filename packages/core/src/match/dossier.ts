@@ -2,7 +2,7 @@ import type { MatchableVariant, PreparedVariant } from '../matching.ts';
 import { normalizeGtin } from '../gtin.ts';
 import { stripQuantityText } from '../quantity.ts';
 import { measureQuantity, type MeasuredQuantity } from '../quantity-policy.ts';
-import { readBundle, type BundleContents } from './bundle.ts';
+import { isBulbCode, readBundle, type BundleContents } from './bundle.ts';
 import { normalizeBrand } from '../text.ts';
 
 /**
@@ -512,7 +512,7 @@ export function buildDossier(input: DossierInput, legacy: PreparedVariant, colou
     quantity: measureQuantity(legacy.qty, { title: legacy.fullTitle, options, sizeHints: input.sizeHints, netContent: input.netContent }),
     exclusions,
     bundleMarkers: bundleMarkersIn(fullText),
-    bundle: readBundle({ title: plain(input.title), variantText: plain((Object.keys(options).length ? Object.values(options) : variantTitle ? [variantTitle] : []).filter((v): v is string => typeof v === 'string').join(' | ')), hasCode: codeTokens.length > 0 }),
+    bundle: readBundle({ title: plain(input.title), variantText: plain((Object.keys(options).length ? Object.values(options) : variantTitle ? [variantTitle] : []).filter((v): v is string => typeof v === 'string').join(' | ')), hasCode: codeTokens.some((c) => isBulbCode(c.value)) }),
     kind: kindOf(input.title),
     chartCodes: chart?.codes ?? [],
     words,
