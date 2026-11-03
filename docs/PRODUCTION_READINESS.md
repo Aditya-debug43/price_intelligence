@@ -73,7 +73,7 @@ Shelfwatch in front of real customers. Companion documents: [verification-report
 | Confirmation that the Gmail messages arrived | Inbox arrival cannot be seen from here | Check inbox and spam for the verification, daily-summary and failure emails sent on 2026-10-19 |
 | **The fourth competitor's URL ("Cmart")** | Never supplied; never guessed | — |
 | Authorised own-shop inventory (Shopify app credentials + merchant authorisation) | Real own-stock alerts (the public feed shows everything as available) | `SHOPIFY_CLIENT_ID/SECRET/REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY` |
-| Meta app (App Review for production), `YOUTUBE_API_KEY` | Official marketing data | Without them Facebook/Instagram/YouTube are shown as "not set up" — never guessed |
+| Meta app (App Review for production), `YOUTUBE_API_KEY` | Official marketing data | **YouTube: the key is set (2026-11-03) and channels are connected one by one after YouTube confirms them.** Without a key or a Meta approval a platform is shown as "not set up" — never guessed. Restrict and rotate the YouTube key (it was pasted in chat) |
 | `ANTHROPIC_API_KEY` and your approval of the cost (optional) | AI summaries/adjudication | Product is complete without it |
 | Your decision on foodstore2go.com | It appears to be a Bahamas-based shop | Keep it as a competitor only if its prices are meaningful for your customers |
 

@@ -53,10 +53,10 @@ export function MarketingTable({ rows }: { rows: MarketingRow[] }) {
           <tr key={m.id}>
             <td>{m.siteName}</td>
             <td>{PLATFORM[m.platform]}{m.details?.channelTitle && <div className="sub" title="The YouTube channel this video belongs to">{m.details.channelTitle}</div>}</td>
-            <td style={{ maxWidth: 420 }}>
+            <td style={{ minWidth: 300, maxWidth: 420 }}>
               <div className="row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', gap: 10 }}>
                 {m.details?.thumbnailUrl?.startsWith('https://') && <img src={m.details.thumbnailUrl} alt="" width={80} height={45} loading="lazy" referrerPolicy="no-referrer" style={{ flex: 'none', borderRadius: 4, objectFit: 'cover', background: 'var(--slate-wash)' }} />}
-                <div><div className="title">{m.title ?? KIND[m.kind]}</div>{m.excerpt && m.excerpt !== m.title && <div className="sub">{m.excerpt.slice(0, 220)}</div>}{m.details?.durationSeconds ? <div className="sub">{formatDuration(m.details.durationSeconds)} long</div> : null}</div>
+                <div style={{ flex: '1 1 180px', minWidth: 0 }}><div className="title">{m.title ?? KIND[m.kind]}</div>{m.excerpt && m.excerpt !== m.title && <div className="sub">{m.excerpt.slice(0, 220)}</div>}{m.details?.durationSeconds ? <div className="sub">{formatDuration(m.details.durationSeconds)} long</div> : null}</div>
               </div>
             </td>
             <td>{KIND[m.kind]}</td>

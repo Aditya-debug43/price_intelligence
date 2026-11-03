@@ -71,7 +71,7 @@ WooCommerce gave no brand or GTIN. A brand can still be inferred from titles *wi
 | Email delivery — remaining step | Confirmation that the messages arrived. The App Password was pasted into chat: rotate it. |
 | Shopify inventory | App credentials (`SHOPIFY_CLIENT_ID/SECRET/REDIRECT_URI`), `TOKEN_ENCRYPTION_KEY`, and the merchant's authorisation. The flow is tested end to end against a local imitation; it has never talked to Shopify. |
 | Instagram / Facebook | A Meta app; Instagram needs a token from your own professional account and (for production) App Review + Business Verification; Facebook public Pages need "Page Public Content Access". A user token is renewed by a person (a system-user token does not expire). |
-| YouTube | `YOUTUBE_API_KEY` (quota 10,000 units/day). |
+| YouTube | **Live** (`YOUTUBE_API_KEY` is set; quota 10,000 units/day, about 3 per channel per read). A channel is connected only after the official API confirms it; an older `/c/Name` address cannot be resolved by the API, so such a competitor (allalighting.com) needs its `@handle` or `youtube.com/channel/UC…` address. Likes/comments a channel hides are shown as unavailable, and a video is never described as an advertisement (no ad spend, no sponsorship). The key was pasted in chat: restrict and rotate it. |
 | AI summaries / adjudication / extraction fallback | `ANTHROPIC_API_KEY` and your approval of the cost. The product is complete without it; every AI number is checked against stored facts. |
 | Hosting and a managed PostgreSQL | Your choice and your payment; nothing has been purchased or created. |
 
