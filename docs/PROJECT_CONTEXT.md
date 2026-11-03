@@ -8,11 +8,23 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-11-02, after directive 24 (see "Update 24"; before that 2026-11-02, after directive 23, "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-11-03, after directive 25 (see "Update 25"; before that 2026-11-02, after directive 24, "Update 24"; before that 2026-11-02, after directive 23, "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
+
+---
+
+# Update 25 — directive of 2026-11-03: the PDF follows the report selected in the dropdown (CURRENT STATE — read with Updates 24, 22 and 5–14; it supersedes the "PDF is always the whole report" part of Update 22)
+
+Verbatim directive: `docs/original-prompt/25_DIRECTIVE_REPORT_PDF_FOLLOWS_SELECTION_2026-11-03.md`. Evidence: `docs/WORK_LOG.md` (directive 25).
+
+* **Root cause:** the dropdown was never connected to the PDF: the page built `?format=pdf` with no selection, the API threw the selection away for PDF (one saved file, key `all`), and `renderPdf` had no notion of a section. All eight selections therefore asked for the same address and got the same file.
+* **Now:** on a report's page, **PDF and CSV are the report named in the dropdown** (Comparison, Offers, Stock, Marketing, Marketing summary, Insights, Coverage, Assortment), made from the saved snapshot only, each with its own title, data and filename (`report-<date>-partial-<report>.pdf`), and a plain message when the snapshot has nothing for it. **Excel is still the whole workbook** (one sheet per report). The Reports **list** still offers the whole-report PDF. The dropdown's label is "Report". A failed export shows a message; a double click is one download. A section PDF holds up to 1,000 rows of its table and says how many are left.
+* **Also fixed (same generator):** page footers had each been written on a page of their own (a 4-page report came out as 8).
+* **Verified locally:** 1,316 tests in 84 files (the new ones fail against the old behaviour); in a real browser all eight selections, with real clicks, saved the expected PDF (name, size, SHA-256); rapid changes, double click, failure message, Excel, CSV, list and section tabs checked.
+* **Production: NOT deployed** (SSH blocked by the firewall rule; no data or schema change is involved). See the work-log entry.
 
 ---
 
