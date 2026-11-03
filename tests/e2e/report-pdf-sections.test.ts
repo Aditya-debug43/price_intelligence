@@ -229,17 +229,7 @@ describe('the saved snapshot is never touched', () => {
   });
 });
 
-describe('Excel and CSV', () => {
-  it('Excel is the whole workbook whatever is selected (every report is a sheet in it)', async () => {
-    const a = await owner.get(`${base()}/reports/${reportId}/export?format=xlsx`);
-    const b = await owner.get(`${base()}/reports/${reportId}/export?format=xlsx&dataset=stock`);
-    const c = await owner.get(`${base()}/reports/${reportId}/export?format=xlsx&dataset=coverage`);
-    expect([a.status, b.status, c.status]).toEqual([200, 200, 200]);
-    expect(sha256Hex(a.raw)).toBe(sha256Hex(b.raw));
-    expect(sha256Hex(a.raw)).toBe(sha256Hex(c.raw));
-    expect(String(a.headers['content-disposition'])).toBe(`attachment; filename="report-${data.meta.periodDate}-partial.xlsx"`);
-  });
-
+describe('CSV (the Excel file of each selection is checked in report-xlsx-sections.test.ts)', () => {
   it('CSV is the selected table: its own heading line, columns and rows, never another table’s', async () => {
     for (const ds of CSV_DATASETS) {
       const res = await owner.get(`${base()}/reports/${reportId}/export?format=csv&dataset=${ds}`);

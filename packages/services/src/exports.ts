@@ -142,10 +142,104 @@ export function renderCsv(d: ReportData, dataset: CsvDataset): Buffer {
 
 // ───────────────────────────────────────────────────────────── XLSX
 
-export async function renderXlsx(d: ReportData): Promise<Buffer> {
+/** What a report workbook is made of: its tables (each a worksheet) and what a table says when the snapshot holds nothing for it. */
+interface ReportSheet {
+  table: Table;
+  empty: string;
+}
+
+/** The exchange rates the comparison's prices were converted with (the PDF of the comparison points here for them). */
+function fxTable(d: ReportData): Table {
+  return { name: 'Exchange rates', columns: ['From', 'To', 'Rate', 'Source', 'Fixed peg', 'As of'], rows: d.fx.map((r) => [r.from, r.to, r.rate, r.source, r.isFixed ? 'yes' : 'no', r.fetchedAt]) };
+}
+
+/** The notes about how complete the collected data was. */
+function dataNotesTable(d: ReportData): Table {
+  return { name: 'Data notes', columns: ['Note'], rows: d.warnings.map((w) => [w]) };
+}
+
+/** What the assortment gaps can and cannot mean for this workspace (the note, and which catalogues were not read completely). */
+function assortmentBasisTable(d: ReportData): Table {
+  const rows: Cell[][] = [['Note', d.assortment.note]];
+  for (const g of d.assortment.basis?.competitorGaps ?? []) rows.push([`Competitor catalogue not read completely: ${g.name}`, g.reason]);
+  if (d.assortment.basis?.sourceGap) rows.push(['Your own catalogue', d.assortment.basis.sourceGap]);
+  return { name: 'Assortment basis', columns: ['Item', 'Detail'], rows };
+}
+
+/** The worksheets of one report: every table that belongs to it, and none of another report's. */
+export function reportSheets(d: ReportData, report: CsvDataset): ReportSheet[] {
+  switch (report) {
+    case 'comparison': return [{ table: comparisonTable(d), empty: 'No price comparison rows are in this saved report.' }, { table: fxTable(d), empty: 'All prices were in the reporting currency.' }];
+    case 'offers': return [{ table: offersTable(d), empty: 'No offers or promotions were observed in this saved report.' }];
+    case 'stock': return [{ table: stockTable(d), empty: 'No low-stock, out-of-stock or unknown-availability items were found.' }];
+    case 'marketing': return [{ table: marketingTable(d), empty: 'No marketing activity was observed.' }];
+    case 'marketing_summary': return [{ table: marketingSummaryTable(d), empty: d.marketingSummary ? 'No competitors are in this saved report.' : 'This saved report has no marketing summary: it was saved before summaries were added.' }];
+    case 'insights': return [{ table: insightsTable(d), empty: 'No findings were produced for this saved report.' }];
+    case 'coverage': return [{ table: coverageTable(d), empty: 'No websites are in this saved report.' }, { table: dataNotesTable(d), empty: 'There are no data notes for this saved report.' }];
+    case 'assortment': return [{ table: assortmentTable(d), empty: 'No assortment gaps were found in this saved report.' }, { table: assortmentBasisTable(d), empty: '' }];
+  }
+}
+
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+
+/** The number format of a column, from what it holds: prices and differences with two decimals, percentages, exchange rates, and real dates and times. */
+function columnFormat(header: string): string | null {
+  if (/%/.test(header)) return '0.00';
+  if (/price|^difference$/i.test(header)) return '#,##0.00';
+  if (/^rate$|fx rate/i.test(header)) return '0.0000';
+  return null;
+}
+
+const XLSX_DATE_FORMAT = 'yyyy-mm-dd hh:mm';
+
+/**
+ * The workbook of ONE report of a saved snapshot, from the snapshot only. Each worksheet is one of that report's tables: its first row says which snapshot it is (workspace, report,
+ * period, when it was prepared, and PARTIAL where it is), the second holds the column names (frozen, filterable), the rest the rows, with real dates and numbers. A table with nothing
+ * in it says so under its column names. Nothing of any other report is in the file.
+ */
+function renderReportXlsx(wb: ExcelJS.Workbook, d: ReportData, report: CsvDataset): Promise<Buffer> {
+  const label = csvDatasetLabel(report);
+  wb.title = `${label} — ${d.meta.periodDate}`;
+  wb.subject = `${label} report of the saved snapshot`;
+  wb.description = `${d.meta.orgName}: saved snapshot prepared ${d.meta.generatedAt}${d.meta.isPartial ? ' (PARTIAL REPORT)' : ''}`;
+  for (const { table: t, empty } of reportSheets(d, report)) {
+    const ws = wb.addWorksheet(t.name.slice(0, 31));
+    const context = ws.addRow([`${d.meta.orgName} — ${t.name} — period ${d.meta.periodDate} — generated ${d.meta.generatedAt}${d.meta.isPartial ? ' — PARTIAL REPORT' : ''}`]);
+    context.font = { italic: true, color: { argb: 'FF5F7378' } };
+    const head = ws.addRow(t.columns);
+    head.font = { bold: true };
+    head.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFE8D8' } }; });
+    ws.views = [{ state: 'frozen', ySplit: 2 }];
+    const dateColumns = new Set<number>();
+    for (const r of t.rows) {
+      const row = ws.addRow(r.map((c, i) => {
+        if (typeof c === 'string' && ISO_TIMESTAMP.test(c)) {
+          dateColumns.add(i);
+          return new Date(c);
+        }
+        return typeof c === 'string' && c.length > 32_000 ? c.slice(0, 32_000) : c;
+      }));
+      row.eachCell({ includeEmpty: false }, (cell, col) => {
+        const fmt = dateColumns.has(col - 1) && cell.value instanceof Date ? XLSX_DATE_FORMAT : typeof cell.value === 'number' ? columnFormat(t.columns[col - 1] ?? '') : null;
+        if (fmt) cell.numFmt = fmt;
+      });
+    }
+    if (!t.rows.length && empty) ws.addRow([empty]).font = { italic: true };
+    if (t.columns.length) ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: t.columns.length } };
+    ws.columns.forEach((c, i) => {
+      c.width = dateColumns.has(i) ? 18 : Math.min(48, Math.max(10, (t.columns[i]?.length ?? 8) + 2));
+    });
+    if (t.columns.length === 1 || t.name === 'Assortment basis') ws.getColumn(t.columns.length).width = 90;
+  }
+  return wb.xlsx.writeBuffer().then((b) => Buffer.from(b as ArrayBuffer));
+}
+
+/** The whole workbook (a Summary and one worksheet for each report), or, with `report`, the workbook of that one report alone. */
+export async function renderXlsx(d: ReportData, report?: CsvDataset): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Shelfwatch';
   wb.created = new Date(d.meta.generatedAt);
+  if (report) return renderReportXlsx(wb, d, report);
   const sum = wb.addWorksheet('Summary');
   sum.columns = [{ width: 34 }, { width: 80 }];
   const put = (k: string, v: Cell) => sum.addRow([k, v === null ? '' : v]);
@@ -519,15 +613,15 @@ export class ExportError extends Error {
 }
 
 /**
- * `dataset` is the report the person selected. CSV: that table (the price comparison when none is named). PDF: that report alone; without it, the whole report. Excel: always the
- * whole workbook, one sheet per report. Each is saved and served under its own key, so one selection can never be answered with another's file.
+ * `dataset` is the report the person selected. CSV: that table (the price comparison when none is named). PDF and Excel: that report alone; without it, the whole report (the whole
+ * workbook, one sheet per report). Each is saved and served under its own key, so one selection can never be answered with another's file.
  */
 export async function exportReport(svc: Services, db: DbLike, orgId: string, reportId: string, format: ReportFormat, dataset?: CsvDataset): Promise<{ body: Buffer; filename: string; contentType: string }> {
   const report = await getReport(db, orgId, reportId);
   if (!report) throw new ExportError('Report not found', 404);
   if (!report.data || (report.status !== 'ready' && report.status !== 'partial')) throw new ExportError('The report is not finished yet', 409);
   const data = report.data as ReportData;
-  const ds: CsvDataset | 'all' = format === 'csv' ? (dataset ?? 'comparison') : format === 'pdf' && dataset ? dataset : 'all';
+  const ds: CsvDataset | 'all' = format === 'csv' ? (dataset ?? 'comparison') : dataset ?? 'all';
   const type = EXPORT_TYPES[format];
   const filename = `report-${data.meta.periodDate}${data.meta.isPartial ? '-partial' : ''}${ds === 'all' ? '' : `-${ds}`}.${type.ext}`;
   const key = `exports/${orgId}/${reportId}/${ds}.${type.ext}`;
@@ -537,7 +631,7 @@ export async function exportReport(svc: Services, db: DbLike, orgId: string, rep
     const stored = await svc.storage.get(cached.storageKey);
     if (stored && sha256Hex(stored) === cached.checksum) return { body: stored, filename, contentType: type.contentType };
   }
-  const body = format === 'csv' ? renderCsv(data, ds as CsvDataset) : format === 'xlsx' ? await renderXlsx(data) : await renderPdf(data, ds === 'all' ? undefined : ds);
+  const body = format === 'csv' ? renderCsv(data, ds as CsvDataset) : format === 'xlsx' ? await renderXlsx(data, ds === 'all' ? undefined : ds) : await renderPdf(data, ds === 'all' ? undefined : ds);
   await svc.storage.put(key, body, type.contentType);
   const checksum = sha256Hex(body);
   await db

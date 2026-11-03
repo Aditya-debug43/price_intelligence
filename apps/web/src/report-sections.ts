@@ -31,12 +31,11 @@ export function csvTableFor(tab: ReportTab, picked: { tab: ReportTab; dataset: C
 }
 
 /**
- * The address of an export of a saved report. A PDF and a CSV carry the selected report, so the file is that report; Excel is always the whole workbook (one sheet for each report).
- * In the list of reports there is no dropdown: a PDF there is the whole report (no report named) and a CSV is the price comparison.
+ * The address of an export of a saved report. The PDF, the Excel file and the CSV all carry the selected report, so the file is that report and nothing else. In the list of reports
+ * there is no dropdown: a PDF and an Excel file there are the whole report (no report named) and a CSV is the price comparison.
  */
 export function exportUrl(base: string, format: 'pdf' | 'xlsx' | 'csv', dataset: CsvDataset, compact = false): string {
-  if (format === 'xlsx') return `${base}?format=xlsx`;
-  if (format === 'pdf' && compact) return `${base}?format=pdf`;
+  if (compact && format !== 'csv') return `${base}?format=${format}`;
   return `${base}?format=${format}&dataset=${dataset}`;
 }
 

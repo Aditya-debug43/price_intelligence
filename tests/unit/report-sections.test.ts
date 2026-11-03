@@ -63,21 +63,24 @@ describe('the address each export button asks for', () => {
     expect(new Set(CSV_DATASETS.map((d) => exportUrl(base, 'pdf', d))).size).toBe(CSV_DATASETS.length);
   });
 
-  it('the CSV asks for the same selection, and Excel always asks for the whole workbook', () => {
+  it('the Excel file and the CSV ask for the same selection, for each of the eight', () => {
     for (const d of CSV_DATASETS) {
       expect(exportUrl(base, 'csv', d)).toBe(`${base}?format=csv&dataset=${d}`);
-      expect(exportUrl(base, 'xlsx', d)).toBe(`${base}?format=xlsx`);
+      expect(exportUrl(base, 'xlsx', d)).toBe(`${base}?format=xlsx&dataset=${d}`);
     }
+    expect(new Set(CSV_DATASETS.map((d) => exportUrl(base, 'xlsx', d))).size).toBe(CSV_DATASETS.length);
   });
 
-  it('in the list of reports (no dropdown) the PDF is the whole report and the CSV is the price comparison', () => {
+  it('in the list of reports (no dropdown) the PDF and the Excel file are the whole report and the CSV is the price comparison', () => {
     expect(exportUrl(base, 'pdf', 'comparison', true)).toBe(`${base}?format=pdf`);
+    expect(exportUrl(base, 'xlsx', 'comparison', true)).toBe(`${base}?format=xlsx`);
     expect(exportUrl(base, 'csv', 'comparison', true)).toBe(`${base}?format=csv&dataset=comparison`);
   });
 
   it('follows the dropdown: the report on screen unless another was picked for that section', () => {
     expect(exportUrl(base, 'pdf', csvTableFor('stock', null))).toContain('dataset=stock');
     expect(exportUrl(base, 'pdf', csvTableFor('stock', { tab: 'stock', dataset: 'coverage' }))).toContain('dataset=coverage');
+    expect(exportUrl(base, 'xlsx', csvTableFor('stock', { tab: 'stock', dataset: 'coverage' }))).toBe(`${base}?format=xlsx&dataset=coverage`);
     // changing the selection changes the very next address: nothing is kept from the previous one
     const first = exportUrl(base, 'pdf', csvTableFor('prices', { tab: 'prices', dataset: 'offers' }));
     const second = exportUrl(base, 'pdf', csvTableFor('prices', { tab: 'prices', dataset: 'insights' }));

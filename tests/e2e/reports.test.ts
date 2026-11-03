@@ -194,13 +194,16 @@ describe('exports are rendered from the same snapshot', () => {
     expect(saved.map((r) => r.dataset).sort()).toEqual([...CSV_DATASETS].sort());
   });
 
-  it('Excel is the whole workbook whatever report is chosen; a PDF is the whole report only when none is chosen (see report-pdf-sections.test.ts for each of the eight)', async () => {
-    const a = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx', 'stock');
-    const b = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx', 'offers');
-    expect(a.filename).toBe(b.filename);
-    expect(sha256Hex(a.body)).toBe(sha256Hex(b.body));
+  it('a PDF and an Excel file are the whole report only when no report is chosen (see report-pdf-sections.test.ts and report-xlsx-sections.test.ts for each of the eight)', async () => {
+    const wholeXlsx = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx');
+    const stockXlsx = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx', 'stock');
+    const offersXlsx = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx', 'offers');
+    expect(wholeXlsx.filename).toBe(`report-${data.meta.periodDate}-partial.xlsx`);
+    expect(stockXlsx.filename).toBe(`report-${data.meta.periodDate}-partial-stock.xlsx`);
+    expect(offersXlsx.filename).toBe(`report-${data.meta.periodDate}-partial-offers.xlsx`);
+    expect(new Set([wholeXlsx, stockXlsx, offersXlsx].map((x) => sha256Hex(x.body))).size).toBe(3);
     const savedXlsx = await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, 'xlsx')));
-    expect(savedXlsx.map((r) => r.dataset)).toEqual(['all']);
+    expect(savedXlsx.map((r) => r.dataset).sort()).toEqual(['all', 'offers', 'stock']);
 
     const whole = await exportReport(h.svc, db(), t.orgId, report.id, 'pdf');
     const stock = await exportReport(h.svc, db(), t.orgId, report.id, 'pdf', 'stock');
@@ -291,7 +294,7 @@ describe('exports are rendered from the same snapshot', () => {
     const a = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx');
     const b = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx');
     expect(sha256Hex(a.body)).toBe(sha256Hex(b.body));
-    expect(await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, 'xlsx')))).toHaveLength(1);
+    expect(await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, 'xlsx'), eq(reportExports.dataset, 'all')))).toHaveLength(1);
   });
 
   it('refuses exports across workspaces and for unfinished reports', async () => {
