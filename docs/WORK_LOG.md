@@ -959,3 +959,44 @@ Excel (always the whole workbook, one sheet per report: it holds the selected re
 **Verified on production with the deployed code, read-only (nothing written).** For the latest saved report of each of the three workspaces, the deployed renderer made the whole-report PDF and the PDF of each of the eight selections from the real snapshot; each was read back and checked: its own title and heading present, none of the other seven reports' headings present, a different content from every other, every page carrying its footer. **All 27 PDFs passed.** Real sizes, for example (grocery workspace, 603 comparison rows): Comparison 20 pages, Offers 6, Stock 1 (nothing to show, and it says so), Insights 3, Coverage 1, Assortment 4 (120 gaps); (automotive workspace, 600 offers and 399 stock items): Offers 26 pages, Stock 17; (third workspace, mostly empty): every selection a one-page PDF with its own message. The `report_exports` table holds only the two saved copies it already had (the whole-report PDF and the Excel workbook); the section PDFs are made on first request and then saved, like every export.
 
 **Not verified:** the logged-in production Reports page itself (no credentials are entered there): the click-through was done in a real browser against a local copy of the app and its API with a throwaway database; on production the endpoint was not asked for a file through the website. What carries over is the same code (commit `bdcff6a`), the same renderer on the real snapshots (above), and an unchanged route. **To see it yourself:** open a saved report, choose a report in the "Report" dropdown and press PDF; the file name ends with the report (for example `…-partial-coverage.pdf`) and its title says which report it is.
+
+## 2026-11-03 — Directive 26: the Excel file follows the report selected in the dropdown — built and tested; production deployment: see the last section
+
+Request (verbatim: `docs/original-prompt/26_DIRECTIVE_REPORT_EXCEL_FOLLOWS_SELECTION_2026-11-03.md`). It follows directive 25, which connected the PDF and the CSV to the dropdown and, on purpose, left Excel as the whole workbook.
+
+### State found first
+Local branch equal to origin; the PDF/CSV release (`bdcff6a`) is already on production (deployed and verified the turn before), so nothing was pending and no release was mixed.
+
+### Root cause (the same three layers as the PDF)
+1. **The page:** the Excel link was the fixed address `…/export?format=xlsx` (`exportUrl` returned it for every selection).
+2. **The API:** `exportReport` kept every export that was not a PDF or a CSV under the key `all` and ignored the selection.
+3. **The generator:** `renderXlsx(d)` took no report: it always wrote the Summary sheet and one sheet for each of the eight reports.
+So the eight selections asked for the same address and were answered with the same complete workbook. Changing a name would have changed nothing; the selection now reaches `renderXlsx` itself.
+
+### Change
+* `packages/services/src/exports.ts`: `renderXlsx(d, report?)` and `reportSheets(d, report)`. With one of the eight selections the workbook holds only that report's worksheets, made from the saved snapshot; without a selection it is the whole workbook as before (what the Reports list downloads). `exportReport` saves and serves each selection's workbook under its own key and names the file for it (`report-<date>-partial-<report>.xlsx`). PDF and CSV untouched.
+* `apps/web/src/report-sections.ts` (`exportUrl`), `apps/web/src/pages/Reports.tsx`: the Excel link carries the selection; its tooltip names the report; the Reports list keeps the whole-workbook button; the dropdown's tooltip now says it holds for PDF, Excel and CSV.
+* Tests: the three places that asserted "Excel is always the whole workbook" now assert the new behaviour; new `tests/e2e/report-xlsx-sections.test.ts`.
+
+### What each selection's workbook holds
+| Selection | Worksheets (all from the snapshot) |
+|---|---|
+| Comparison | **Price comparison** (every source × competitor row), **Exchange rates** (the rates the prices were converted with; says so when all prices were in the reporting currency) |
+| Offers | **Offers** |
+| Stock | **Own stock** |
+| Marketing | **Marketing** |
+| Marketing summary | **Marketing summary** (one row per competitor) |
+| Insights | **Insights** |
+| Coverage | **Coverage**, **Data notes** (the snapshot's notes on how complete the data was) |
+| Assortment | **Assortment gaps** (both kinds), **Assortment basis** (what "no equivalent found" can mean here, and which catalogues were not read completely) |
+There is no Summary sheet and no sheet of another report in any of them. Every worksheet: row 1 names the snapshot (workspace, table, period, prepared at, and PARTIAL REPORT where the snapshot is), row 2 the column names (frozen, with a filter), then the rows. Timestamps are real Excel dates (`yyyy-mm-dd hh:mm`), prices and differences numbers with two decimals, percentages two, exchange rates four. A table with nothing in it keeps its column names and says so in the row under them; a snapshot saved before marketing summaries existed says that for that report. Nothing is a formula (a competitor's text beginning `=`, `+` or `@` stays text).
+
+### Verified (local)
+* **1,332 tests in 85 files pass** (1,316 before). The new end-to-end test opens each of the eight workbooks through the real endpoint and compares **every cell of every worksheet with the snapshot** (names, column names, row counts, strings, numbers, dates), and checks the other reports' sheets and the Summary are absent; the eight are eight different workbooks, none of them the whole one; the whole workbook is still the whole workbook without a selection; formats and frozen header; any order, and requests made all at once, always return the report asked for; each is saved under its own key; exporting changes no snapshot and live data changing afterwards (a price, a new collection, the saved files thrown away) gives the same workbooks again; empty reports; a 3,000-row report written whole; hostile cell text stays text; a selection that is not offered is refused. **It fails against the old behaviour** (8 tests; checked). Lint 0 errors (2 existing warnings), typecheck and build clean.
+* **Real browser** (the built app and API over a throwaway database, fictional shops, one saved snapshot; the project's own test account): all eight selections, in the order of the directive, changed with the real dropdown and Excel pressed with a real click; each saved file had the expected name, size and SHA-256, and — read straight out of the saved `.xlsx` (unzipped in the page) — **only its own worksheets with the expected row counts** (e.g. Comparison: Price comparison 70 rows, Exchange rates 3; Stock: Own stock 4; Coverage: Coverage 7, Data notes 3; Assortment: Assortment gaps 18, Assortment basis 4; no Summary anywhere). Also: four selections in a row then one click gives the last; three clicks in one instant give one file; a failing export shows "The export did not work: …" and saves nothing; PDF and CSV from the same page still give the expected files; the Reports list's Excel button still downloads the whole workbook (32,933 bytes, nine sheets).
+
+### Not changed
+PDF, CSV, saved snapshots, the whole-workbook layout (Summary first, headers in row 1), matching, Match review, price comparison, quantity and bundle rules, collection, authentication, the rest of the Reports page.
+
+### Production
+**Not deployed yet.** SSH from this machine times out again (the firewall allows one source address; this machine's changed) while the public site and API answer, so the server is up. Nothing is pushed: the website would deploy alone and a server that does not yet read the selection for Excel would answer every Excel link with the whole workbook again. Steps once access is allowed: `git push` then `sudo shelfwatch-update` at once (no migration, no data change; the update takes its own backup) → read-only check of the deployed renderer on the real snapshots → website serving the new build.

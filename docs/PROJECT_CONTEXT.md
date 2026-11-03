@@ -8,11 +8,22 @@
 > **No secrets are recorded here.** Environment variables appear by name only.
 >
 > Created: 2026-10-15 (Phase 0 of the "real product" directive). Baseline commit at creation: `c28f8d3`.
-> **Last updated: 2026-11-03, after directive 25 (see "Update 25"; before that 2026-11-02, after directive 24, "Update 24"; before that 2026-11-02, after directive 23, "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
+> **Last updated: 2026-11-03, after directive 26 (see "Update 26"; before that 2026-11-03, after directive 25, "Update 25"; before that 2026-11-02, after directive 24, "Update 24"; before that 2026-11-02, after directive 23, "Update 23"; before that 2026-11-01, after directive 22, "Update 22"; before that 2026-10-31, after directive 21, "Update 21"; before that after directive 20, "Update 20"; before that 2026-10-30, after directive 19 (see "Update 19"; before that 2026-10-29, after directive 18, "Update 18", "Update 17" and Updates 6–14 above Update 5; Update 5 below is the 2026-10-23 baseline). Previously 2026-10-19, after directive 3 (see "Update 3" below — it supersedes anything older in this file). Previously 2026-10-15, after Phase 8 (commit `aa30324`).** Sections A, B and the per-feature text in D describe the state at creation; the **Update log** below and the *Update* notes under each feature bring them current. Details of every change are in `docs/WORK_LOG.md`; the requirement-by-requirement status is in `docs/REQUIREMENTS_MATRIX.md`.
 > Keep this file current: update it after every major implementation phase.
 
 Contents: A Origin & requirements · B Chronological history · C Repository structure · D Feature inventory · E Database & data flow ·
 F Environment, commands, integrations · G Testing & verification · H Known defects & incomplete work · I Roadmap.
+
+---
+
+# Update 26 — directive of 2026-11-03: the Excel file follows the report selected in the dropdown (CURRENT STATE — read with Updates 25, 24 and 22; it supersedes the "Excel is always the whole workbook" part of Update 25)
+
+Verbatim directive: `docs/original-prompt/26_DIRECTIVE_REPORT_EXCEL_FOLLOWS_SELECTION_2026-11-03.md`. Evidence: `docs/WORK_LOG.md` (directive 26).
+
+* **Root cause:** the same three layers as the PDF: a fixed `?format=xlsx` link, the selection thrown away by `exportReport`, and `renderXlsx` with no notion of a report (always the Summary and every report's sheet).
+* **Now:** on a report's page, **the PDF, the Excel file and the CSV are all the report named in the dropdown**. The Excel file holds only that report's worksheets from the saved snapshot (Comparison: Price comparison + Exchange rates; Coverage: Coverage + Data notes; Assortment: Assortment gaps + Assortment basis; Offers, Stock, Marketing, Marketing summary and Insights one sheet each), each with a first row naming the snapshot, filterable column names, real dates and numbers, and a plain message when empty. No Summary sheet. The Reports **list** still downloads the whole report (PDF) and the whole workbook (Excel).
+* **Verified locally:** 1,332 tests in 85 files (the new ones fail against the old behaviour; every cell of every worksheet compared with the snapshot); in a real browser all eight selections, with real clicks, saved the expected workbook, with only its own worksheets (read out of the saved file); PDF, CSV and the list unchanged.
+* **Production: NOT deployed** (SSH blocked by the firewall rule; no data or schema change is involved). See the work-log entry.
 
 ---
 
