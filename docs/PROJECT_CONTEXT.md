@@ -24,7 +24,7 @@ Verbatim directive: `docs/original-prompt/25_DIRECTIVE_REPORT_PDF_FOLLOWS_SELECT
 * **Now:** on a report's page, **PDF and CSV are the report named in the dropdown** (Comparison, Offers, Stock, Marketing, Marketing summary, Insights, Coverage, Assortment), made from the saved snapshot only, each with its own title, data and filename (`report-<date>-partial-<report>.pdf`), and a plain message when the snapshot has nothing for it. **Excel is still the whole workbook** (one sheet per report). The Reports **list** still offers the whole-report PDF. The dropdown's label is "Report". A failed export shows a message; a double click is one download. A section PDF holds up to 1,000 rows of its table and says how many are left.
 * **Also fixed (same generator):** page footers had each been written on a page of their own (a 4-page report came out as 8).
 * **Verified locally:** 1,316 tests in 84 files (the new ones fail against the old behaviour); in a real browser all eight selections, with real clicks, saved the expected PDF (name, size, SHA-256); rapid changes, double click, failure message, Excel, CSV, list and section tabs checked.
-* **Production: NOT deployed** (SSH blocked by the firewall rule; no data or schema change is involved). See the work-log entry.
+* **DEPLOYED 2026-11-03** (commit `bdcff6a`; no migration, no data change; the update took its own backup). On production, read-only, the deployed renderer made all 27 PDFs (whole report + 8 selections, for each of the 3 workspaces) from the real saved snapshots and every one passed (own title and heading, none of the other reports, own footer on every page). The logged-in production page was not clicked through (no credentials). See the work-log entry.
 
 ---
 
