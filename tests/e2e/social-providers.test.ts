@@ -32,21 +32,32 @@ const calls: string[] = [];
 const behaviour = { youtube: 'ok' as 'ok' | 'quota' | 'badkey' | 'rate', meta: 'ok' as 'ok' | 'revoked' | 'rate' | 'permission', likes: 80, hideStats: false };
 let debugToken: Record<string, unknown> = { is_valid: true, expires_at: 0, scopes: ['instagram_basic', 'pages_show_list', 'pages_read_engagement'] };
 
-const imitation: HttpJson = async (url) => {
+const RIVAL_CHANNEL = 'UCrivalrivalrivalrival01';
+const keysSeen: (string | undefined)[] = [];
+const imitation: HttpJson = async (url, init) => {
   calls.push(url);
   const u = new URL(url);
   if (u.host === 'www.googleapis.com') {
+    keysSeen.push(init?.headers?.['x-goog-api-key']);
     if (behaviour.youtube === 'quota') return { status: 403, json: { error: { errors: [{ reason: 'quotaExceeded' }] } } };
     if (behaviour.youtube === 'badkey') return { status: 400, json: { error: { errors: [{ reason: 'keyInvalid' }] } } };
     if (behaviour.youtube === 'rate') return { status: 429, json: { error: {} }, headers: { 'retry-after': '1200' } };
-    if (u.pathname.endsWith('/channels')) return { status: 200, json: { items: [{ id: 'UCrival', contentDetails: { relatedPlaylists: { uploads: 'UUrival' } } }] } };
+    if (u.pathname.endsWith('/channels')) {
+      const wanted = u.searchParams.get('forHandle') ?? u.searchParams.get('id');
+      if (wanted !== '@rivalstore' && wanted !== RIVAL_CHANNEL) return { status: 200, json: { items: [] } };
+      return { status: 200, json: { items: [{ id: RIVAL_CHANNEL, snippet: { title: 'Rival Store Official', customUrl: '@rivalstore' }, contentDetails: { relatedPlaylists: { uploads: 'UUrival' } } }] } };
+    }
     if (u.pathname.endsWith('/playlistItems')) {
       return { status: 200, json: { items: [
-        { snippet: { title: 'Weekend sale: chocolate bars 2 for 1', description: 'Great deals', publishedAt: '2026-10-09T15:00:00Z', resourceId: { videoId: 'v1' } }, contentDetails: { videoId: 'v1', videoPublishedAt: '2026-10-09T15:00:00Z' } },
-        { snippet: { title: 'Our new store tour', description: 'Come and see', publishedAt: '2026-10-07T15:00:00Z', resourceId: { videoId: 'v2' } }, contentDetails: { videoId: 'v2', videoPublishedAt: '2026-10-07T15:00:00Z' } },
+        { contentDetails: { videoId: 'v1', videoPublishedAt: '2026-10-09T15:00:00Z' } },
+        { contentDetails: { videoId: 'v2', videoPublishedAt: '2026-10-07T15:00:00Z' } },
       ] } };
     }
-    return { status: 200, json: { items: behaviour.hideStats ? [] : [{ id: 'v1', statistics: { viewCount: '1200', likeCount: String(behaviour.likes), commentCount: '7' } }, { id: 'v2', statistics: { viewCount: '300', commentCount: '2' } }] } };
+    const stats = (id: string) => (behaviour.hideStats ? {} : { statistics: id === 'v1' ? { viewCount: '1200', likeCount: String(behaviour.likes), commentCount: '7' } : { viewCount: '300', commentCount: '2' } });
+    return { status: 200, json: { items: [
+      { id: 'v1', snippet: { title: 'Weekend sale: chocolate bars 2 for 1', description: 'Great deals', publishedAt: '2026-10-09T15:00:00Z', channelId: RIVAL_CHANNEL, channelTitle: 'Rival Store Official', thumbnails: { high: { url: 'https://i.ytimg.com/vi/v1/hqdefault.jpg' } } }, contentDetails: { duration: 'PT3M20S' }, ...stats('v1') },
+      { id: 'v2', snippet: { title: 'Our new store tour', description: 'Come and see', publishedAt: '2026-10-07T15:00:00Z', channelId: RIVAL_CHANNEL, channelTitle: 'Rival Store Official' }, contentDetails: { duration: 'PT10M' }, ...stats('v2') },
+    ] } };
   }
   if (u.host === 'graph.facebook.com') {
     if (u.pathname.endsWith('/debug_token')) return { status: 200, json: { data: debugToken } };

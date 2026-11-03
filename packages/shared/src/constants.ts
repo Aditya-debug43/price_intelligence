@@ -295,6 +295,9 @@ export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 export const MARKETING_PLATFORMS = ['facebook', 'instagram', 'youtube', 'site'] as const;
 export type MarketingPlatform = (typeof MARKETING_PLATFORMS)[number];
 
+/** The recent-activity window of the Marketing Activity page, in days. The official-API collection reads exactly this far back, by publication date. */
+export const MARKETING_WINDOW_DAYS = 30;
+
 export const MARKETING_KINDS = [
   'social_post',
   'video',

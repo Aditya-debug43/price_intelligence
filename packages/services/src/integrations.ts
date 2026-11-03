@@ -1,15 +1,18 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { decryptSecret, encryptSecret, isValidShopDomain, randomToken, verifyShopifyQueryHmac } from '@ci/core';
 import {
   ShopifyInventoryProvider,
   allSocialStatuses,
   buildShopifyAuthorizeUrl,
+  verifyYouTubeChannel,
+  type YouTubeChannelInfo,
+  type YouTubeSetup,
   exchangeShopifyCode,
   refreshShopifyToken,
   revokeShopifyAccess,
   type ShopifyAppConfig,
 } from '@ci/connectors';
-import { auditEvents, integrationConnections, oauthStates, sites, socialAccounts, withTenant, type Db, type DbLike } from '@ci/database';
+import { auditEvents, integrationConnections, marketingActivities, oauthStates, sites, socialAccounts, withTenant, type Db, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { raiseAlert, emailAlertDigest, resolveClearedAlerts } from './alerts.ts';
 import { applyInventory, type InventorySyncResult } from './stock.ts';
@@ -53,10 +56,21 @@ export async function integrationOverview(svc: Services, db: DbLike, orgId: stri
   if (!svc.keyRing) missing.push('TOKEN_ENCRYPTION_KEY');
   const connections = await db.select(SAFE_COLUMNS).from(integrationConnections).where(eq(integrationConnections.orgId, orgId)).orderBy(desc(integrationConnections.createdAt));
   const accounts = await db
-    .select({ id: socialAccounts.id, siteId: socialAccounts.siteId, siteName: sites.name, platform: socialAccounts.platform, handle: socialAccounts.handle, url: socialAccounts.url, discoveredFrom: socialAccounts.discoveredFrom, confirmed: socialAccounts.confirmed, lastSyncAt: socialAccounts.lastSyncAt, lastSyncStatus: socialAccounts.lastSyncStatus, lastSyncMessage: socialAccounts.lastSyncMessage, failureKind: socialAccounts.failureKind, nextAttemptAt: socialAccounts.nextAttemptAt, consecutiveFailures: socialAccounts.consecutiveFailures })
+    .select({ id: socialAccounts.id, siteId: socialAccounts.siteId, siteName: sites.name, siteRole: sites.role, platform: socialAccounts.platform, handle: socialAccounts.handle, url: socialAccounts.url, discoveredFrom: socialAccounts.discoveredFrom, confirmed: socialAccounts.confirmed, externalId: socialAccounts.externalId, externalTitle: socialAccounts.externalTitle, verifiedAt: socialAccounts.verifiedAt, syncingSince: socialAccounts.syncingSince, lastSyncAt: socialAccounts.lastSyncAt, lastSyncStatus: socialAccounts.lastSyncStatus, lastSyncMessage: socialAccounts.lastSyncMessage, failureKind: socialAccounts.failureKind, nextAttemptAt: socialAccounts.nextAttemptAt, consecutiveFailures: socialAccounts.consecutiveFailures })
     .from(socialAccounts)
     .innerJoin(sites, eq(sites.id, socialAccounts.siteId))
     .where(eq(socialAccounts.orgId, orgId));
+  const now = svc.clock();
+  const yt = accounts.filter((a) => a.platform === 'youtube');
+  const failing = yt.filter((a) => a.confirmed && a.failureKind);
+  const youtube: YouTubeSetup = {
+    connected: yt.filter((a) => a.confirmed).length,
+    unconnected: yt.filter((a) => !a.confirmed).length,
+    // a read that started long ago and never ended (a restart) is not "running"
+    collecting: yt.some((a) => a.confirmed && a.syncingSince && now.getTime() - a.syncingSince.getTime() < 30 * 60_000),
+    problem: failing[0] ? `${failing[0].siteName}: ${failing[0].lastSyncMessage ?? 'the last read failed'}` : null,
+    problems: failing.length,
+  };
   return {
     shopify: {
       configured: !!shop && !!svc.keyRing,
@@ -67,7 +81,7 @@ export async function integrationOverview(svc: Services, db: DbLike, orgId: stri
       note: 'Read-only access (products, inventory, locations). Tokens are encrypted at rest, expire hourly and are refreshed automatically; disconnecting revokes access.',
     },
     connections,
-    social: { providers: allSocialStatuses(socialConfigOf(svc), await loadMetaTokenHealth(svc, svc.socialHttp)), accounts },
+    social: { providers: allSocialStatuses(socialConfigOf(svc), await loadMetaTokenHealth(svc, svc.socialHttp), youtube), accounts: accounts.map(({ syncingSince, ...a }) => ({ ...a, syncing: !!syncingSince && now.getTime() - syncingSince.getTime() < 30 * 60_000 })) },
   };
 }
 
@@ -202,19 +216,89 @@ export async function handleShopifyUninstalled(svc: Services, shop: string): Pro
   return rows.length;
 }
 
-export async function confirmSocialAccount(db: DbLike, orgId: string, userId: string, accountId: string, confirmed: boolean) {
-  const [r] = await db.update(socialAccounts).set({ confirmed, confirmedBy: confirmed ? userId : null }).where(and(eq(socialAccounts.id, accountId), eq(socialAccounts.orgId, orgId))).returning();
-  if (!r) throw new IntegrationError('Account not found.', 'not_found', 404);
-  return r;
+type SocialSvc = Pick<Services, 'config' | 'socialHttp' | 'clock'>;
+
+/**
+ * Asks YouTube which channel a mapping really is, and refuses one that is not a single, exact, unclaimed channel: an address YouTube cannot resolve, a handle that belongs to a different
+ * channel, a missing key, or a channel already connected to another website of the workspace (a channel belongs to one website).
+ */
+async function verifiedChannel(svc: SocialSvc, db: DbLike, orgId: string, a: { siteId: string; handle: string; url?: string | null; externalId?: string | null; id?: string }): Promise<YouTubeChannelInfo> {
+  const v = await verifyYouTubeChannel(socialConfigOf(svc), { handle: a.handle, url: a.url, externalId: a.externalId }, svc.socialHttp);
+  if (!v.ok) throw new IntegrationError(v.message, v.notConfigured ? 'not_configured' : 'invalid', v.notConfigured ? 409 : 422);
+  const clash = await db
+    .select({ site: sites.name, siteId: socialAccounts.siteId })
+    .from(socialAccounts)
+    .innerJoin(sites, eq(sites.id, socialAccounts.siteId))
+    .where(and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.platform, 'youtube'), eq(socialAccounts.externalId, v.channel.channelId), eq(socialAccounts.confirmed, true), ne(socialAccounts.siteId, a.siteId)));
+  if (clash[0]) throw new IntegrationError(`This channel (“${v.channel.title ?? v.channel.channelId}”) is already connected to ${clash[0].site}. A channel belongs to one website, so it was not connected here.`, 'invalid', 409);
+  return v.channel;
 }
 
-export async function addSocialAccount(db: DbLike, orgId: string, userId: string, p: { siteId: string; platform: 'facebook' | 'instagram' | 'youtube'; handle: string; url?: string }) {
+export async function confirmSocialAccount(svc: SocialSvc, db: DbLike, orgId: string, userId: string, accountId: string, confirmed: boolean) {
+  const [current] = await db.select().from(socialAccounts).where(and(eq(socialAccounts.id, accountId), eq(socialAccounts.orgId, orgId)));
+  if (!current) throw new IntegrationError('Account not found.', 'not_found', 404);
+  // a YouTube channel is checked against YouTube itself before it is used: only a channel that really is the one named gets connected
+  const channel = confirmed && current.platform === 'youtube' ? await verifiedChannel(svc, db, orgId, current) : null;
+  const [r] = await db
+    .update(socialAccounts)
+    .set({ confirmed, confirmedBy: confirmed ? userId : null, ...(channel ? { externalId: channel.channelId, externalTitle: channel.title, verifiedAt: svc.clock() } : {}) })
+    .where(and(eq(socialAccounts.id, accountId), eq(socialAccounts.orgId, orgId)))
+    .returning();
+  return r!;
+}
+
+/**
+ * A mapping entered by a person. A YouTube channel may be given as an address, a @handle or a channel id; it is verified with YouTube first and nothing is saved if it is not exactly
+ * that channel. The same channel entered twice for a website is one mapping.
+ */
+export async function addSocialAccount(svc: SocialSvc, db: DbLike, orgId: string, userId: string, p: { siteId: string; platform: 'facebook' | 'instagram' | 'youtube'; handle: string; url?: string }) {
   const [site] = await db.select().from(sites).where(and(eq(sites.id, p.siteId), eq(sites.orgId, orgId)));
   if (!site) throw new IntegrationError('Website not found.', 'not_found', 404);
+  if (p.platform === 'youtube') {
+    const channel = await verifiedChannel(svc, db, orgId, { siteId: p.siteId, handle: p.handle, url: p.url ?? null });
+    const handle = channel.customUrl ?? channel.channelId;
+    const verified = { externalId: channel.channelId, externalTitle: channel.title, verifiedAt: svc.clock(), confirmed: true, confirmedBy: userId };
+    // the same channel already mapped for this website (found on its own site, or entered before in another form): that mapping is the one that is connected
+    const [same] = await db.select().from(socialAccounts).where(and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.siteId, p.siteId), eq(socialAccounts.platform, 'youtube'), eq(socialAccounts.externalId, channel.channelId)));
+    const [byHandle] = same ? [] : await db.select().from(socialAccounts).where(and(eq(socialAccounts.siteId, p.siteId), eq(socialAccounts.platform, 'youtube'), eq(socialAccounts.handle, handle)));
+    const existing = same ?? byHandle;
+    if (existing) {
+      const [row] = await db.update(socialAccounts).set(verified).where(eq(socialAccounts.id, existing.id)).returning();
+      return row!;
+    }
+    const [row] = await db
+      .insert(socialAccounts)
+      .values({ orgId, siteId: p.siteId, platform: 'youtube', handle, url: `https://www.youtube.com/${channel.customUrl ?? `channel/${channel.channelId}`}`, discoveredFrom: 'manual', ...verified })
+      .returning();
+    return row!;
+  }
   const [row] = await db
     .insert(socialAccounts)
     .values({ orgId, siteId: p.siteId, platform: p.platform, handle: p.handle.trim(), url: p.url ?? null, discoveredFrom: 'manual', confirmed: true, confirmedBy: userId })
     .onConflictDoUpdate({ target: [socialAccounts.siteId, socialAccounts.platform, socialAccounts.handle], set: { confirmed: true, confirmedBy: userId } })
     .returning();
   return row!;
+}
+
+/**
+ * Removes a wrong mapping. What its channel published is then no longer attributed to the website (unless another mapping of the same website still names that channel); every other
+ * observation, and every other website, is untouched.
+ */
+export async function removeSocialAccount(db: DbLike, orgId: string, userId: string, accountId: string): Promise<{ removedVideos: number }> {
+  const [a] = await db.select().from(socialAccounts).where(and(eq(socialAccounts.id, accountId), eq(socialAccounts.orgId, orgId)));
+  if (!a) throw new IntegrationError('Account not found.', 'not_found', 404);
+  let removedVideos = 0;
+  await db.delete(socialAccounts).where(eq(socialAccounts.id, accountId));
+  if (a.platform === 'youtube' && a.externalId) {
+    const [other] = await db.select({ id: socialAccounts.id }).from(socialAccounts).where(and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.siteId, a.siteId), eq(socialAccounts.platform, 'youtube'), eq(socialAccounts.externalId, a.externalId)));
+    if (!other) {
+      const gone = await db
+        .delete(marketingActivities)
+        .where(and(eq(marketingActivities.orgId, orgId), eq(marketingActivities.siteId, a.siteId), eq(marketingActivities.platform, 'youtube'), sql`${marketingActivities.details}->>'channelId' = ${a.externalId}`))
+        .returning({ id: marketingActivities.id });
+      removedVideos = gone.length;
+    }
+  }
+  await db.insert(auditEvents).values({ orgId, userId, action: 'social.removed', target: accountId, meta: { platform: a.platform, handle: a.handle, siteId: a.siteId, removedVideos } });
+  return { removedVideos };
 }

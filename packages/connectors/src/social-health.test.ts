@@ -10,10 +10,13 @@ const NOW = new Date('2026-10-15T12:00:00Z');
 const epoch = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
 describe('engagement metrics: a count the platform does not give is null, never zero', () => {
-  const channel = { items: [{ id: 'UCabc', contentDetails: { relatedPlaylists: { uploads: 'UUabc' } } }] };
+  const UC = 'UCabcdefghijklmnopqrstuv';
+  const channel = { items: [{ id: UC, snippet: { title: 'X Channel', customUrl: '@xchan' }, contentDetails: { relatedPlaylists: { uploads: 'UUabc' } } }] };
   const playlist = {
-    items: ['v1', 'v2', 'v3'].map((id, i) => ({ snippet: { title: `Video ${i + 1}`, publishedAt: '2026-10-10T10:00:00Z', resourceId: { videoId: id } }, contentDetails: { videoId: id, videoPublishedAt: '2026-10-10T10:00:00Z' } })),
+    items: ['v1', 'v2', 'v3'].map((id) => ({ contentDetails: { videoId: id, videoPublishedAt: '2026-10-10T10:00:00Z' } })),
   };
+  const video = (id: string, statistics?: Record<string, string>) => ({ id, snippet: { title: `Video ${id}`, publishedAt: '2026-10-10T10:00:00Z', channelId: UC, channelTitle: 'X Channel' }, ...(statistics ? { statistics } : {}) });
+  const yt = (http: HttpJson) => fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@xchan' }, http, { now: NOW });
 
   it('YouTube: views, likes and comments from one statistics call; a hidden like count stays null', async () => {
     const calls: string[] = [];
@@ -22,12 +25,12 @@ describe('engagement metrics: a count the platform does not give is null, never 
       if (url.includes('/channels?')) return { status: 200, json: channel };
       if (url.includes('/playlistItems?')) return { status: 200, json: playlist };
       return { status: 200, json: { items: [
-        { id: 'v1', statistics: { viewCount: '1200', likeCount: '80', commentCount: '7' } },
-        { id: 'v2', statistics: { viewCount: '50', commentCount: '0' } }, // likes hidden by the channel; zero comments is a real zero
-        // v3 has no statistics at all
+        video('v1', { viewCount: '1200', likeCount: '80', commentCount: '7' }),
+        video('v2', { viewCount: '50', commentCount: '0' }), // likes hidden by the channel; zero comments is a real zero
+        video('v3'), // no statistics at all
       ] } };
     };
-    const r = await fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@x' }, http);
+    const r = await yt(http);
     expect(r.ok).toBe(true);
     expect(calls.filter((u) => u.includes('/videos?'))).toHaveLength(1);
     expect(calls.find((u) => u.includes('/videos?'))).toContain('id=v1,v2,v3');
@@ -38,17 +41,17 @@ describe('engagement metrics: a count the platform does not give is null, never 
     ]);
   });
 
-  it('YouTube: if the statistics call fails the uploads are still returned, and the message says counts are missing', async () => {
+  it('YouTube: if the videos call fails nothing is invented — the failure is reported as the quota problem it is', async () => {
     const http: HttpJson = async (url) => {
       if (url.includes('/channels?')) return { status: 200, json: channel };
       if (url.includes('/playlistItems?')) return { status: 200, json: playlist };
       return { status: 403, json: { error: { errors: [{ reason: 'quotaExceeded' }] } } };
     };
-    const r = await fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@x' }, http);
-    expect(r.ok).toBe(true);
-    expect(r.posts).toHaveLength(3);
-    expect(r.posts.every((p) => !p.engagement)).toBe(true);
-    expect(r.message).toMatch(/counts were not available/i);
+    const r = await yt(http);
+    expect(r).toMatchObject({ ok: false, state: 'error', failure: { kind: 'quota' } });
+    expect(r.posts).toHaveLength(0); // a video without its details (title, date) is never recorded
+    expect(r.message).toMatch(/quota/i);
+    expect(r.externalId).toBe(UC); // the channel was identified, so it is remembered
   });
 
   it('Instagram: like and comment counts where returned; absent when Instagram hides them', async () => {
@@ -76,7 +79,7 @@ describe('engagement metrics: a count the platform does not give is null, never 
 });
 
 describe('failures are classified so the retry policy can act on them', () => {
-  const yt = (json: unknown, status: number, headers?: Record<string, string>) => fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@x' }, reply(json, status, headers));
+  const yt = (json: unknown, status: number, headers?: Record<string, string>) => fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@x', externalId: 'UCabcdefghijklmnopqrstuv' }, reply(json, status, headers));
   const fb = (json: unknown, status: number, headers?: Record<string, string>) => fetchFacebook({ metaAccessToken: 'T' }, { handle: 'p' }, reply(json, status, headers));
 
   it('YouTube: quota, bad key, rate limit with Retry-After, server trouble', async () => {

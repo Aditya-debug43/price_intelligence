@@ -1,4 +1,4 @@
-import type { SocialPlatform } from '@ci/shared';
+import type { MarketingDetails, SocialPlatform } from '@ci/shared';
 
 /**
  * Social providers use OFFICIAL APIs only. Nothing here scrapes social sites, and a provider that lacks credentials
@@ -22,6 +22,8 @@ export interface SocialPost {
   publishedAt: Date | null;
   kind: 'video' | 'social_post';
   engagement?: PostEngagement | null;
+  /** Video id, channel, thumbnail, description and length, when the official API gave them. */
+  details?: MarketingDetails;
 }
 
 /** Why a request failed, in terms the retry policy understands (see `nextAttempt` in @ci/core). */
@@ -47,7 +49,7 @@ export interface CredentialHealth {
 
 export interface SocialProviderStatus {
   provider: SocialPlatform;
-  state: 'ready' | 'not_configured' | 'requires_approval' | 'error';
+  state: 'ready' | 'not_configured' | 'needs_channel_setup' | 'collecting' | 'requires_approval' | 'error';
   message: string;
   requirements: string[];
   docsUrl: string;
@@ -99,6 +101,10 @@ export interface SocialFetchResult {
   externalId?: string;
   /** Present when ok is false because of a provider answer or a network problem (not when merely not configured). */
   failure?: SocialFailure;
+  /** The channel the account turned out to be (YouTube): its name and address as the platform reports them. */
+  channel?: YouTubeChannelInfo;
+  /** API quota units this read used (YouTube: one per call). */
+  units?: number;
 }
 
 export interface AccountRef {
@@ -123,81 +129,236 @@ const hasAny = (e: PostEngagement) => e.views !== null || e.likes !== null || e.
 
 // ───────────────────────────────────────────────────────── YouTube Data API v3
 
-export function youtubeStatus(cfg: SocialConfig): SocialProviderStatus {
-  return {
-    provider: 'youtube',
-    state: cfg.youtubeApiKey ? 'ready' : 'not_configured',
-    message: cfg.youtubeApiKey
-      ? 'YouTube Data API key configured. Public channel uploads can be read. (An API key does not expire; if it is revoked or its quota is used up, the next sync says so.)'
-      : 'No YouTube API key is configured, so channel uploads are not collected.',
-    requirements: ['Create a Google Cloud project, enable “YouTube Data API v3” and create an API key', 'Set YOUTUBE_API_KEY (free default quota: 10,000 units/day; this integration uses about 3 units per channel per sync)'],
-    docsUrl: 'https://developers.google.com/youtube/v3/getting-started',
-    limits: ['Public uploads only: titles, descriptions, publish dates and public view/like/comment counts when the channel shows them', 'Cannot tell whether a video is a paid advertisement and shows no ad spend'],
-  };
+/** What the YouTube card needs to know about the channels behind it (the connector does not read the database). */
+export interface YouTubeSetup {
+  /** Channels the API has verified and a person confirmed: the ones that are read. */
+  connected: number;
+  /** Channels found on a competitor's website or entered, but not connected yet. */
+  unconnected: number;
+  /** A read is running now. */
+  collecting: boolean;
+  /** The platform's own explanation of why a connected channel could not be read, when it could not. */
+  problem?: string | null;
+  problems?: number;
 }
 
-function ytChannelQuery(handle: string, url?: string | null): string | null {
-  const h = handle.trim();
-  if (/^UC[\w-]{20,}$/.test(h)) return `id=${encodeURIComponent(h)}`;
-  const fromUrl = url ? url.match(/youtube\.com\/(channel\/(UC[\w-]+)|user\/([\w.-]+)|(@[\w.-]+))/) : null;
-  if (fromUrl?.[2]) return `id=${encodeURIComponent(fromUrl[2])}`;
-  if (fromUrl?.[3]) return `forUsername=${encodeURIComponent(fromUrl[3])}`;
-  const at = fromUrl?.[4] ?? (h.startsWith('@') ? h : `@${h}`);
-  return `forHandle=${encodeURIComponent(at)}`;
+/**
+ * The state of the YouTube integration: not configured (no key), needs channel setup (a key but no verified channel: nothing is collected), collecting, ready (connected), or an
+ * error with the platform's explanation. Called without `setup` it only reports whether a key is set.
+ */
+export function youtubeStatus(cfg: SocialConfig, setup?: YouTubeSetup): SocialProviderStatus {
+  const base = {
+    provider: 'youtube' as const,
+    requirements: ['Create a Google Cloud project, enable “YouTube Data API v3” and create an API key', 'Set YOUTUBE_API_KEY on the server (free default quota: 10,000 units/day; a daily read of a channel costs about 3 to 6 units)', 'Connect each competitor’s own YouTube channel (Manage social connections)'],
+    docsUrl: 'https://developers.google.com/youtube/v3/getting-started',
+    limits: ['Public uploads only: titles, descriptions, publish dates, length, thumbnails and public view/like/comment counts when the channel shows them (a count the channel hides is shown as not provided, never as zero)', 'Cannot tell whether a video is a paid advertisement and shows no ad spend'],
+  };
+  if (!cfg.youtubeApiKey) return { ...base, state: 'not_configured', message: 'No YouTube API key is configured, so channel uploads are not collected.' };
+  if (!setup) return { ...base, state: 'ready', message: 'YouTube Data API key configured. Public channel uploads can be read. (An API key does not expire; if it is revoked or its quota is used up, the next sync says so.)' };
+  if (setup.problem) return { ...base, state: 'error', message: `${setup.problem}${(setup.problems ?? 0) > 1 ? ` (${setup.problems} channels are affected.)` : ''}` };
+  if (setup.collecting) return { ...base, state: 'collecting', message: `Reading the recent uploads of ${setup.connected} connected channel${setup.connected === 1 ? '' : 's'} now.` };
+  if (setup.connected === 0) {
+    return {
+      ...base,
+      state: 'needs_channel_setup',
+      message: `The YouTube API key is set, but no competitor channel is connected yet, so nothing is collected.${setup.unconnected > 0 ? ` ${setup.unconnected} channel${setup.unconnected === 1 ? ' was' : 's were'} found on competitors’ websites and ${setup.unconnected === 1 ? 'is' : 'are'} waiting to be checked and connected.` : ' Add each competitor’s own YouTube channel.'}`,
+    };
+  }
+  return { ...base, state: 'ready', message: `Connected: ${setup.connected} competitor channel${setup.connected === 1 ? ' is' : 's are'} read through the official YouTube Data API. Only channels checked against YouTube and confirmed by a person are read.` };
+}
+
+const YT_BASE = 'https://www.googleapis.com/youtube/v3';
+/** The key travels in a request header, so it is never part of an address that could be logged or shown in an error. */
+const ytHeaders = (cfg: SocialConfig) => ({ 'x-goog-api-key': cfg.youtubeApiKey ?? '' });
+/** Whatever an error message might quote, the key is never in it. */
+const ytRedact = (cfg: SocialConfig, text: string) => (cfg.youtubeApiKey ? text.split(cfg.youtubeApiKey).join('[key]') : text);
+
+/** What an account's address or handle names. A "/c/Name" custom address is recognised but cannot be resolved by the official API. */
+export type YouTubeRef =
+  | { kind: 'id'; channelId: string }
+  | { kind: 'handle'; handle: string }
+  | { kind: 'username'; username: string }
+  | { kind: 'custom_url'; name: string }
+  | null;
+
+const YT_NAME = /^@?[\p{L}\p{N}_.-]{3,100}$/u;
+
+function ytRefOf(raw: string): YouTubeRef {
+  const t = raw.trim();
+  if (!t) return null;
+  if (/^UC[\w-]{20,}$/.test(t)) return { kind: 'id', channelId: t };
+  const u = t.match(/^(?:https?:\/\/)?(?:www\.|m\.)?youtube\.com\/(.+)$/i);
+  if (u) {
+    const path = u[1]!.split(/[?#]/)[0]!.replace(/\/+$/, '');
+    const ch = path.match(/^channel\/(UC[\w-]{20,})/);
+    if (ch) return { kind: 'id', channelId: ch[1]! };
+    const at = path.match(/^@([\p{L}\p{N}_.-]+)/u);
+    if (at) return { kind: 'handle', handle: `@${at[1]}` };
+    const user = path.match(/^user\/([\w.-]+)/);
+    if (user) return { kind: 'username', username: user[1]! };
+    const c = path.match(/^c\/([\w.%-]+)/);
+    if (c) return { kind: 'custom_url', name: decodeURIComponent(c[1]!) };
+    return null;
+  }
+  return YT_NAME.test(t) ? { kind: 'handle', handle: t.startsWith('@') ? t : `@${t}` } : null;
+}
+
+/** The channel an account points at: its address if it has one, else its handle (which may itself be an address, a handle or a channel id). */
+export function parseYouTubeRef(handle: string, url?: string | null): YouTubeRef {
+  return (url ? ytRefOf(url) : null) ?? ytRefOf(handle);
+}
+
+export interface YouTubeChannelInfo {
+  channelId: string;
+  title: string | null;
+  /** The channel's own address as YouTube reports it, e.g. "@auxitoled". */
+  customUrl: string | null;
+  uploadsPlaylistId: string | null;
+  thumbnailUrl: string | null;
+}
+
+export type YouTubeVerification = { ok: true; channel: YouTubeChannelInfo; units: number } | { ok: false; message: string; failure: SocialFailure; notConfigured?: boolean; units: number };
+
+const channelOf = (item: Obj): YouTubeChannelInfo => {
+  const sn = o(item['snippet']);
+  const th = o(sn['thumbnails']);
+  return {
+    channelId: s(item['id'])!,
+    title: s(sn['title']),
+    customUrl: s(sn['customUrl']),
+    uploadsPlaylistId: s(o(o(item['contentDetails'])['relatedPlaylists'])['uploads']),
+    thumbnailUrl: s(o(th['medium'])['url']) ?? s(o(th['default'])['url']),
+  };
+};
+
+/**
+ * Asks YouTube which channel an account really is, before it is saved or read. A channel found by @handle must carry that very address (never a similar-looking one); a channel id or a
+ * legacy username is exact by itself. Costs one quota unit.
+ */
+export async function verifyYouTubeChannel(cfg: SocialConfig, account: AccountRef, http: HttpJson = defaultHttpJson): Promise<YouTubeVerification> {
+  if (!cfg.youtubeApiKey) return { ok: false, message: youtubeStatus(cfg).message, failure: { kind: 'auth' }, notConfigured: true, units: 0 };
+  const ref: YouTubeRef = account.externalId && /^UC[\w-]{20,}$/.test(account.externalId) ? { kind: 'id', channelId: account.externalId } : parseYouTubeRef(account.handle, account.url);
+  const bad = (message: string, failure: SocialFailure, units = 0): YouTubeVerification => ({ ok: false, message, failure, units });
+  if (!ref) return bad(`“${account.handle}” is not a YouTube channel address. Enter the channel’s address (youtube.com/@handle or youtube.com/channel/UC…), its @handle or its channel id.`, { kind: 'not_found' });
+  if (ref.kind === 'custom_url') {
+    return bad(`youtube.com/c/${ref.name} is an older custom address, and the official YouTube API cannot turn it into a channel. Open that link in your browser and enter the channel’s @handle or its youtube.com/channel/UC… address instead.`, { kind: 'not_found' });
+  }
+  const q = ref.kind === 'id' ? `id=${encodeURIComponent(ref.channelId)}` : ref.kind === 'handle' ? `forHandle=${encodeURIComponent(ref.handle)}` : `forUsername=${encodeURIComponent(ref.username)}`;
+  try {
+    const r = await http(`${YT_BASE}/channels?part=snippet,contentDetails&${q}`, { headers: ytHeaders(cfg) });
+    const err = youtubeError(r);
+    if (err) return bad(err.message, err.failure, 1);
+    const item = o(arr(o(r.json)['items'])[0]);
+    if (!s(item['id'])) return bad(`YouTube has no channel for ${ref.kind === 'id' ? `the id ${ref.channelId}` : ref.kind === 'handle' ? ref.handle : `the username ${ref.username}`}. Check the address, or enter the channel’s @handle or id.`, { kind: 'not_found' }, 1);
+    const channel = channelOf(item);
+    if (ref.kind === 'handle' && (channel.customUrl ?? '').toLowerCase() !== ref.handle.toLowerCase()) {
+      return bad(`YouTube matched ${ref.handle} to “${channel.title ?? 'a channel'}”, whose own address is ${channel.customUrl ?? 'not published'}, not ${ref.handle}. It was not connected, because it may be a different channel.`, { kind: 'not_found' }, 1);
+    }
+    if (!channel.uploadsPlaylistId) return bad(`“${channel.title ?? ref.kind}” has no public uploads list to read.`, { kind: 'not_found' }, 1);
+    return { ok: true, channel, units: 1 };
+  } catch (e) {
+    return bad(`YouTube request failed: ${ytRedact(cfg, (e as Error).message)}`, { kind: 'transient' });
+  }
 }
 
 const fail = (state: SocialProviderStatus['state'], message: string, failure: SocialFailure): SocialFetchResult => ({ ok: false, state, message, posts: [], failure });
 
-export async function fetchYouTube(cfg: SocialConfig, account: AccountRef, http: HttpJson = defaultHttpJson): Promise<SocialFetchResult> {
-  if (!cfg.youtubeApiKey) return { ok: false, state: 'not_configured', message: youtubeStatus(cfg).message, posts: [] };
-  const q = ytChannelQuery(account.handle, account.url);
-  if (!q) return fail('error', 'Could not interpret the YouTube handle', { kind: 'not_found' });
-  const base = 'https://www.googleapis.com/youtube/v3';
-  const key = `key=${encodeURIComponent(cfg.youtubeApiKey)}`;
-  try {
-    const ch = await http(`${base}/channels?part=contentDetails,snippet&${q}&${key}`);
-    const err = youtubeError(ch);
-    if (err) return fail('error', err.message, err.failure);
-    const item = o(arr(o(ch.json)['items'])[0]);
-    const uploads = s(o(o(item['contentDetails'])['relatedPlaylists'])['uploads']);
-    const channelId = s(item['id']);
-    if (!uploads || !channelId) return fail('error', 'No YouTube channel matched this handle. Check the account mapping.', { kind: 'not_found' });
-    const pl = await http(`${base}/playlistItems?part=snippet,contentDetails&playlistId=${encodeURIComponent(uploads)}&maxResults=15&${key}`);
-    const err2 = youtubeError(pl);
-    if (err2) return fail('error', err2.message, err2.failure);
-    const posts: SocialPost[] = arr(o(pl.json)['items']).map((it) => {
-      const sn = o(o(it)['snippet']);
-      const vid = s(o(o(it)['contentDetails'])['videoId']) ?? s(o(sn['resourceId'])['videoId']);
-      const published = s(o(o(it)['contentDetails'])['videoPublishedAt']) ?? s(sn['publishedAt']);
-      return {
-        externalId: vid ?? '',
-        title: s(sn['title']),
-        text: (s(sn['description']) ?? '').slice(0, 500) || null,
-        url: `https://www.youtube.com/watch?v=${vid}`,
-        publishedAt: published ? new Date(published) : null,
-        kind: 'video' as const,
-      };
-    }).filter((p) => p.externalId && p.title && p.title !== 'Private video' && p.title !== 'Deleted video');
+/** "PT1H2M3S" → seconds. Null when YouTube did not give a length (a live broadcast that has not ended has none). */
+export function isoDurationSeconds(v: unknown): number | null {
+  if (v === 'P0D') return null; // what YouTube gives for a live broadcast that has no length yet
+  const m = typeof v === 'string' ? v.match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/) : null;
+  if (!m || (!m[1] && !m[2] && !m[3] && !m[4] && !/^PT0S$/.test(String(v)))) return null;
+  return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3] ?? 0) * 60 + Number(m[4] ?? 0);
+}
 
-    // Public counts, one cheap call for all videos. If it fails the posts are still valid; the counts are simply unavailable.
-    let counts = '';
-    if (posts.length) {
-      const st = await http(`${base}/videos?part=statistics&id=${posts.map((p) => encodeURIComponent(p.externalId)).join(',')}&${key}`);
-      const e3 = youtubeError(st);
-      if (!e3) {
-        const byId = new Map(arr(o(st.json)['items']).map((v) => [s(o(v)['id']) ?? '', o(o(v)['statistics'])] as const));
-        for (const p of posts) {
-          const stats = byId.get(p.externalId);
-          const eng: PostEngagement = { views: num(stats?.['viewCount']), likes: num(stats?.['likeCount']), comments: num(stats?.['commentCount']), shares: null };
-          p.engagement = hasAny(eng) ? eng : null;
-        }
-      } else {
-        counts = ` View and like counts were not available (${e3.message})`;
+const YT_MAX_PAGES = 10; // 500 uploads: far more than any competitor publishes in a month
+const YT_IDS_PER_CALL = 50;
+
+/**
+ * Reads a connected channel's recent uploads through its uploads playlist (not search): pages back until the playlist reaches videos older than the window, then asks for the details
+ * and public statistics of the videos inside it, 50 to a call. A video YouTube does not return (private, deleted) is not recorded. A count the channel hides is absent, never zero.
+ * Roughly 3 units per channel on a quiet month. The window is by PUBLICATION date.
+ */
+export async function fetchYouTube(cfg: SocialConfig, account: AccountRef, http: HttpJson = defaultHttpJson, opts: { now?: Date; windowDays?: number } = {}): Promise<SocialFetchResult> {
+  if (!cfg.youtubeApiKey) return { ok: false, state: 'not_configured', message: youtubeStatus(cfg).message, posts: [] };
+  const windowDays = opts.windowDays ?? 30;
+  const since = (opts.now ?? new Date()).getTime() - windowDays * 86_400_000;
+  let units = 0;
+  try {
+    const v = await verifyYouTubeChannel(cfg, account, http);
+    units += v.units;
+    if (!v.ok) return fail('error', v.message, v.failure);
+    const channel = v.channel;
+    const headers = ytHeaders(cfg);
+
+    // 1. the uploads playlist, newest first, back to the start of the window
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    let reachedOlder = false;
+    for (let page = 0; page < YT_MAX_PAGES && !reachedOlder; page++) {
+      const pl = await http(`${YT_BASE}/playlistItems?part=contentDetails&maxResults=50&playlistId=${encodeURIComponent(channel.uploadsPlaylistId!)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`, { headers });
+      units++;
+      const err = youtubeError(pl);
+      if (err) return { ...fail('error', `${err.message} (${units} API calls used.)`, err.failure), externalId: channel.channelId, channel, units };
+      for (const it of arr(o(pl.json)['items'])) {
+        const cd = o(o(it)['contentDetails']);
+        const id = s(cd['videoId']);
+        const at = s(cd['videoPublishedAt']) ? Date.parse(s(cd['videoPublishedAt'])!) : NaN;
+        if (Number.isFinite(at) && at < since) reachedOlder = true;
+        else if (id) ids.push(id);
+      }
+      pageToken = s(o(pl.json)['nextPageToken']) ?? undefined;
+      if (!pageToken) break;
+    }
+
+    // 2. details and public statistics of the videos in the window
+    const posts: SocialPost[] = [];
+    let unavailable = 0;
+    for (let i = 0; i < ids.length; i += YT_IDS_PER_CALL) {
+      const chunk = ids.slice(i, i + YT_IDS_PER_CALL);
+      const vr = await http(`${YT_BASE}/videos?part=snippet,contentDetails,statistics&id=${chunk.map((x) => encodeURIComponent(x)).join(',')}`, { headers });
+      units++;
+      const err = youtubeError(vr);
+      // what was read before the failure is kept; the failure is reported with it
+      if (err) return { ok: false, state: 'error', message: `${err.message} (${posts.length} upload(s) were read before it; ${units} API calls used.)`, posts, failure: err.failure, externalId: channel.channelId, channel, units };
+      const items = arr(o(vr.json)['items']);
+      unavailable += chunk.length - items.length;
+      for (const raw of items) {
+        const it = o(raw);
+        const sn = o(it['snippet']);
+        const id = s(it['id']);
+        const published = s(sn['publishedAt']);
+        const at = published ? Date.parse(published) : NaN;
+        const live = s(sn['liveBroadcastContent']);
+        if (!id || !Number.isFinite(at) || at < since || live === 'upcoming') continue; // a scheduled broadcast is an announcement, not an upload
+        const st = o(it['statistics']);
+        const eng: PostEngagement = { views: num(st['viewCount']), likes: num(st['likeCount']), comments: num(st['commentCount']), shares: null };
+        const th = o(sn['thumbnails']);
+        const description = s(sn['description']);
+        posts.push({
+          externalId: id,
+          title: s(sn['title']),
+          text: description ? description.slice(0, 500) : null,
+          url: `https://www.youtube.com/watch?v=${id}`,
+          publishedAt: new Date(at),
+          kind: 'video',
+          engagement: hasAny(eng) ? eng : null,
+          details: {
+            videoId: id,
+            channelId: s(sn['channelId']) ?? channel.channelId,
+            channelTitle: s(sn['channelTitle']) ?? channel.title ?? undefined,
+            thumbnailUrl: s(o(th['high'])['url']) ?? s(o(th['medium'])['url']) ?? s(o(th['default'])['url']),
+            description: description ? description.slice(0, 2000) : null,
+            durationSeconds: isoDurationSeconds(o(it['contentDetails'])['duration']),
+            liveBroadcast: live === 'live' || live === 'none' ? live : null,
+          },
+        });
       }
     }
-    return { ok: true, state: 'ready', message: `Read ${posts.length} recent upload(s).${counts}`, posts, externalId: channelId };
+    const note = unavailable > 0 ? ` ${unavailable} video(s) in the playlist were private or removed and are not recorded.` : '';
+    return { ok: true, state: 'ready', message: `Read ${posts.length} upload(s) published in the last ${windowDays} days from “${channel.title ?? channel.channelId}” (${units} API call${units === 1 ? '' : 's'}).${note}`, posts, externalId: channel.channelId, channel, units };
   } catch (e) {
-    return fail('error', `YouTube request failed: ${(e as Error).message}`, { kind: 'transient' });
+    return fail('error', `YouTube request failed: ${ytRedact(cfg, (e as Error).message)}`, { kind: 'transient' });
   }
 }
 
@@ -209,7 +370,8 @@ function youtubeError(r: { status: number; json: unknown; headers?: Record<strin
   if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') return { message: 'The daily YouTube API quota is used up. Collection resumes after the quota resets (midnight Pacific Time).', failure: { kind: 'quota' } };
   if (reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded' || r.status === 429) return { message: 'YouTube asked us to slow down; trying again later.', failure: { kind: 'rate_limit', retryAfterSeconds: retryAfterOf(r) } };
   if (reason === 'keyInvalid' || reason === 'API_KEY_INVALID' || status === 'INVALID_ARGUMENT' && /api key/i.test(s(e['message']) ?? '')) return { message: 'The YouTube API key was rejected. Check YOUTUBE_API_KEY.', failure: { kind: 'auth' } };
-  if (reason === 'keyExpired' || reason === 'ipRefererBlocked' || reason === 'forbidden' || reason === 'accessNotConfigured' || r.status === 403 || r.status === 401) return { message: `YouTube refused the request (${reason ?? 'forbidden'}). The API may not be enabled for this key, or the key is restricted.`, failure: { kind: 'auth' } };
+  if (reason === 'accessNotConfigured' || reason === 'SERVICE_DISABLED' || /has not been used in project|is disabled/i.test(s(e['message']) ?? '')) return { message: 'YouTube Data API v3 is not enabled for the Google Cloud project this key belongs to. Enable it in the Google Cloud console, then sync again.', failure: { kind: 'auth' } };
+  if (reason === 'keyExpired' || reason === 'ipRefererBlocked' || reason === 'API_KEY_IP_ADDRESS_BLOCKED' || reason === 'API_KEY_HTTP_REFERRER_BLOCKED' || reason === 'forbidden' || r.status === 403 || r.status === 401) return { message: `YouTube refused the request (${reason ?? 'forbidden'}). The key may be restricted (by address, by referrer or to other APIs) or revoked.`, failure: { kind: 'auth' } };
   if (r.status === 404) return { message: 'YouTube could not find that resource.', failure: { kind: 'not_found' } };
   if (r.status >= 500) return { message: `YouTube had a problem (HTTP ${r.status}); trying again later.`, failure: { kind: 'transient' } };
   return { message: `YouTube API error (HTTP ${r.status}${reason ? `, ${reason}` : ''})`, failure: { kind: 'transient' } };
@@ -399,14 +561,14 @@ function graphError(r: { status: number; json: unknown; headers?: Record<string,
   return { state: 'error', message: `${name} API error: ${msg}`, failure: { kind: 'transient' } };
 }
 
-export function allSocialStatuses(cfg: SocialConfig, health?: CredentialHealth | null): SocialProviderStatus[] {
-  return [youtubeStatus(cfg), instagramStatus(cfg, health), facebookStatus(cfg, health)];
+export function allSocialStatuses(cfg: SocialConfig, health?: CredentialHealth | null, youtube?: YouTubeSetup): SocialProviderStatus[] {
+  return [youtubeStatus(cfg, youtube), instagramStatus(cfg, health), facebookStatus(cfg, health)];
 }
 
-export async function fetchSocial(platform: SocialPlatform, cfg: SocialConfig, account: AccountRef, http?: HttpJson): Promise<SocialFetchResult> {
+export async function fetchSocial(platform: SocialPlatform, cfg: SocialConfig, account: AccountRef, http?: HttpJson, opts: { now?: Date; windowDays?: number } = {}): Promise<SocialFetchResult> {
   switch (platform) {
     case 'youtube':
-      return fetchYouTube(cfg, account, http);
+      return fetchYouTube(cfg, account, http, opts);
     case 'instagram':
       return fetchInstagram(cfg, account, http);
     case 'facebook':

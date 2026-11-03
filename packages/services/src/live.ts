@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import { assortmentBasis, assortmentNote, summariseMarketing, type MarketingSummary } from '@ci/core';
 import { DEFAULTS, type AssortmentBasis, type AssortmentEntry, type Availability, type MarketingRow, type OfferRow, type SiteCoverage, type StockRow, type StockState } from '@ci/shared';
 import { marketingActivities, offers, orgSettings, productMatches, products, scanRuns, sites, socialAccounts, stockStates, users, variants, type DbLike } from '@ci/database';
@@ -104,13 +104,16 @@ export async function loadStock(db: DbLike, now: Date, maps: SiteMaps, threshold
 
 export async function loadMarketing(db: DbLike, orgId: string, now: Date, maps: SiteMaps, opts: { days?: number; limit?: number } = {}): Promise<MarketingRow[]> {
   const since = new Date(now.getTime() - (opts.days ?? 30) * 86_400_000);
-  const rows = await db.select().from(marketingActivities).where(and(eq(marketingActivities.orgId, orgId), gte(marketingActivities.lastSeenAt, since))).orderBy(desc(marketingActivities.lastSeenAt)).limit(opts.limit ?? 300);
+  // A website observation is current while it is still being seen; a post or video read through a platform's API belongs to the window by the date it was PUBLISHED.
+  const inWindow = or(and(eq(marketingActivities.platform, 'site'), gte(marketingActivities.lastSeenAt, since)), and(ne(marketingActivities.platform, 'site'), gte(sql`coalesce(${marketingActivities.publishedAt}, ${marketingActivities.lastSeenAt})`, since)));
+  const rows = await db.select().from(marketingActivities).where(and(eq(marketingActivities.orgId, orgId), inWindow)).orderBy(desc(sql`coalesce(${marketingActivities.publishedAt}, ${marketingActivities.lastSeenAt})`)).limit(opts.limit ?? 300);
   return rows
     .filter((m) => maps.name.has(m.siteId))
     .map((m) => ({
       id: m.id, siteId: m.siteId, siteName: maps.name.get(m.siteId)!, platform: m.platform, kind: m.kind, title: m.title, excerpt: m.excerpt, url: m.url, publishedAt: m.publishedAt?.toISOString() ?? null,
       firstSeenAt: m.firstSeenAt.toISOString(), lastSeenAt: m.lastSeenAt.toISOString(), classification: m.classification, confidence: m.confidence, provenance: m.provenance, paidStatus: 'not_determined' as const,
       engagement: m.engagement ? { ...m.engagement, observedAt: m.engagementObservedAt?.toISOString() ?? m.lastSeenAt.toISOString() } : null,
+      details: m.details ?? null,
       note: 'Publicly observed content. This is not evidence that a paid advertising campaign is running.',
     }));
 }

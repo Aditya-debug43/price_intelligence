@@ -79,24 +79,25 @@ describe('social providers (official APIs, mocked HTTP)', () => {
     expect(s[2]!.requirements.join(' ')).toMatch(/Page Public Content Access/);
     expect(allSocialStatuses({ metaAccessToken: 't' })[2]!.state).toBe('requires_approval');
   });
-  it('YouTube: resolves a handle, then reads the uploads playlist', async () => {
+  it('YouTube: resolves a handle, then reads the uploads playlist and the details of its videos', async () => {
     const calls: string[] = [];
     const http: HttpJson = async (url) => {
       calls.push(url);
-      if (url.includes('/channels?')) return { status: 200, json: { items: [{ id: 'UCabc', contentDetails: { relatedPlaylists: { uploads: 'UUabc' } } }] } };
-      return { status: 200, json: { items: [
-        { snippet: { title: 'Weekend sale up to 30% off', description: 'Great deals', publishedAt: '2026-10-10T10:00:00Z', resourceId: { videoId: 'v1' } }, contentDetails: { videoId: 'v1', videoPublishedAt: '2026-10-10T10:00:00Z' } },
-        { snippet: { title: 'Private video', resourceId: { videoId: 'v2' } }, contentDetails: { videoId: 'v2' } },
+      if (url.includes('/channels?')) return { status: 200, json: { items: [{ id: 'UCabcdefghijklmnopqrstuv', snippet: { title: 'My Store', customUrl: '@mystore' }, contentDetails: { relatedPlaylists: { uploads: 'UUabc' } } }] } };
+      if (url.includes('/playlistItems?')) return { status: 200, json: { items: [
+        { contentDetails: { videoId: 'v1', videoPublishedAt: '2026-10-10T10:00:00Z' } },
+        { contentDetails: { videoId: 'v2' } }, // a private video: no publication date
       ] } };
+      return { status: 200, json: { items: [{ id: 'v1', snippet: { title: 'Weekend sale up to 30% off', description: 'Great deals', publishedAt: '2026-10-10T10:00:00Z', channelId: 'UCabcdefghijklmnopqrstuv', channelTitle: 'My Store' }, statistics: { viewCount: '10' } }] } }; // v2 is not returned
     };
-    const r = await fetchYouTube({ youtubeApiKey: 'KEY' }, { handle: '@mystore' }, http);
+    const r = await fetchYouTube({ youtubeApiKey: 'KEY' }, { handle: '@mystore' }, http, { now: new Date('2026-10-15T00:00:00Z') });
     expect(r.ok).toBe(true);
     expect(r.posts).toHaveLength(1);
     expect(r.posts[0]).toMatchObject({ url: 'https://www.youtube.com/watch?v=v1', kind: 'video' });
     expect(calls[0]).toContain('forHandle=%40mystore');
   });
   it('YouTube: explains quota and key problems', async () => {
-    const quota = await fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@x' }, ok({ error: { errors: [{ reason: 'quotaExceeded' }] } }, 403));
+    const quota = await fetchYouTube({ youtubeApiKey: 'K' }, { handle: '@x', externalId: 'UCabcdefghijklmnopqrstuv' }, ok({ error: { errors: [{ reason: 'quotaExceeded' }] } }, 403));
     expect(quota).toMatchObject({ ok: false, state: 'error' });
     expect(quota.message).toMatch(/quota/i);
     expect((await fetchYouTube({}, { handle: '@x' })).state).toBe('not_configured');

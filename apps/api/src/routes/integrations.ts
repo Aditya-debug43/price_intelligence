@@ -8,6 +8,7 @@ import {
   confirmSocialAccount,
   disconnectIntegration,
   integrationOverview,
+  removeSocialAccount,
   startShopifyOAuth,
   IntegrationError,
   assertCanSyncSocial,
@@ -39,17 +40,33 @@ export async function integrationRoutes(app: FastifyInstance) {
   });
 
   // social accounts (mapped from official site links; confirmed by the customer before any API call)
+  // A YouTube channel is checked with YouTube before it is saved or connected; a channel that was just connected is read straight away, so the person sees it work.
+  const readNow = async (orgId: string, account: { platform: string; siteId: string; confirmed: boolean }) => {
+    if (account.platform === 'youtube' && account.confirmed) await app.svc.queue.enqueue('sync-social', { orgId, siteId: account.siteId, manual: true }, { singletonKey: `social:${orgId}:${account.siteId}:connect` });
+  };
+
   app.post('/social-accounts', async (req, reply) => {
     requireRole(req, 'admin');
     const b = parse(socialAccountSchema, req.body);
-    return reply.status(201).send({ account: await req.tx((tx) => addSocialAccount(tx, req.orgId!, req.user!.id, b)) });
+    const account = await req.tx((tx) => addSocialAccount(app.svc, tx, req.orgId!, req.user!.id, b));
+    await readNow(req.orgId!, account);
+    return reply.status(201).send({ account });
   });
 
   app.patch('/social-accounts/:accountId', async (req) => {
     requireRole(req, 'admin');
     const { accountId } = parse(z.object({ accountId: z.uuid() }), req.params);
     const b = parse(z.object({ confirmed: z.boolean() }), req.body);
-    return { account: await req.tx((tx) => confirmSocialAccount(tx, req.orgId!, req.user!.id, accountId, b.confirmed)) };
+    const account = await req.tx((tx) => confirmSocialAccount(app.svc, tx, req.orgId!, req.user!.id, accountId, b.confirmed));
+    await readNow(req.orgId!, account);
+    return { account };
+  });
+
+  /** Removes a wrong mapping (and what its channel published is no longer attributed to the website). */
+  app.delete('/social-accounts/:accountId', async (req) => {
+    requireRole(req, 'admin');
+    const { accountId } = parse(z.object({ accountId: z.uuid() }), req.params);
+    return req.tx((tx) => removeSocialAccount(tx, req.orgId!, req.user!.id, accountId));
   });
 
   app.post('/social/sync', async (req, reply) => {

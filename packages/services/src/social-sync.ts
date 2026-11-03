@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { nextAttempt, sha256Hex, shouldSkipSync } from '@ci/core';
 import { checkMetaToken, classifyPost, fetchSocial, type CredentialHealth, type HttpJson, type SocialConfig } from '@ci/connectors';
-import type { SocialPlatform } from '@ci/shared';
+import { MARKETING_WINDOW_DAYS, type SocialPlatform } from '@ci/shared';
 import { marketingActivities, sites, socialAccounts, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { provenanceFor } from './workspace.ts';
@@ -43,8 +43,8 @@ export interface SocialSyncResult {
  * rate-limited us is left alone until the retry policy says it may be asked again; a replaced credential starts fresh.
  * `manual` means a person asked for the sync: it can retry a bad credential or an early hiccup, but never overrides a quota or rate limit.
  */
-export async function syncSocial(svc: Services, db: DbLike, orgId: string, opts: { http?: HttpJson; siteId?: string; manual?: boolean } = {}): Promise<SocialSyncResult[]> {
-  const where = opts.siteId ? and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.confirmed, true), eq(socialAccounts.siteId, opts.siteId)) : and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.confirmed, true));
+export async function syncSocial(svc: Services, db: DbLike, orgId: string, opts: { http?: HttpJson; siteId?: string; platform?: SocialPlatform; manual?: boolean } = {}): Promise<SocialSyncResult[]> {
+  const where = and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.confirmed, true), opts.siteId ? eq(socialAccounts.siteId, opts.siteId) : undefined, opts.platform ? eq(socialAccounts.platform, opts.platform) : undefined);
   const accts = await db.select().from(socialAccounts).where(where);
   const out: SocialSyncResult[] = [];
   const now = svc.clock();
@@ -59,38 +59,60 @@ export async function syncSocial(svc: Services, db: DbLike, orgId: string, opts:
       continue;
     }
 
-    const r = await fetchSocial(a.platform, cfg, { handle: a.handle, url: a.url, externalId: a.externalId }, opts.http);
-    let count = 0;
-    for (const p of r.posts) {
-      const cls = classifyPost(`${p.title ?? ''} ${p.text ?? ''}`);
-      const eng = p.engagement ? { views: p.engagement.views, likes: p.engagement.likes, comments: p.engagement.comments, shares: p.engagement.shares } : null;
-      await db
-        .insert(marketingActivities)
-        .values({
-          orgId, siteId: a.siteId, platform: a.platform, kind: p.kind, title: p.title, excerpt: p.text?.slice(0, 400) ?? null, url: p.url, publishedAt: p.publishedAt, firstSeenAt: now, lastSeenAt: now,
-          classification: cls.classification, confidence: cls.confidence, extractionMethod: 'official_api', dedupeKey: `${a.platform}:${sha256Hex(p.externalId).slice(0, 20)}`,
-          provenance: provenanceFor({ official: true }),
-          engagement: eng, engagementObservedAt: eng ? now : null,
-        })
-        // Counts change over time: refresh them when the platform gives them; when it stops giving them, keep the last known counts with their own timestamp.
-        .onConflictDoUpdate({ target: [marketingActivities.orgId, marketingActivities.siteId, marketingActivities.dedupeKey], set: eng ? { lastSeenAt: now, engagement: eng, engagementObservedAt: now } : { lastSeenAt: now } });
-      count++;
-    }
+    // One account's trouble (a channel that vanished, a database hiccup) is that account's alone: the others, and every website observation, carry on.
+    try {
+      await db.update(socialAccounts).set({ syncingSince: now }).where(eq(socialAccounts.id, a.id));
+      const r = await fetchSocial(a.platform, cfg, { handle: a.handle, url: a.url, externalId: a.externalId }, opts.http, { now, windowDays: MARKETING_WINDOW_DAYS });
+      let count = 0;
+      for (const p of r.posts) {
+        const cls = classifyPost(`${p.title ?? ''} ${p.text ?? ''}`);
+        const eng = p.engagement ? { views: p.engagement.views, likes: p.engagement.likes, comments: p.engagement.comments, shares: p.engagement.shares } : null;
+        await db
+          .insert(marketingActivities)
+          .values({
+            orgId, siteId: a.siteId, platform: a.platform, kind: p.kind, title: p.title, excerpt: p.text?.slice(0, 400) ?? null, url: p.url, publishedAt: p.publishedAt, firstSeenAt: now, lastSeenAt: now,
+            classification: cls.classification, confidence: cls.confidence, extractionMethod: 'official_api', dedupeKey: `${a.platform}:${sha256Hex(p.externalId).slice(0, 20)}`,
+            provenance: provenanceFor({ official: true }),
+            engagement: eng, engagementObservedAt: eng ? now : null,
+            details: p.details ?? null,
+          })
+          // A video is recorded once (its id is the key); seeing it again refreshes what changes: counts (when the platform gives them; when it stops, the last known counts stay with
+          // their own observation time), a retitled video's title, and its details. The first-seen date and the publication date never change.
+          .onConflictDoUpdate({
+            target: [marketingActivities.orgId, marketingActivities.siteId, marketingActivities.dedupeKey],
+            set: { lastSeenAt: now, ...(p.title ? { title: p.title, excerpt: p.text?.slice(0, 400) ?? null } : {}), ...(p.details ? { details: p.details } : {}), ...(eng ? { engagement: eng, engagementObservedAt: now } : {}) },
+          });
+        count++;
+      }
 
-    let backoff: { failureKind: typeof a.failureKind; consecutiveFailures: number; nextAttemptAt: Date | null; credentialFingerprint: string | null };
-    let state: string = r.state;
-    let nextAttemptAt: Date | null = null;
-    if (r.failure) {
-      const failures = (a.credentialFingerprint === fp ? a.consecutiveFailures : 0) + 1;
-      const decision = nextAttempt(r.failure, failures, now);
-      nextAttemptAt = decision.nextAttemptAt;
-      if (r.failure.kind === 'auth') state = 'needs_reconnect';
-      backoff = { failureKind: r.failure.kind, consecutiveFailures: failures, nextAttemptAt, credentialFingerprint: fp };
-    } else {
-      backoff = { failureKind: null, consecutiveFailures: 0, nextAttemptAt: null, credentialFingerprint: null };
+      let backoff: { failureKind: typeof a.failureKind; consecutiveFailures: number; nextAttemptAt: Date | null; credentialFingerprint: string | null };
+      let state: string = r.state;
+      let nextAttemptAt: Date | null = null;
+      if (r.failure) {
+        const failures = (a.credentialFingerprint === fp ? a.consecutiveFailures : 0) + 1;
+        const decision = nextAttempt(r.failure, failures, now);
+        nextAttemptAt = decision.nextAttemptAt;
+        if (r.failure.kind === 'auth') state = 'needs_reconnect';
+        backoff = { failureKind: r.failure.kind, consecutiveFailures: failures, nextAttemptAt, credentialFingerprint: fp };
+      } else {
+        backoff = { failureKind: null, consecutiveFailures: 0, nextAttemptAt: null, credentialFingerprint: null };
+      }
+      await db
+        .update(socialAccounts)
+        .set({
+          lastSyncAt: now, lastSyncStatus: state, lastSyncMessage: r.message, externalId: r.externalId ?? a.externalId, syncingSince: null,
+          // a channel YouTube just identified: its name, and the moment it was checked
+          ...(r.channel ? { externalTitle: r.channel.title, verifiedAt: now } : {}),
+          ...backoff,
+        })
+        .where(eq(socialAccounts.id, a.id));
+      out.push({ accountId: a.id, platform: a.platform, handle: a.handle, site: site.name, state, message: r.message, posts: count, nextAttemptAt: nextAttemptAt?.toISOString() ?? null });
+    } catch (e) {
+      const message = `This account could not be read: ${(e as Error).message}`.slice(0, 400);
+      svc.log.warn('social sync failed for one account', { orgId, accountId: a.id, platform: a.platform, error: (e as Error).message });
+      await db.update(socialAccounts).set({ lastSyncAt: now, lastSyncStatus: 'error', lastSyncMessage: message, syncingSince: null }).where(eq(socialAccounts.id, a.id)).catch(() => undefined);
+      out.push({ accountId: a.id, platform: a.platform, handle: a.handle, site: site.name, state: 'error', message, posts: 0 });
     }
-    await db.update(socialAccounts).set({ lastSyncAt: now, lastSyncStatus: state, lastSyncMessage: r.message, externalId: r.externalId ?? a.externalId, ...backoff }).where(eq(socialAccounts.id, a.id));
-    out.push({ accountId: a.id, platform: a.platform, handle: a.handle, site: site.name, state, message: r.message, posts: count, nextAttemptAt: nextAttemptAt?.toISOString() ?? null });
   }
   return out;
 }

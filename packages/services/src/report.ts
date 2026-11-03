@@ -76,7 +76,8 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
   const stock: StockRow[] = stockView.rows;
   const stockCounts = stockView.counts;
   const sourceVariantCount = stockView.total;
-  const marketing: MarketingRow[] = await loadMarketing(db, orgId, now, maps);
+  // (a saved report keeps what it shows; the long video description is left out of its copy to keep the snapshot compact)
+  const marketing: MarketingRow[] = (await loadMarketing(db, orgId, now, maps)).map((m) => (m.details ? { ...m, details: { ...m.details, description: null } } : m));
   const marketingSummary = await loadMarketingSummary(db, orgId, now, maps, { days: 30 });
 
   // ── change detection

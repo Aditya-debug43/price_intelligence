@@ -30,6 +30,13 @@ export interface SocialAccountView {
   url: string | null;
   discoveredFrom: string | null;
   confirmed: boolean;
+  /** The platform's own id and name of the account once it was checked against the platform (YouTube: channel id and channel name). */
+  externalId?: string | null;
+  externalTitle?: string | null;
+  verifiedAt?: string | null;
+  /** A read of this account is running now. */
+  syncing?: boolean;
+  siteRole?: string;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
   lastSyncMessage: string | null;
@@ -43,6 +50,8 @@ export type MarketingSummaryView = MarketingSummary;
 
 const STATE_PILL: Record<string, { cls: string; label: string }> = {
   ready: { cls: 'good', label: 'ready' },
+  collecting: { cls: 'info', label: 'collecting…' },
+  needs_channel_setup: { cls: 'warn', label: 'needs a channel' },
   requires_approval: { cls: 'warn', label: 'needs platform approval' },
   error: { cls: 'bad', label: 'problem' },
   not_configured: { cls: '', label: 'not set up' },
@@ -59,7 +68,7 @@ const CRED_PILL: Record<CredentialView['level'], { cls: string; label: string }>
 export function ProviderCard({ p, detail = false }: { p: SocialProviderView; detail?: boolean }) {
   const s = STATE_PILL[p.state] ?? STATE_PILL['not_configured']!;
   return (
-    <div className="callout" style={{ borderLeftColor: p.state === 'ready' ? 'var(--palm)' : p.state === 'requires_approval' ? '#e0a116' : p.state === 'error' ? 'var(--coral)' : 'var(--faint)' }}>
+    <div className="callout" style={{ borderLeftColor: p.state === 'ready' || p.state === 'collecting' ? 'var(--palm)' : p.state === 'requires_approval' || p.state === 'needs_channel_setup' ? '#e0a116' : p.state === 'error' ? 'var(--coral)' : 'var(--faint)' }}>
       <b>{PLATFORM_LABEL[p.provider] ?? p.provider}</b> — <span className={`pill ${s.cls}`}>{s.label}</span>
       <div className="small muted" style={{ marginTop: 4 }}>{p.message}</div>
       {p.credential && (
@@ -74,8 +83,8 @@ export function ProviderCard({ p, detail = false }: { p: SocialProviderView; det
       {detail && p.limits && p.limits.length > 0 && (
         <details className="ev"><summary>What this can and cannot show</summary><ul>{p.limits.map((l) => <li key={l}>{l}</li>)}</ul></details>
       )}
-      {detail && p.state !== 'ready' && p.requirements && p.requirements.length > 0 && (
-        <details className="ev" open={p.state === 'not_configured'}>
+      {detail && p.state !== 'ready' && p.state !== 'collecting' && p.requirements && p.requirements.length > 0 && (
+        <details className="ev" open={p.state === 'not_configured' || p.state === 'needs_channel_setup'}>
           <summary>What is needed{p.docsUrl ? '' : ''}</summary>
           <ul>{p.requirements.map((r) => <li key={r}>{r}</li>)}</ul>
           {p.docsUrl && <a href={p.docsUrl} target="_blank" rel="noreferrer noopener">Platform documentation <ArrowIcon /></a>}
@@ -96,6 +105,7 @@ const SYNC_LABEL: Record<string, string> = {
 
 /** The outcome of the last read, and — when the platform said to wait — exactly until when. */
 export function AccountSync({ a, now = new Date() }: { a: SocialAccountView; now?: Date }) {
+  if (a.syncing) return <><span className="spinner" aria-hidden="true" /> collecting now…</>;
   if (!a.lastSyncAt) return <>never</>;
   const waiting = a.nextAttemptAt && new Date(a.nextAttemptAt) > now;
   return (

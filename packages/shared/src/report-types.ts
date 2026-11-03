@@ -217,6 +217,20 @@ export interface MarketingSummary {
   note: string;
 }
 
+/**
+ * What a platform's official API said about an observed video beyond the common fields. Only values the API returned are present: a field the API did not give is
+ * absent (never zero, never guessed). `durationSeconds` is the video's length, not a claim about its format; `liveBroadcast` is YouTube's own flag.
+ */
+export interface MarketingDetails {
+  videoId?: string;
+  channelId?: string;
+  channelTitle?: string;
+  thumbnailUrl?: string | null;
+  description?: string | null;
+  durationSeconds?: number | null;
+  liveBroadcast?: 'none' | 'live' | 'upcoming' | null;
+}
+
 export interface MarketingRow {
   id: string;
   siteId: string;
@@ -237,6 +251,8 @@ export interface MarketingRow {
   provenance?: Provenance;
   /** Public counts from the platform's official API, when it provides them. Absent in snapshots saved before engagement existed. */
   engagement?: MarketingEngagement | null;
+  /** Video id, channel, thumbnail, description and length, when the official API gave them (YouTube). Absent for website observations and in older snapshots. */
+  details?: MarketingDetails | null;
 }
 
 export interface InsightRow {

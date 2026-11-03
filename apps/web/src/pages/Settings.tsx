@@ -397,8 +397,10 @@ function IntegrationsTab() {
   const disconnect = useOrgMutation((id, connectionId: string) => api.del(orgPath(id, `/integrations/${connectionId}`)), ['integrations', 'stock'], () => toast.push('Disconnected. The access token was revoked and deleted.'));
   const syncSocial = useOrgMutation((id, _: void) => api.post(orgPath(id, '/social/sync')), ['integrations', 'marketing'], () => toast.push('Social sync started.'));
   const [acct, setAcct] = useState({ siteId: '', platform: 'facebook', handle: '' });
-  const addAcct = useOrgMutation((id, v: typeof acct) => api.post(orgPath(id, '/social-accounts'), v), ['integrations'], () => { toast.push('Account added. Confirm it before it is used.'); setAcct({ ...acct, handle: '' }); });
-  const confirm = useOrgMutation((id, v: { accountId: string; confirmed: boolean }) => api.patch(orgPath(id, `/social-accounts/${v.accountId}`), { confirmed: v.confirmed }), ['integrations']);
+  // A YouTube channel is checked with YouTube before it is saved: what comes back is the channel as YouTube names it, already connected, and the server starts reading its recent videos.
+  const addAcct = useOrgMutation((id, v: typeof acct) => api.post(orgPath(id, '/social-accounts'), v), ['integrations', 'marketing'], (_r, v) => { toast.push(v.platform === 'youtube' ? 'Channel checked with YouTube and connected. Its recent videos are being read now.' : 'Account added. Confirm it before it is used.'); setAcct({ ...acct, handle: '' }); });
+  const confirm = useOrgMutation((id, v: { accountId: string; confirmed: boolean }) => api.patch(orgPath(id, `/social-accounts/${v.accountId}`), { confirmed: v.confirmed }), ['integrations', 'marketing']);
+  const remove = useOrgMutation((id, accountId: string) => api.del<{ removedVideos: number }>(orgPath(id, `/social-accounts/${accountId}`)), ['integrations', 'marketing'], (r) => toast.push(r.removedVideos > 0 ? `Mapping removed, and its ${r.removedVideos} video${r.removedVideos === 1 ? '' : 's'} are no longer attributed to the website.` : 'Mapping removed.'));
   return (
     <DataState q={q}>
       {(d) => {
@@ -438,16 +440,21 @@ function IntegrationsTab() {
               <div className="grid3">
                 {d.social.providers.map((p) => <ProviderCard key={p.provider} p={p} detail />)}
               </div>
-              <p className="small muted">Accounts are read only through the official Facebook, Instagram and YouTube APIs — never by scraping or logging in. An account found on a competitor’s website is only used after you confirm it is the right one.</p>
+              <p className="small muted">Accounts are read only through the official Facebook, Instagram and YouTube APIs — never by scraping or logging in. An account found on a competitor’s website is only used after you confirm it is the right one; a YouTube channel is first checked with YouTube itself, so only the channel you named is connected.</p>
               {d.social.accounts.length > 0 && (
                 <table className="table">
-                  <thead><tr><th>Website</th><th>Account</th><th>Confirmed</th><th>Last sync</th></tr></thead>
+                  <thead><tr><th>Website</th><th>Account</th><th>Confirmed</th><th>Last sync</th>{isAdmin && <th><span className="sr-only">Remove</span></th>}</tr></thead>
                   <tbody>{d.social.accounts.map((a) => (
                     <tr key={a.id}>
                       <td>{a.siteName}</td>
-                      <td><span>{PLATFORM_LABEL[a.platform] ?? a.platform}</span>: {a.url ? <a href={a.url} target="_blank" rel="noreferrer noopener">{a.handle}</a> : a.handle}{a.discoveredFrom && <div className="sub">found on {a.discoveredFrom}</div>}</td>
+                      <td>
+                        <span>{PLATFORM_LABEL[a.platform] ?? a.platform}</span>: {a.externalTitle ? <b>{a.externalTitle}</b> : null}{a.externalTitle ? ' · ' : ''}{a.url ? <a href={a.url} target="_blank" rel="noreferrer noopener">{a.handle}</a> : a.handle}
+                        {a.discoveredFrom && <div className="sub">found on {a.discoveredFrom.replace('_', ' ')}{a.siteRole === 'source' ? ' · your own website' : ''}</div>}
+                        {a.platform === 'youtube' && (a.verifiedAt ? <div className="sub">checked with YouTube · channel id {a.externalId}</div> : <div className="sub">not checked with YouTube yet — confirming it checks the channel first</div>)}
+                      </td>
                       <td><input type="checkbox" aria-label={`Confirm ${a.platform} account ${a.handle}`} checked={a.confirmed} disabled={!isAdmin || confirm.isPending} onChange={(e) => confirm.mutate({ accountId: a.id, confirmed: e.target.checked })} /></td>
                       <td className="small"><AccountSync a={a} /></td>
+                      {isAdmin && <td className="r"><button className="btn btn-sm btn-danger" disabled={remove.isPending} aria-label={`Remove ${a.platform} account ${a.handle} from ${a.siteName}`} onClick={() => window.confirm(`Remove this ${PLATFORM_LABEL[a.platform] ?? a.platform} mapping from ${a.siteName}?${a.platform === 'youtube' ? ' The videos read from this channel stop being attributed to the website.' : ''}`) && remove.mutate(a.id)}>Remove</button></td>}
                     </tr>
                   ))}</tbody>
                 </table>
@@ -456,11 +463,13 @@ function IntegrationsTab() {
                 <form className="row" style={{ alignItems: 'flex-end', marginTop: 12 }} onSubmit={(e) => { e.preventDefault(); addAcct.mutate(acct); }}>
                   <Field label="Website">{(id) => <select id={id} required value={acct.siteId} onChange={(e) => setAcct({ ...acct, siteId: e.target.value })}><option value="">Choose…</option>{names.data?.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}</Field>
                   <Field label="Platform">{(id) => <select id={id} value={acct.platform} onChange={(e) => setAcct({ ...acct, platform: e.target.value })}><option value="facebook">Facebook</option><option value="instagram">Instagram</option><option value="youtube">YouTube</option></select>}</Field>
-                  <Field label="Handle or page id">{(id) => <input id={id} required value={acct.handle} onChange={(e) => setAcct({ ...acct, handle: e.target.value })} />}</Field>
-                  <button className="btn" type="submit" disabled={addAcct.isPending}>Add account</button>
+                  <Field label={acct.platform === 'youtube' ? 'Channel (@handle, link or channel id)' : 'Handle or page id'} hint={acct.platform === 'youtube' ? 'For example @brandname, youtube.com/@brandname or youtube.com/channel/UC…. The channel is checked with YouTube before it is saved.' : undefined}>{(id) => <input id={id} required value={acct.handle} onChange={(e) => setAcct({ ...acct, handle: e.target.value })} placeholder={acct.platform === 'youtube' ? '@brandname' : undefined} />}</Field>
+                  <button className="btn" type="submit" disabled={addAcct.isPending}>{acct.platform === 'youtube' ? (addAcct.isPending ? 'Checking with YouTube…' : 'Check and connect channel') : 'Add account'}</button>
                 </form>
               )}
               {addAcct.error && <div className="callout bad" role="alert" style={{ marginTop: 10 }}>{errorMessage(addAcct.error)}</div>}
+              {confirm.error && <div className="callout bad" role="alert" style={{ marginTop: 10 }}>{errorMessage(confirm.error)}</div>}
+              {remove.error && <div className="callout bad" role="alert" style={{ marginTop: 10 }}>{errorMessage(remove.error)}</div>}
             </Card>
           </div>
         );

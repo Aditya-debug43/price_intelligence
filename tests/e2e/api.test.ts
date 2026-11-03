@@ -466,7 +466,14 @@ describe('integrations through the API', () => {
     const after = (await owner.get(`${base()}/integrations`)).body.social.accounts.find((a: { id: string }) => a.id === acct.id);
     expect(after.lastSyncStatus).toBe('not_configured');
     expect(after.lastSyncMessage).toMatch(/not (connected|configured)|No .* key/i);
-    const manual = await owner.post(`${base()}/social-accounts`, { siteId: sites.woo, platform: 'youtube', handle: '@mystore' });
+    // a YouTube channel is only saved once YouTube itself has confirmed it: with no key it cannot be checked, so it is refused and nothing is saved
+    const before = (await owner.get(`${base()}/integrations`)).body.social.accounts.length;
+    const refused = await owner.post(`${base()}/social-accounts`, { siteId: sites.woo, platform: 'youtube', handle: '@mystore' });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.message).toMatch(/No YouTube API key/);
+    expect((await owner.get(`${base()}/integrations`)).body.social.accounts).toHaveLength(before);
+    // the other platforms are entered as before
+    const manual = await owner.post(`${base()}/social-accounts`, { siteId: sites.woo, platform: 'facebook', handle: 'mystorepage' });
     expect(manual.status).toBe(201);
     expect(manual.body.account).toMatchObject({ confirmed: true, discoveredFrom: 'manual' });
   });

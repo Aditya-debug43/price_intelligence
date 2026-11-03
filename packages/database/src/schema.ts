@@ -24,6 +24,7 @@ import type {
   IntegrationStatus,
   MarketingClassification,
   MarketingKind,
+  MarketingDetails,
   MarketingPlatform,
   EvidenceTier,
   MatchClass,
@@ -705,7 +706,14 @@ export const socialAccounts = pgTable(
     discoveredFrom: text('discovered_from').$type<'site_link' | 'structured_data' | 'manual'>().notNull(),
     confirmed: boolean('confirmed').notNull().default(false),
     confirmedBy: uuid('confirmed_by').references(() => users.id, { onDelete: 'set null' }),
+    /** The platform's own id of the account once it has been checked against the platform (YouTube: the channel id "UC…"). */
     externalId: text('external_id'),
+    /** The account's name as the platform reports it (YouTube: the channel name), set when it was checked. */
+    externalTitle: text('external_title'),
+    /** When the account was last checked against the platform's official API. Null = never checked. */
+    verifiedAt: ts('verified_at'),
+    /** Set while a read of this account is running, cleared when it ends (a stale value is ignored). */
+    syncingSince: ts('syncing_since'),
     lastSyncAt: ts('last_sync_at'),
     lastSyncStatus: text('last_sync_status'),
     lastSyncMessage: text('last_sync_message'),
@@ -745,6 +753,8 @@ export const marketingActivities = pgTable(
     /** Public counts as of `engagementObservedAt`. A count the platform did not provide is absent, never zero. */
     engagement: jsonb('engagement').$type<{ views: number | null; likes: number | null; comments: number | null; shares: number | null }>(),
     engagementObservedAt: ts('engagement_observed_at'),
+    /** What the platform's official API said beyond the common fields (video id, channel, thumbnail, description, length). Null for website observations. */
+    details: jsonb('details').$type<MarketingDetails>(),
   },
   (t) => [uniqueIndex('marketing_dedupe_uq').on(t.orgId, t.siteId, t.dedupeKey), index('marketing_site_idx').on(t.siteId, t.firstSeenAt)],
 );
