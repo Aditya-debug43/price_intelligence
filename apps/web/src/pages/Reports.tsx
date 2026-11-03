@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CSV_DATASETS, formatDateTime, formatMoney, formatPct, type CsvDataset, type ReportData } from '@ci/shared';
-import { api, orgPath } from '../api';
+import { api, errorMessage, orgPath } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { csvTableFor, csvTableLabel, reportTabFrom, type ReportTab } from '../report-sections';
+import { downloadFile } from '../download';
+import { csvTableFor, csvTableLabel, exportUrl, reportTabFrom, type ReportTab } from '../report-sections';
 import { MarketingSummaryCard } from '../social';
 import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Icon, PageHead, Pct, PriceTag, SourceLink, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
 import type { ReportListItem, ReportRecord } from '../types';
@@ -78,27 +79,43 @@ export function ReportsPage() {
 }
 
 /**
- * PDF and Excel are the whole report. CSV is one table of it: the one that holds the section on screen, unless the person picks another
- * (that choice holds for that section only), so the file always matches what the menu says.
+ * On a report's own page the dropdown names the report: the PDF and the CSV are that report, from this saved snapshot. It starts on the report that holds the section on screen, unless
+ * the person picks another (that choice holds for that section only), so the file always matches what the menu says. Excel is always the whole workbook, one sheet for each report. In the
+ * list of reports there is no dropdown: PDF and Excel are the whole report and CSV is the price comparison.
+ *
+ * Each link is built from the current selection when the page is drawn and read again when it is clicked, and a failed download is reported instead of being saved as a file.
  */
 function ExportMenu({ orgId, reportId, compact, tab = 'prices' }: { orgId: string; reportId: string; compact?: boolean; tab?: ReportTab }) {
   const base = `/api/v1/orgs/${orgId}/reports/${reportId}/export`;
+  const toast = useToast();
   const [picked, setPicked] = useState<{ tab: ReportTab; dataset: CsvDataset } | null>(null);
+  const busy = useRef(false); // read when the click happens, so two clicks in the same instant are one download
   if (picked && picked.tab !== tab) setPicked(null); // a pick holds only while the person stays on the section it was made on
   const dataset = compact ? 'comparison' : csvTableFor(tab, picked);
+  const pdfUrl = exportUrl(base, 'pdf', dataset, compact);
+  const xlsxUrl = exportUrl(base, 'xlsx', dataset);
+  const csvUrl = exportUrl(base, 'csv', dataset);
+  const save = (url: string, contentType: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (busy.current) return;
+    busy.current = true;
+    downloadFile(url, contentType)
+      .catch((err) => toast.push(`The export did not work: ${errorMessage(err)}`, true))
+      .finally(() => { busy.current = false; });
+  };
   return (
     <span className="row" style={{ gap: 6, justifyContent: compact ? 'flex-end' : undefined }}>
-      <a className="btn btn-sm" href={`${base}?format=pdf`} download title="The whole report: every section"><Icon name="download" /> PDF</a>
-      <a className="btn btn-sm" href={`${base}?format=xlsx`} download title="The whole report: one sheet for each section"><Icon name="download" /> Excel</a>
+      <a className="btn btn-sm" href={pdfUrl} onClick={save(pdfUrl, 'application/pdf')} download title={compact ? 'The whole report: every section' : `The "${csvTableLabel(dataset)}" report as a PDF`}><Icon name="download" /> PDF</a>
+      <a className="btn btn-sm" href={xlsxUrl} onClick={save(xlsxUrl, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')} download title="The whole report: one sheet for each section"><Icon name="download" /> Excel</a>
       {!compact && (
         <>
-          <label className="small muted" htmlFor={`ds-${reportId}`}>CSV table</label>
-          <select id={`ds-${reportId}`} value={dataset} onChange={(e) => setPicked({ tab, dataset: e.target.value as CsvDataset })} style={{ width: 'auto' }}>
+          <label className="small muted" htmlFor={`ds-${reportId}`}>Report</label>
+          <select id={`ds-${reportId}`} value={dataset} onChange={(e) => setPicked({ tab, dataset: e.target.value as CsvDataset })} style={{ width: 'auto' }} title="The report the PDF and the CSV hold. Excel always holds every report, one sheet each.">
             {CSV_DATASETS.map((d) => <option key={d} value={d}>{csvTableLabel(d)}</option>)}
           </select>
         </>
       )}
-      <a className="btn btn-sm" href={`${base}?format=csv&dataset=${dataset}`} download title={`Download the "${csvTableLabel(dataset)}" table as a CSV file`}><Icon name="download" /> CSV</a>
+      <a className="btn btn-sm" href={csvUrl} onClick={save(csvUrl, 'text/csv')} download title={`Download the "${csvTableLabel(dataset)}" table as a CSV file`}><Icon name="download" /> CSV</a>
     </span>
   );
 }

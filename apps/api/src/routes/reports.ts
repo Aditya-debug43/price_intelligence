@@ -47,7 +47,8 @@ export async function reportRoutes(app: FastifyInstance) {
 
   app.get('/reports/:reportId/export', async (req, reply) => {
     const { reportId } = parse(z.object({ reportId: z.uuid() }), req.params);
-    const q = parse(z.object({ format: z.enum(REPORT_FORMATS), dataset: z.enum(CSV_DATASETS).default('comparison') }), req.query);
+    // `dataset` is the report the person selected: a PDF of that report, or that CSV table. Without it a PDF is the whole report and a CSV is the price comparison.
+    const q = parse(z.object({ format: z.enum(REPORT_FORMATS), dataset: z.enum(CSV_DATASETS).optional() }), req.query);
     const out = await req.tx((tx) => exportReport(app.svc, tx, req.orgId!, reportId, q.format, q.dataset));
     return reply.header('content-type', out.contentType).header('content-disposition', `attachment; filename="${out.filename}"`).send(out.body);
   });

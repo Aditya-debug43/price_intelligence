@@ -1,4 +1,4 @@
-import type { CsvDataset } from '@ci/shared';
+import { csvDatasetLabel, type CsvDataset } from '@ci/shared';
 
 /** The sections of a saved report, in the order of the tab strip. The address carries the open one (`?tab=stock`). */
 export const REPORT_TABS = ['insights', 'prices', 'offers', 'stock', 'marketing', 'assortment', 'basket', 'coverage'] as const;
@@ -30,7 +30,15 @@ export function csvTableFor(tab: ReportTab, picked: { tab: ReportTab; dataset: C
   return CSV_TABLE_OF_TAB[tab] ?? 'comparison';
 }
 
-/** "marketing_summary" → "Marketing summary" (the names the dropdown has always shown). */
-export function csvTableLabel(d: CsvDataset): string {
-  return d[0]!.toUpperCase() + d.slice(1).replace('_', ' ');
+/**
+ * The address of an export of a saved report. A PDF and a CSV carry the selected report, so the file is that report; Excel is always the whole workbook (one sheet for each report).
+ * In the list of reports there is no dropdown: a PDF there is the whole report (no report named) and a CSV is the price comparison.
+ */
+export function exportUrl(base: string, format: 'pdf' | 'xlsx' | 'csv', dataset: CsvDataset, compact = false): string {
+  if (format === 'xlsx') return `${base}?format=xlsx`;
+  if (format === 'pdf' && compact) return `${base}?format=pdf`;
+  return `${base}?format=${format}&dataset=${dataset}`;
 }
+
+/** "marketing_summary" → "Marketing summary" (the names the dropdown has always shown; the PDF of the selection carries the same name). */
+export const csvTableLabel = csvDatasetLabel;

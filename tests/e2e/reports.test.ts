@@ -194,15 +194,23 @@ describe('exports are rendered from the same snapshot', () => {
     expect(saved.map((r) => r.dataset).sort()).toEqual([...CSV_DATASETS].sort());
   });
 
-  it('PDF and Excel are the whole report whatever table is chosen for CSV', async () => {
-    for (const format of ['pdf', 'xlsx'] as const) {
-      const a = await exportReport(h.svc, db(), t.orgId, report.id, format, 'stock');
-      const b = await exportReport(h.svc, db(), t.orgId, report.id, format, 'offers');
-      expect(a.filename, format).toBe(b.filename);
-      expect(sha256Hex(a.body), format).toBe(sha256Hex(b.body));
-      const saved = await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, format)));
-      expect(saved.map((r) => r.dataset), format).toEqual(['all']);
-    }
+  it('Excel is the whole workbook whatever report is chosen; a PDF is the whole report only when none is chosen (see report-pdf-sections.test.ts for each of the eight)', async () => {
+    const a = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx', 'stock');
+    const b = await exportReport(h.svc, db(), t.orgId, report.id, 'xlsx', 'offers');
+    expect(a.filename).toBe(b.filename);
+    expect(sha256Hex(a.body)).toBe(sha256Hex(b.body));
+    const savedXlsx = await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, 'xlsx')));
+    expect(savedXlsx.map((r) => r.dataset)).toEqual(['all']);
+
+    const whole = await exportReport(h.svc, db(), t.orgId, report.id, 'pdf');
+    const stock = await exportReport(h.svc, db(), t.orgId, report.id, 'pdf', 'stock');
+    const offers = await exportReport(h.svc, db(), t.orgId, report.id, 'pdf', 'offers');
+    expect(whole.filename).toBe(`report-${data.meta.periodDate}-partial.pdf`);
+    expect(stock.filename).toBe(`report-${data.meta.periodDate}-partial-stock.pdf`);
+    expect(offers.filename).toBe(`report-${data.meta.periodDate}-partial-offers.pdf`);
+    expect(new Set([whole, stock, offers].map((x) => sha256Hex(x.body))).size).toBe(3);
+    const savedPdf = await db().select().from(reportExports).where(and(eq(reportExports.reportId, report.id), eq(reportExports.format, 'pdf')));
+    expect(savedPdf.map((r) => r.dataset).sort()).toEqual(['all', 'offers', 'stock']);
   });
 
   it('CSV of a section with nothing in it is still a valid file: its title and its headings, no rows', () => {

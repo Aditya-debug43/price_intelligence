@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CSV_DATASETS } from '@ci/shared';
-import { CSV_TABLE_OF_TAB, REPORT_TABS, csvTableFor, csvTableLabel, reportTabFrom } from '../../apps/web/src/report-sections.ts';
+import { CSV_DATASETS, csvDatasetLabel } from '@ci/shared';
+import { CSV_TABLE_OF_TAB, REPORT_TABS, csvTableFor, csvTableLabel, exportUrl, reportTabFrom } from '../../apps/web/src/report-sections.ts';
 
 describe('the sections of a saved report', () => {
   it('opens the section named in the address, and the first one for anything else', () => {
@@ -50,5 +50,37 @@ describe('which CSV table a section downloads', () => {
 
   it('names the tables the way the dropdown always has', () => {
     expect(CSV_DATASETS.map(csvTableLabel)).toEqual(['Comparison', 'Offers', 'Stock', 'Marketing', 'Marketing summary', 'Insights', 'Coverage', 'Assortment']);
+    // and the PDF of a selection carries the very same name in its title
+    expect(CSV_DATASETS.map(csvDatasetLabel)).toEqual(CSV_DATASETS.map(csvTableLabel));
+  });
+});
+
+describe('the address each export button asks for', () => {
+  const base = '/api/v1/orgs/o1/reports/r1/export';
+
+  it('the PDF asks for the report selected in the dropdown, for each of the eight selections', () => {
+    for (const d of CSV_DATASETS) expect(exportUrl(base, 'pdf', d)).toBe(`${base}?format=pdf&dataset=${d}`);
+    expect(new Set(CSV_DATASETS.map((d) => exportUrl(base, 'pdf', d))).size).toBe(CSV_DATASETS.length);
+  });
+
+  it('the CSV asks for the same selection, and Excel always asks for the whole workbook', () => {
+    for (const d of CSV_DATASETS) {
+      expect(exportUrl(base, 'csv', d)).toBe(`${base}?format=csv&dataset=${d}`);
+      expect(exportUrl(base, 'xlsx', d)).toBe(`${base}?format=xlsx`);
+    }
+  });
+
+  it('in the list of reports (no dropdown) the PDF is the whole report and the CSV is the price comparison', () => {
+    expect(exportUrl(base, 'pdf', 'comparison', true)).toBe(`${base}?format=pdf`);
+    expect(exportUrl(base, 'csv', 'comparison', true)).toBe(`${base}?format=csv&dataset=comparison`);
+  });
+
+  it('follows the dropdown: the report on screen unless another was picked for that section', () => {
+    expect(exportUrl(base, 'pdf', csvTableFor('stock', null))).toContain('dataset=stock');
+    expect(exportUrl(base, 'pdf', csvTableFor('stock', { tab: 'stock', dataset: 'coverage' }))).toContain('dataset=coverage');
+    // changing the selection changes the very next address: nothing is kept from the previous one
+    const first = exportUrl(base, 'pdf', csvTableFor('prices', { tab: 'prices', dataset: 'offers' }));
+    const second = exportUrl(base, 'pdf', csvTableFor('prices', { tab: 'prices', dataset: 'insights' }));
+    expect([first, second]).toEqual([`${base}?format=pdf&dataset=offers`, `${base}?format=pdf&dataset=insights`]);
   });
 });

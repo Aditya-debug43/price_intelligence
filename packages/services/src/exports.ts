@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { eq, and } from 'drizzle-orm';
 import { sha256Hex, stableStringify } from '@ci/core';
-import { CSV_DATASETS, formatAge, formatDateTime, formatMoney, formatPct, type CsvDataset, type ReportData, type ReportFormat } from '@ci/shared';
+import { CSV_DATASETS, csvDatasetLabel, formatAge, formatDateTime, formatMoney, formatPct, type CsvDataset, type ReportData, type ReportFormat } from '@ci/shared';
 import { reportExports, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { getReport } from './report.ts';
@@ -197,8 +197,14 @@ export function pdfText(s: string): string {
     .replace(/[^\x20-\x7e\u00a0-ÿ–—•€\n]/g, '?');
 }
 
-export function renderPdf(d: ReportData): Promise<Buffer> {
-  const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: `Competitor report ${d.meta.periodDate}`, Author: 'Shelfwatch' }, bufferPages: true });
+/**
+ * The PDF of a saved report snapshot. Without `section` it is the whole report (every section, the first rows of each table). With one of the Reports dropdown's selections it is
+ * THAT report alone: its own title, its whole table (up to SECTION_PDF_ROWS rows) and an explicit message when the snapshot holds nothing for it. Both come from the snapshot passed in,
+ * never from live data.
+ */
+export function renderPdf(d: ReportData, section?: CsvDataset): Promise<Buffer> {
+  const label = section ? csvDatasetLabel(section) : null;
+  const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: label ? `Competitor report ${d.meta.periodDate} - ${label}` : `Competitor report ${d.meta.periodDate}`, Author: 'Shelfwatch', ...(label ? { Subject: `${label} report of the saved snapshot` } : {}) }, bufferPages: true });
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
@@ -246,6 +252,181 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
     if (rows.length > max) p(`… ${rows.length - max} more row(s) in the CSV/Excel export and the dashboard.`, { size: 8, color: MUTE });
   };
 
+  // the tables the whole report and the section reports have in common
+  const now = new Date(d.meta.generatedAt);
+  const PRICE_COLS = [{ h: 'Product', w: 5 }, { h: 'Competitor', w: 3 }, { h: 'Your price', w: 2.4, align: 'right' as const }, { h: 'Their price', w: 2.4, align: 'right' as const }, { h: 'Diff', w: 1.6, align: 'right' as const }, { h: 'Match', w: 2.4 }, { h: 'Observed', w: 1.8 }];
+  const priceRows = (): string[][] => {
+    const out: string[][] = [];
+    for (const r of [...d.comparisons].sort((a, b) => Math.abs(b.cells[0]?.diffPct ?? 0) - Math.abs(a.cells[0]?.diffPct ?? 0))) {
+      for (const c of r.cells) {
+        out.push([r.title + (r.sizeLabel ? ` (${r.sizeLabel})` : ''), c.siteName, formatMoney(r.sourcePrice.amount, r.sourcePrice.currency), formatMoney(c.price.amount, c.price.currency), c.directlyComparable ? formatPct(c.diffPct) : c.unitDiffPct !== null ? `${formatPct(c.unitDiffPct)} per unit` : 'n/a', `${c.matchClass.split('_').join(' ')} ${Math.round(c.confidence * 100)}%`, c.price.stale ? 'stale' : formatAge(c.price.observedAt, now)]);
+      }
+    }
+    return out;
+  };
+  const PRICE_NOTE = `Differences use prices converted to ${d.meta.reportingCurrency}; original amounts and exchange rates are in the Excel export. "Diff" is (competitor − you) ÷ you for confirmed identical products only.`;
+  const OFFER_COLS = [{ h: 'Website', w: 2.4 }, { h: 'Offer', w: 5 }, { h: 'Was / now', w: 2.4 }, { h: 'Claimed', w: 1.4, align: 'right' as const }, { h: 'History check', w: 2.4 }, { h: 'Status', w: 1.6 }];
+  const offerRow = (o: ReportData['offers'][number]): string[] => [o.siteName, o.title + (o.conditions.length ? ` — ${o.conditions.join(', ')}` : ''), o.originalPrice !== null ? `${formatMoney(o.originalPrice, o.currency)} → ${formatMoney(o.salePrice, o.currency)}` : o.salePrice !== null ? formatMoney(o.salePrice, o.currency) : '—', o.claimedDiscountPct !== null ? `${o.claimedDiscountPct}%` : '—', o.verification.split('_').join(' '), o.status.split('_').join(' ')];
+  const OFFER_NOTE = 'A claimed discount is verified only against the product’s own earlier prices. "Unverified" means there is not enough history to check it.';
+  const STOCK_COLS = [{ h: 'Product', w: 6 }, { h: 'State', w: 2 }, { h: 'Quantity', w: 2.2, align: 'right' as const }, { h: 'Basis', w: 3.4 }, { h: 'Observed', w: 2 }];
+  const stockRow = (s: ReportData['stock'][number]): string[] => [s.title, s.state.split('_').join(' '), s.quantity === null ? 'unknown' : String(s.quantity), s.quantitySource === 'authorised_inventory' ? 'authorised inventory' : s.quantitySource === 'public_claim' ? 'public claim' : (s.note ?? 'public availability'), s.stale ? 'stale' : formatAge(s.observedAt, now)];
+  const NO_STOCK = 'No low-stock, out-of-stock or unknown-availability items were found.';
+  const MARKETING_COLS = [{ h: 'Website', w: 2.4 }, { h: 'Where', w: 1.8 }, { h: 'Content', w: 6 }, { h: 'Type', w: 2 }, { h: 'Seen', w: 2 }];
+  const marketingRow = (m: ReportData['marketing'][number]): string[] => [m.siteName, m.platform, m.title ?? m.kind, m.classification.split('_').join(' '), formatDateTime(m.firstSeenAt, tz)];
+  const MARKETING_NOTE = 'Observed public content only. It does not show whether any item is a paid advertisement.';
+
+  // a section report: only the selected report, from this snapshot
+  const SECTION_PDF_ROWS = 1000;
+  const finish = (sectionLabel?: string): Promise<Buffer> => {
+    const range = doc.bufferedPageRange();
+    const snapshot = sha256Hex(stableStringify(d)).slice(0, 12);
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i);
+      // the footer sits inside the bottom margin: left at that, pdfkit starts a new page for each footer (a page of its own, holding nothing else) instead of writing it on the page it belongs to
+      const margin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
+      doc.font('Helvetica').fontSize(7.5).fillColor(MUTE).text(`${sectionLabel ? `${sectionLabel} report · ` : ''}Snapshot ${snapshot} · page ${i + 1} of ${range.count}`, 40, doc.page.height - 36, { width: W, align: 'center', lineBreak: false });
+      doc.page.margins.bottom = margin;
+    }
+    doc.end();
+    return done;
+  };
+  if (section && label) {
+    const k = d.kpis;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(ACCENT).text('COMPETITOR INTELLIGENCE', { characterSpacing: 1.2 });
+    doc.font('Helvetica-Bold').fontSize(20).fillColor(INK).text(`${label} — ${d.meta.periodDate}`);
+    p(`${d.meta.orgName} · saved snapshot prepared ${formatDateTime(d.meta.generatedAt, tz)} (${tz}) · reporting currency ${d.meta.reportingCurrency}`, { color: MUTE, size: 9 });
+    p(`Report type: ${label}`, { color: MUTE, size: 9 });
+    if (d.meta.isPartial) {
+      doc.moveDown(0.4);
+      p('PARTIAL REPORT — some websites were incomplete or unavailable. See the data coverage report for the reasons. Missing data is never treated as zero.', { bold: true, color: '#8a3b12' });
+    }
+    doc.moveDown(0.3);
+    switch (section) {
+      case 'comparison': {
+        h2('Price comparison');
+        table([{ h: 'Measure', w: 5 }, { h: 'Value', w: 2, align: 'right' }], [
+          ['Matched products (with competitors)', String(k.matchedProducts)],
+          ['Identical matches', String(k.identicalMatches)],
+          ['Your price lower than competitor (confirmed identical)', String(k.productsCheaperAtSource)],
+          ['Your price higher than competitor (confirmed identical)', String(k.productsPricierAtSource)],
+          ['Average difference vs. competitors', formatPct(k.averageDiffPct)],
+        ]);
+        doc.moveDown(0.6);
+        const rows = priceRows();
+        if (!rows.length) p('No price comparison rows are in this saved report: none of your products has a confirmed match with a priced competitor product.');
+        else table(PRICE_COLS, rows, SECTION_PDF_ROWS);
+        p(PRICE_NOTE, { size: 8, color: MUTE });
+        break;
+      }
+      case 'offers': {
+        h2('Offers and promotions');
+        p(`${k.activeOffers} active offer(s) observed; ${d.offers.length} in all.`);
+        if (!d.offers.length) p('No offers or promotions were observed in this saved report.');
+        else {
+          table(OFFER_COLS, d.offers.map(offerRow), SECTION_PDF_ROWS);
+          p(OFFER_NOTE, { size: 8, color: MUTE });
+        }
+        break;
+      }
+      case 'stock': {
+        h2('Your stock');
+        p(`${k.lowStockCount} low-stock and ${k.outOfStockCount} out-of-stock item(s) of your own shop.`);
+        if (!d.stock.length) p(NO_STOCK);
+        else table(STOCK_COLS, d.stock.map(stockRow), SECTION_PDF_ROWS);
+        break;
+      }
+      case 'marketing': {
+        h2('Marketing activity (observed)');
+        if (!d.marketing.length) p('No marketing activity was observed.');
+        else {
+          p(`${d.marketing.length} item(s) observed.`);
+          table(MARKETING_COLS, d.marketing.map(marketingRow), SECTION_PDF_ROWS);
+        }
+        p(MARKETING_NOTE, { size: 8, color: MUTE });
+        break;
+      }
+      case 'marketing_summary': {
+        h2('Marketing summary');
+        const ms = d.marketingSummary;
+        if (!ms) {
+          p('This saved report has no marketing summary: it was saved before summaries were added.');
+          break;
+        }
+        p(ms.headline);
+        const seen = ms.competitors.filter((c) => c.total > 0);
+        const none = ms.competitors.filter((c) => c.total === 0);
+        const top = (xs: { title: string; value: number; platform: string }[]) => xs.map((x) => `${x.title} (${x.value} on ${x.platform})`).join('; ');
+        for (const c of seen) {
+          doc.moveDown(0.3);
+          p(c.siteName, { bold: true, size: 9.5 });
+          p(`${c.total} item(s) observed, ${c.promotionCount} promotional${Object.keys(c.byPlatform).length ? ` — by platform: ${Object.entries(c.byPlatform).map(([name, n]) => `${name} ${n}`).join(', ')}` : ''}.`, { size: 8.5 });
+          if (c.themes.length) p('Recurring themes: ' + c.themes.map((t) => `${t.term} (${t.items} items)`).join(', '), { size: 8.5 });
+          if (c.brandMentions.length) p('Brands mentioned in promotions: ' + c.brandMentions.map((b) => `${b.brand} (${b.items})`).join(', ') + '. A mention is not proof the brand is discounted.', { size: 8.5 });
+          p('Timing: ' + (c.timing ? c.timing.sentence : (c.timingNote ?? 'not enough dated promotions to describe a pattern.')), { size: 8.5 });
+          if (c.mostLiked.length) p('Most liked: ' + top(c.mostLiked), { size: 8.5 });
+          if (c.mostViewed.length) p('Most viewed: ' + top(c.mostViewed), { size: 8.5 });
+          if (c.limitations.length) p('Cannot see: ' + c.limitations.join(' '), { size: 8, color: MUTE });
+        }
+        if (!seen.length) p('No marketing activity was observed for any competitor.');
+        if (none.length) {
+          doc.moveDown(0.3);
+          p(`No marketing activity observed for: ${none.map((c) => c.siteName).join(', ')}.`, { size: 8.5 });
+        }
+        if (ms.note) p(ms.note, { size: 8, color: MUTE });
+        break;
+      }
+      case 'insights': {
+        h2('Insights and findings');
+        if (!d.insights.length) p('No findings were produced for this saved report.');
+        d.insights.slice(0, 100).forEach((i, n) => {
+          ensure(46);
+          p(`${n + 1}. ${i.title}  [score ${i.score} · ${i.severity}]`, { bold: true, size: 9.5 });
+          p(i.summary, { size: 8.5, color: MUTE });
+          if (i.evidence.length) p('Evidence: ' + i.evidence.slice(0, 6).map((e) => e.label + (e.observedAt ? ` (${formatAge(e.observedAt, now)})` : '')).join('; '), { size: 8, color: MUTE });
+        });
+        if (d.insights.length > 100) p(`… ${d.insights.length - 100} more finding(s) in the CSV/Excel export and the dashboard.`, { size: 8, color: MUTE });
+        break;
+      }
+      case 'coverage': {
+        h2('Data coverage and freshness');
+        if (!d.sites.length) p('No websites are in this saved report.');
+        else {
+          table([{ h: 'Website', w: 3 }, { h: 'Role', w: 1.5 }, { h: 'Capability', w: 1.6 }, { h: 'Products', w: 1.3, align: 'right' }, { h: 'Fresh', w: 1.1, align: 'right' }, { h: 'Stale', w: 1.1, align: 'right' }, { h: 'Coverage', w: 1.3, align: 'right' }, { h: 'Complete', w: 1.3 }, { h: 'Last collection', w: 3 }], d.sites.map((x) => [x.name, x.role, x.capability ?? '—', String(x.productsKnown), String(x.productsObservedFresh), String(x.productsStale), x.coveragePct === null ? 'n/a' : `${x.coveragePct}%`, x.complete ? 'yes' : 'no', x.lastScanAt ? `${x.lastScanStatus} · ${formatDateTime(x.lastScanAt, tz)}` : 'never']), SECTION_PDF_ROWS);
+          // a reason the data notes below already give is not told twice
+          const notes = d.sites.filter((x) => (!x.complete || x.failureReason || x.warnings.length) && !(x.failureReason && d.warnings.some((w) => w.includes(x.failureReason!))));
+          if (notes.length) {
+            h2('Collection notes');
+            notes.forEach((x) => p(`${x.name}: ${[x.failureReason, ...x.warnings].filter(Boolean).join(' ') || 'the catalogue was not read completely.'}`, { size: 8.5 }));
+          }
+        }
+        if (d.warnings.length) {
+          h2('Data notes and limitations');
+          d.warnings.forEach((w) => p(`• ${w}`, { size: 9 }));
+        }
+        break;
+      }
+      case 'assortment': {
+        h2('Assortment gaps');
+        p(d.assortment.note, { size: 8.5, color: MUTE });
+        // what the note above does not already say
+        const gaps = (d.assortment.basis?.competitorGaps ?? []).filter((g) => !d.assortment.note.includes(g.name));
+        if (gaps.length) p('Competitor catalogues not read completely: ' + gaps.map((g) => `${g.name} (${g.reason})`).join('; '), { size: 8.5 });
+        const sourceGap = d.assortment.basis?.sourceGap;
+        if (sourceGap && !d.assortment.note.includes(sourceGap)) p('Your own catalogue: ' + sourceGap, { size: 8.5 });
+        const gapTable = (title: string, rows: ReportData['assortment']['competitorOnly'], none: string) => {
+          h2(`${title} (${rows.length})`);
+          if (!rows.length) p(none);
+          else table([{ h: 'Website', w: 2.4 }, { h: 'Product', w: 6 }, { h: 'Category', w: 2.4 }, { h: 'Price', w: 1.8, align: 'right' }, { h: 'First seen', w: 2.4 }], rows.map((a) => [a.siteName, a.title, a.category ?? '—', a.price !== null ? formatMoney(a.price, a.currency) : '—', formatDateTime(a.firstSeenAt, tz)]), SECTION_PDF_ROWS);
+        };
+        gapTable('At competitors, no equivalent at your shop', d.assortment.competitorOnly, 'None found.');
+        gapTable('At your shop, no equivalent at competitors', d.assortment.sourceOnly, 'None found.');
+        break;
+      }
+    }
+    return finish(label);
+  }
+
   // header
   doc.font('Helvetica-Bold').fontSize(9).fillColor(ACCENT).text('COMPETITOR INTELLIGENCE', { characterSpacing: 1.2 });
   doc.font('Helvetica-Bold').fontSize(20).fillColor(INK).text(`Report — ${d.meta.periodDate}`);
@@ -286,22 +467,16 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
   });
 
   h2('Price comparison');
-  const rows: string[][] = [];
-  for (const r of [...d.comparisons].sort((a, b) => Math.abs(b.cells[0]?.diffPct ?? 0) - Math.abs(a.cells[0]?.diffPct ?? 0))) {
-    for (const c of r.cells) {
-      rows.push([r.title + (r.sizeLabel ? ` (${r.sizeLabel})` : ''), c.siteName, formatMoney(r.sourcePrice.amount, r.sourcePrice.currency), formatMoney(c.price.amount, c.price.currency), c.directlyComparable ? formatPct(c.diffPct) : c.unitDiffPct !== null ? `${formatPct(c.unitDiffPct)} per unit` : 'n/a', `${c.matchClass.split('_').join(' ')} ${Math.round(c.confidence * 100)}%`, c.price.stale ? 'stale' : formatAge(c.price.observedAt, new Date(d.meta.generatedAt))]);
-    }
-  }
-  table([{ h: 'Product', w: 5 }, { h: 'Competitor', w: 3 }, { h: 'Your price', w: 2.4, align: 'right' }, { h: 'Their price', w: 2.4, align: 'right' }, { h: 'Diff', w: 1.6, align: 'right' }, { h: 'Match', w: 2.4 }, { h: 'Observed', w: 1.8 }], rows, 45);
-  p(`Differences use prices converted to ${d.meta.reportingCurrency}; original amounts and exchange rates are in the Excel export. "Diff" is (competitor − you) ÷ you for confirmed identical products only.`, { size: 8, color: MUTE });
+  table(PRICE_COLS, priceRows(), 45);
+  p(PRICE_NOTE, { size: 8, color: MUTE });
 
   h2('Offers and promotions');
-  table([{ h: 'Website', w: 2.4 }, { h: 'Offer', w: 5 }, { h: 'Was / now', w: 2.4 }, { h: 'Claimed', w: 1.4, align: 'right' }, { h: 'History check', w: 2.4 }, { h: 'Status', w: 1.6 }], d.offers.slice(0, 40).map((o) => [o.siteName, o.title + (o.conditions.length ? ` — ${o.conditions.join(', ')}` : ''), o.originalPrice !== null ? `${formatMoney(o.originalPrice, o.currency)} → ${formatMoney(o.salePrice, o.currency)}` : o.salePrice !== null ? formatMoney(o.salePrice, o.currency) : '—', o.claimedDiscountPct !== null ? `${o.claimedDiscountPct}%` : '—', o.verification.split('_').join(' '), o.status.split('_').join(' ')]), 40);
-  p('A claimed discount is verified only against the product’s own earlier prices. "Unverified" means there is not enough history to check it.', { size: 8, color: MUTE });
+  table(OFFER_COLS, d.offers.slice(0, 40).map(offerRow), 40);
+  p(OFFER_NOTE, { size: 8, color: MUTE });
 
   h2('Your stock');
-  if (!d.stock.length) p('No low-stock, out-of-stock or unknown-availability items were found.');
-  else table([{ h: 'Product', w: 6 }, { h: 'State', w: 2 }, { h: 'Quantity', w: 2.2, align: 'right' }, { h: 'Basis', w: 3.4 }, { h: 'Observed', w: 2 }], d.stock.slice(0, 40).map((s) => [s.title, s.state.split('_').join(' '), s.quantity === null ? 'unknown' : String(s.quantity), s.quantitySource === 'authorised_inventory' ? 'authorised inventory' : s.quantitySource === 'public_claim' ? 'public claim' : (s.note ?? 'public availability'), s.stale ? 'stale' : formatAge(s.observedAt, new Date(d.meta.generatedAt))]), 40);
+  if (!d.stock.length) p(NO_STOCK);
+  else table(STOCK_COLS, d.stock.slice(0, 40).map(stockRow), 40);
 
   h2('Marketing activity (observed)');
   if (d.marketingSummary) {
@@ -315,8 +490,8 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
     }
   }
   if (!d.marketing.length) p('No marketing activity was observed.');
-  else table([{ h: 'Website', w: 2.4 }, { h: 'Where', w: 1.8 }, { h: 'Content', w: 6 }, { h: 'Type', w: 2 }, { h: 'Seen', w: 2 }], d.marketing.slice(0, 30).map((m) => [m.siteName, m.platform, m.title ?? m.kind, m.classification.split('_').join(' '), formatDateTime(m.firstSeenAt, tz)]), 30);
-  p('Observed public content only. It does not show whether any item is a paid advertisement.', { size: 8, color: MUTE });
+  else table(MARKETING_COLS, d.marketing.slice(0, 30).map(marketingRow), 30);
+  p(MARKETING_NOTE, { size: 8, color: MUTE });
 
   h2('Data coverage and freshness');
   table([{ h: 'Website', w: 3 }, { h: 'Role', w: 1.6 }, { h: 'Capability', w: 1.6 }, { h: 'Products', w: 1.4, align: 'right' }, { h: 'Stale', w: 1.2, align: 'right' }, { h: 'Coverage', w: 1.4, align: 'right' }, { h: 'Last collection', w: 3 }], d.sites.map((s) => [s.name, s.role, s.capability ?? '—', String(s.productsKnown), String(s.productsStale), s.coveragePct === null ? 'n/a' : `${s.coveragePct}%`, s.lastScanAt ? `${s.lastScanStatus} · ${formatDateTime(s.lastScanAt, tz)}` : 'never']), 20);
@@ -326,13 +501,7 @@ export function renderPdf(d: ReportData): Promise<Buffer> {
   d.fx.forEach((r) => p(`${r.from} → ${r.to}: ${r.rate} — ${r.source}${r.isFixed ? ' (fixed peg)' : ''}, as of ${formatDateTime(r.fetchedAt, tz)}`, { size: 8.5 }));
 
   // footer on every page
-  const range = doc.bufferedPageRange();
-  for (let i = range.start; i < range.start + range.count; i++) {
-    doc.switchToPage(i);
-    doc.font('Helvetica').fontSize(7.5).fillColor(MUTE).text(`Snapshot ${sha256Hex(stableStringify(d)).slice(0, 12)} · page ${i + 1} of ${range.count}`, 40, doc.page.height - 36, { width: W, align: 'center' });
-  }
-  doc.end();
-  return done;
+  return finish();
 }
 
 // ───────────────────────────────────────────────────────────── cached export API
@@ -349,14 +518,18 @@ export class ExportError extends Error {
   }
 }
 
-export async function exportReport(svc: Services, db: DbLike, orgId: string, reportId: string, format: ReportFormat, dataset: CsvDataset = 'comparison'): Promise<{ body: Buffer; filename: string; contentType: string }> {
+/**
+ * `dataset` is the report the person selected. CSV: that table (the price comparison when none is named). PDF: that report alone; without it, the whole report. Excel: always the
+ * whole workbook, one sheet per report. Each is saved and served under its own key, so one selection can never be answered with another's file.
+ */
+export async function exportReport(svc: Services, db: DbLike, orgId: string, reportId: string, format: ReportFormat, dataset?: CsvDataset): Promise<{ body: Buffer; filename: string; contentType: string }> {
   const report = await getReport(db, orgId, reportId);
   if (!report) throw new ExportError('Report not found', 404);
   if (!report.data || (report.status !== 'ready' && report.status !== 'partial')) throw new ExportError('The report is not finished yet', 409);
   const data = report.data as ReportData;
-  const ds = format === 'csv' ? dataset : 'all';
+  const ds: CsvDataset | 'all' = format === 'csv' ? (dataset ?? 'comparison') : format === 'pdf' && dataset ? dataset : 'all';
   const type = EXPORT_TYPES[format];
-  const filename = `report-${data.meta.periodDate}${data.meta.isPartial ? '-partial' : ''}${format === 'csv' ? `-${ds}` : ''}.${type.ext}`;
+  const filename = `report-${data.meta.periodDate}${data.meta.isPartial ? '-partial' : ''}${ds === 'all' ? '' : `-${ds}`}.${type.ext}`;
   const key = `exports/${orgId}/${reportId}/${ds}.${type.ext}`;
 
   const [cached] = await db.select().from(reportExports).where(and(eq(reportExports.reportId, reportId), eq(reportExports.format, format), eq(reportExports.dataset, ds)));
@@ -364,7 +537,7 @@ export async function exportReport(svc: Services, db: DbLike, orgId: string, rep
     const stored = await svc.storage.get(cached.storageKey);
     if (stored && sha256Hex(stored) === cached.checksum) return { body: stored, filename, contentType: type.contentType };
   }
-  const body = format === 'csv' ? renderCsv(data, ds as CsvDataset) : format === 'xlsx' ? await renderXlsx(data) : await renderPdf(data);
+  const body = format === 'csv' ? renderCsv(data, ds as CsvDataset) : format === 'xlsx' ? await renderXlsx(data) : await renderPdf(data, ds === 'all' ? undefined : ds);
   await svc.storage.put(key, body, type.contentType);
   const checksum = sha256Hex(body);
   await db

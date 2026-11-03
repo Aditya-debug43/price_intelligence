@@ -259,9 +259,15 @@ export type ReportStatus = (typeof REPORT_STATUSES)[number];
 export const REPORT_FORMATS = ['pdf', 'csv', 'xlsx'] as const;
 export type ReportFormat = (typeof REPORT_FORMATS)[number];
 
-/** The tables of a saved report that can be downloaded as CSV (one file per table). The export service, the API and the Reports page all use this one list. */
+/**
+ * The reports a saved snapshot can be exported as: the Reports page's dropdown, one CSV file per table and one PDF per selection. The export service, the API and the Reports page
+ * all use this one list.
+ */
 export const CSV_DATASETS = ['comparison', 'offers', 'stock', 'marketing', 'marketing_summary', 'insights', 'coverage', 'assortment'] as const;
 export type CsvDataset = (typeof CSV_DATASETS)[number];
+
+/** "marketing_summary" → "Marketing summary": the names the dropdown shows, and the name a PDF of that selection carries in its title. */
+export const csvDatasetLabel = (d: CsvDataset): string => d[0]!.toUpperCase() + d.slice(1).replace('_', ' ');
 
 export const INSIGHT_TYPES = [
   'price_above_competitor',
