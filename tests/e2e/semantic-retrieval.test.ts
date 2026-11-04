@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { buildApp } from '../../apps/api/src/app.ts';
-import { aiEmbeddings, aiQuotaState, products, variants } from '@ci/database';
+import { aiEmbeddings, aiQuotaState, aiUsageDaily, products, variants } from '@ci/database';
 import { retrieveShortlist } from '@ci/core';
 import type { GeminiHttp } from '@ci/connectors';
 import { buildContext, createOrganization, embedCatalogue, runMatching, semanticFor, startScan } from '@ci/services';
@@ -96,6 +96,9 @@ describe('embedding the catalogue', () => {
     expect(rows.length).toBe(r.embedded);
     expect(rows.every((x) => x.model === MODEL && x.dims === 256)).toBe(true);
     expect(textsSent).toBe(r.embedded);
+    // the free-tier use is recorded under the embedding model (every text counts as a request)
+    const usage = (await db().select().from(aiUsageDaily).where(eq(aiUsageDaily.model, MODEL)))[0]!;
+    expect(usage.requests).toBe(r.embedded);
   });
 
   it('an unchanged product is never embedded again; a changed one is', async () => {

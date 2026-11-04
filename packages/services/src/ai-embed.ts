@@ -5,6 +5,7 @@ import { aiEmbeddings, aiQuotaState, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { withHeavyWork } from './heavy.ts';
 import { loadEngineInputs } from './matching.ts';
+import { addUsage } from './ai-match.ts';
 
 /**
  * Semantic retrieval (Gemini embeddings, free tier). An embedding finds differently worded listings of the same thing (a "headlamp" for a "headlight"); it only ADDS candidates to the shortlist.
@@ -95,6 +96,8 @@ export async function embedCatalogue(svc: Services, orgId: string): Promise<Embe
       const values = { orgId, variantId: part[j]!.id, model, textHash: part[j]!.hash, dims: res.vectors[j]!.length, vector: JSON.stringify(res.vectors[j]!.map((x) => Math.round(x * 1e5) / 1e5)), createdAt: now };
       await db.insert(aiEmbeddings).values(values).onConflictDoUpdate({ target: [aiEmbeddings.variantId, aiEmbeddings.model], set: { textHash: values.textHash, dims: values.dims, vector: values.vector, createdAt: now } });
     }
+    // every text counts as a request on the free tier: recorded beside the answers' usage, under the embedding model
+    await addUsage(db, model, now, { requests: part.length, successes: 1, inputTokens: res.usage.promptTokens, ms: res.ms });
     embedded += part.length;
     if (i + BATCH < todo.length) await sleep(Math.ceil((BATCH / TEXTS_PER_MINUTE) * 60_000));
   }

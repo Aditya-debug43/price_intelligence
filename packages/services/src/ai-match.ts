@@ -142,7 +142,7 @@ async function saveLimiterState(db: DbLike, l: AiLimiter, model: string, now: Da
   await db.insert(aiQuotaState).values(values).onConflictDoUpdate({ target: aiQuotaState.model, set: values });
 }
 
-async function addUsage(db: DbLike, model: string, now: Date, d: Partial<Omit<AiRunUsage, 'candidatesAnswered'>> & { candidatesAnswered?: number }): Promise<void> {
+export async function addUsage(db: DbLike, model: string, now: Date, d: Partial<Omit<AiRunUsage, 'candidatesAnswered'>> & { candidatesAnswered?: number }): Promise<void> {
   const day = pacificDay(now.getTime());
   const inc = {
     requests: d.requests ?? 0, successes: d.successes ?? 0, failures: d.failures ?? 0, rateLimited: d.rateLimited ?? 0, inputTokens: d.inputTokens ?? 0, outputTokens: d.outputTokens ?? 0,
