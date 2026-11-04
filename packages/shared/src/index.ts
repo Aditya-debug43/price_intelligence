@@ -6,3 +6,4 @@ export * from './format.ts';
 export * from './limitation-advice.ts';
 export * from './sync-health.ts';
 export * from './source-link.ts';
+export * from './ai-types.ts';

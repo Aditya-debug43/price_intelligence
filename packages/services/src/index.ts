@@ -38,3 +38,6 @@ export * from './jobs.ts';
 export * from './report-compare.ts';
 export * from './live.ts';
 export * from './queries.ts';
+export * from './ai-gemini.ts';
+export * from './ai-match.ts';
+export * from './heavy.ts';

@@ -10,6 +10,8 @@ import { generateReport } from './report.ts';
 import { runRetention } from './retention.ts';
 import { schedulerTick, dailyAssemble } from './scheduler.ts';
 import { refreshMarketRates } from './fx.ts';
+import { aiResumeTick, processAiRun } from './ai-match.ts';
+import { withHeavyWork } from './heavy.ts';
 
 type Handler<T> = (svc: Services, data: T) => Promise<unknown>;
 
@@ -17,11 +19,11 @@ type Handler<T> = (svc: Services, data: T) => Promise<unknown>;
 export const JOB_HANDLERS: { [K in JobName]: Handler<any> } = {
   'profile-site': (svc, d: { orgId: string; siteId: string }) => runProfile(svc, d.orgId, d.siteId),
   'scan-site': (svc, d: { orgId: string; scanRunId: string }) => executeScan(svc, d.scanRunId),
-  'match-products': (svc, d: { orgId: string }) => runMatching(svc, svc.db, d.orgId),
+  'match-products': (svc, d: { orgId: string }) => withHeavyWork(() => runMatching(svc, svc.db, d.orgId)),
   'sync-inventory': (svc, d: { orgId: string; connectionId: string }) => runInventorySync(svc, svc.db, d.orgId, d.connectionId),
   'sync-social': (svc, d: { orgId: string; siteId?: string; manual?: boolean }) => syncSocial(svc, svc.db, d.orgId, { siteId: d.siteId, manual: d.manual, http: svc.socialHttp }),
   'generate-report': async (svc, d: { orgId: string; reportId: string; userId?: string; refreshFirst?: boolean }) => {
-    await runMatching(svc, svc.db, d.orgId);
+    await withHeavyWork(() => runMatching(svc, svc.db, d.orgId));
     await generateReport(svc, svc.db, d.orgId, { kind: 'manual', deadlineAt: null, createdBy: d.userId ?? null, reportId: d.reportId });
   },
   'send-email': (svc, d: { id: string }) => svc.mailer.deliver(d.id),
@@ -32,6 +34,8 @@ export const JOB_HANDLERS: { [K in JobName]: Handler<any> } = {
   'integration-event': async (svc, d: { topic: string; shop: string }) => {
     if (d.topic === 'app/uninstalled') await handleShopifyUninstalled(svc, d.shop);
   },
+  // a run's slice of AI analysis; without a run id it is the once-a-minute safety net that re-queues a run that lost its job
+  'ai-match': (svc, d: { orgId?: string; runId?: string }) => (d.orgId && d.runId ? processAiRun(svc, d.orgId, d.runId) : aiResumeTick(svc)),
 };
 
 /** Marks a manually requested report as failed if its job dies for good (so the UI stops polling). */

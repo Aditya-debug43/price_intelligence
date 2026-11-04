@@ -147,7 +147,7 @@ export const AUTO_ACCEPT_THRESHOLD = 0.85;
  * regular, "Unsweetened", "Vegan", "15 Grain" vs "Whole Wheat") are different products even when everything else in the name agrees. Stems, as
  * produced by `coreNameTokens`. A name that differs only in ordinary words ("Deli Fresh", "Natural") is not affected.
  */
-const VARIANT_WORDS = new Set([
+export const VARIANT_WORDS = new Set([
   'vanilla', 'chocolate', 'strawberry', 'banana', 'lemon', 'lime', 'orange', 'cherry', 'grape', 'apple', 'mango', 'peach', 'pineapple', 'coconut', 'caramel',
   'mint', 'honey', 'cinnamon', 'berry', 'blueberry', 'raspberry', 'cranberry', 'watermelon', 'tropical', 'punch', 'diet', 'zero', 'light', 'lite', 'regular',
   'sugar', 'sugarfree', 'decaf', 'caffeine', 'free', 'whole', 'skim', 'reduced', 'fat', 'lowfat', 'nonfat', 'unsweetened', 'sweetened', 'unsalted', 'salted',

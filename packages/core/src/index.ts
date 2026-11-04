@@ -27,3 +27,4 @@ export * from './assortment.ts';
 export * from './brands.ts';
 export * from './terms.ts';
 export * from './storable.ts';
+export * from './ai/index.ts';

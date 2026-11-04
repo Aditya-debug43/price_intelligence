@@ -167,7 +167,7 @@ export interface MatchFilter {
 }
 
 /** The conditions of each bucket, written once against the table alias `m`. Pairs the matcher has set aside are in no bucket but their own. */
-const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
+export const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
   review: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class in ('identical','different_pack') and m.price_exclusion is null`,
   substitutes: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'comparable'`,
   unclear: sql`m.status in ('needs_review','auto') and m.superseded_at is null and m.match_class = 'not_comparable'`,

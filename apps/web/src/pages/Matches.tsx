@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDateTime, type EvidenceItem, type MatchEvidence } from '@ci/shared';
+import { formatDateTime, type AiStatusView, type EvidenceItem, type MatchEvidence } from '@ci/shared';
 import { api, errorMessage, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { Age, Card, DataState, EmptyState, Modal, PageHead, Pager, SourceLink, Tabs, useToast } from '../ui';
 import { matchStateMessage, type MatchSummaryView } from '../match-text';
+import { AiSuggestionsTab } from './AiSuggestions';
 
 interface MatchRow {
   id: string; matchClass: string; relationship: string; tier: string | null; evidence: MatchEvidence | null; engineVersion: string | null; needsReevaluation: boolean; supersededAt: string | null;
@@ -58,13 +59,15 @@ const EFFECT: Record<EvidenceItem['effect'], { icon: string; label: string; cls:
 
 export function MatchesPage() {
   const { orgId, isAdmin } = useOrg();
-  const [tab, setTab] = useState<Bucket>('review');
+  const [tab, setTab] = useState<Bucket | 'ai'>('review');
   const [page, setPage] = useState(1);
   const [choosing, setChoosing] = useState<MatchRow | null>(null);
   const toast = useToast();
   const summary = useOrgQuery<MatchSummaryView>(['matches', 'summary'], '/matches/summary');
   // "To review" lists one item per product pair (your product against one competitor product), not one per variant pair
-  const q = useOrgQuery<{ rows: MatchRow[]; total: number }>(['matches', tab, page], `/matches${qs({ bucket: tab, page, pageSize: 15, group: tab === 'review' ? 'product' : undefined })}`, { placeholderData: (p) => p });
+  const q = useOrgQuery<{ rows: MatchRow[]; total: number }>(['matches', tab, page], `/matches${qs({ bucket: tab === 'ai' ? undefined : tab, page, pageSize: 15, group: tab === 'review' ? 'product' : undefined })}`, { placeholderData: (p) => p, enabled: tab !== 'ai' });
+  // AI suggestions are kept apart from the matches above: they only count here as a number on their own tab
+  const ai = useOrgQuery<AiStatusView>(['ai', 'status'], '/ai/status');
   const refresh = ['matches', 'comparison', 'dashboard', 'journey'];
   const decide = useOrgMutation(
     (id, v: { id: string; decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => api.post(orgPath(id, `/matches/${v.id}/decision`), { decision: v.decision, relationship: v.relationship }),
@@ -80,7 +83,7 @@ export function MatchesPage() {
   const s = summary.data;
   const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside, quantity: s.counts.quantityExcluded ?? 0 }[b]) : null);
   const label = (text: string, b: Bucket) => (count(b) === null ? text : `${text} (${count(b)})`);
-  const tabs: { id: Bucket; label: string }[] = [
+  const tabs: { id: Bucket | 'ai'; label: string }[] = [
     { id: 'review', label: label('To review', 'review') },
     { id: 'substitutes', label: label('Substitutes', 'substitutes') },
     { id: 'unclear', label: label('Related & unclear', 'unclear') },
@@ -89,6 +92,7 @@ export function MatchesPage() {
     ...((count('quantity') ?? 0) > 0 ? [{ id: 'quantity' as Bucket, label: label('Not compared', 'quantity') }] : []),
     ...((count('look_again') ?? 0) > 0 ? [{ id: 'look_again' as Bucket, label: label('Look again', 'look_again') }] : []),
     ...((count('set_aside') ?? 0) > 0 ? [{ id: 'set_aside' as Bucket, label: label('Set aside', 'set_aside') }] : []),
+    { id: 'ai', label: ai.data && ai.data.counts.pending > 0 ? `AI suggestions (${ai.data.counts.pending})` : 'AI suggestions' },
   ];
   return (
     <>
@@ -105,7 +109,7 @@ export function MatchesPage() {
         <div className="small muted" style={{ marginBottom: 8 }}>{s.counts.awaitingProductPairs} product pairs to look at, covering {s.counts.awaiting} variant pairs: a product with several variants is one item here; open it to see its variants.</div>
       )}
       <Tabs value={tab} onChange={(t) => { setTab(t); setPage(1); }} tabs={tabs} />
-      <DataState
+      {tab === 'ai' ? <AiSuggestionsTab /> : <DataState
         q={q}
         isEmpty={(d) => d.total === 0}
         empty={
@@ -125,13 +129,13 @@ export function MatchesPage() {
             <Pager page={page} pageSize={15} total={d.total} onPage={setPage} />
           </Card>
         )}
-      </DataState>
+      </DataState>}
       {choosing && <ChooseProduct row={choosing} onClose={() => setChoosing(null)} />}
     </>
   );
 }
 
-function emptyTitle(tab: Bucket, s: MatchSummaryView | undefined): string {
+function emptyTitle(tab: Bucket | 'ai', s: MatchSummaryView | undefined): string {
   if (tab === 'review') {
     if (!s) return 'Nothing to show';
     return s.state === 'ok' || s.state === 'none_confirmed' ? (s.counts.awaiting === 0 && (s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.rejected) > 0 ? 'Every suggestion has been decided' : 'Nothing is waiting for review') : matchStateMessage(s).title;
@@ -139,7 +143,7 @@ function emptyTitle(tab: Bucket, s: MatchSummaryView | undefined): string {
   return 'Nothing here';
 }
 
-function emptyText(tab: Bucket, s: MatchSummaryView | undefined) {
+function emptyText(tab: Bucket | 'ai', s: MatchSummaryView | undefined) {
   if (tab === 'review') return s ? matchStateMessage(s).body : 'Loading…';
   if (tab === 'substitutes') return 'No substitutes suggested yet. A substitute is a different product that does the same job; it is shown in the price comparison with its differences, and confirming one is optional.';
   if (tab === 'unclear') return 'Related products and pairs without enough information are kept here for reference. They never count as work to do and never appear in a price comparison.';

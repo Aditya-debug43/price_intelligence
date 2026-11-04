@@ -71,6 +71,24 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: optionalString,
   AI_MODEL: z.string().default('claude-haiku-5-5'),
 
+  /**
+   * Google Gemini Developer API (AI-assisted matching). Backend only, free tier only. The key is never read by the browser and never logged.
+   * The limits below are SHELFWATCH's own ceilings, kept under Google's free-tier limits (15 requests a minute for the default model); Google's own quota errors lower them further.
+   */
+  GEMINI_API_KEY: optionalString,
+  GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
+  /** Optional embedding model for semantic candidate search. Off unless set: the free tier allows about 100 texts a minute. */
+  GEMINI_EMBEDDING_MODEL: optionalString,
+  GEMINI_RPM: z.coerce.number().int().min(1).max(1000).default(12),
+  GEMINI_TPM: z.coerce.number().int().min(1000).default(150_000),
+  /** A budget of requests per (Pacific) day that Shelfwatch never exceeds, whatever Google would allow. */
+  GEMINI_DAILY_REQUESTS: z.coerce.number().int().min(1).default(200),
+  GEMINI_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  /** Competitor candidates judged in one request, and the input/output token ceilings of one request. */
+  GEMINI_BATCH_CANDIDATES: z.coerce.number().int().min(1).max(30).default(10),
+  GEMINI_MAX_INPUT_TOKENS: z.coerce.number().int().min(500).default(9000),
+  GEMINI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).default(6000),
+  GEMINI_TIMEOUT_MS: z.coerce.number().int().min(5000).default(90_000),
   YOUTUBE_API_KEY: optionalString,
   META_APP_ID: optionalString,
   META_APP_SECRET: optionalString,

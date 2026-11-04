@@ -413,7 +413,7 @@ export async function setManualMatch(
   db: DbLike,
   orgId: string,
   userId: string,
-  p: { sourceVariantId: string; competitorVariantId: string; matchClass?: 'identical' | 'different_pack' | 'comparable'; relationship?: DecidableRelationship; replaceMatchId?: string; note?: string },
+  p: { sourceVariantId: string; competitorVariantId: string; matchClass?: 'identical' | 'different_pack' | 'comparable'; relationship?: DecidableRelationship; replaceMatchId?: string; note?: string; keepOthers?: boolean },
   now: Date,
 ) {
   const relationship: DecidableRelationship | undefined = p.relationship ?? (p.matchClass ? (relationshipOfClass(p.matchClass) as DecidableRelationship) : undefined);
@@ -441,7 +441,8 @@ export async function setManualMatch(
     : (await db.insert(productMatches).values({ orgId, sourceVariantId: p.sourceVariantId, competitorVariantId: p.competitorVariantId, competitorSiteId: comp.siteId, components: {}, ...values }).returning())[0]!;
 
   // Other suggestions for the same product at the same website are superseded by the person's choice (accepted ones are left alone).
-  const superseded = await db
+  // Confirming ONE AI suggestion (`keepOthers`) is not a statement that nothing else at that website is right, so it leaves the other suggestions waiting.
+  const superseded = p.keepOthers ? [] : await db
     .update(productMatches)
     .set({ status: 'rejected', matchClass: 'not_comparable', relationship: 'non_match', decidedBy: userId, decidedAt: now, decisionNote: 'Replaced by a manual choice', updatedAt: now })
     .where(

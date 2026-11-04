@@ -14,3 +14,4 @@ export * from './flyer.ts';
 export * from './social.ts';
 export * from './inventory.ts';
 export * from './providers.ts';
+export * from './gemini.ts';

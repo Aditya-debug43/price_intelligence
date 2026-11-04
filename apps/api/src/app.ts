@@ -27,6 +27,7 @@ import { authRoutes } from './routes/auth.ts';
 import { orgRoutes } from './routes/orgs.ts';
 import { siteRoutes } from './routes/sites.ts';
 import { catalogRoutes } from './routes/catalog.ts';
+import { aiMatchRoutes } from './routes/ai-match.ts';
 import { reportRoutes } from './routes/reports.ts';
 import { alertRoutes } from './routes/alerts.ts';
 import { integrationRoutes, publicIntegrationRoutes } from './routes/integrations.ts';
@@ -225,6 +226,7 @@ async function integrationOrgScope(app: FastifyInstance) {
       await scope.register(orgRoutes);
       await scope.register(siteRoutes);
       await scope.register(catalogRoutes);
+      await scope.register(aiMatchRoutes);
       await scope.register(reportRoutes);
       await scope.register(alertRoutes);
       await scope.register(integrationRoutes);

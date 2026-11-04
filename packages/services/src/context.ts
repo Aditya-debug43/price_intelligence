@@ -2,7 +2,7 @@ import dns from 'node:dns';
 import path from 'node:path';
 import { redact, LocalStorage, NullLlmProvider, parseKeyRing, type AppConfig, type KeyRing, type LlmProvider, type StorageAdapter } from '@ci/core';
 import type { Db } from '@ci/database';
-import { AnthropicProvider, DomainLimiter, SafeFetcher, type BrowserRenderer, type HttpJson } from '@ci/connectors';
+import { AnthropicProvider, DomainLimiter, SafeFetcher, type BrowserRenderer, type GeminiHttp, type HttpJson } from '@ci/connectors';
 import type { Mailer } from './mailer.ts';
 
 export interface Logger {
@@ -40,6 +40,7 @@ export const JOB_NAMES = [
   'daily-assemble',
   'refresh-fx',
   'integration-event',
+  'ai-match',
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -71,6 +72,10 @@ export interface Services {
   resolver: (host: string) => Promise<{ address: string }[]>;
   /** HTTP used for the official social-provider APIs (YouTube, Meta). Undefined = real network; tests inject local imitations. */
   socialHttp?: HttpJson;
+  /** HTTP used for the Gemini Developer API. Undefined = real network; tests inject local imitations (so no test ever reaches Google). */
+  geminiHttp?: GeminiHttp;
+  /** How AI analysis waits for a rate limit. Undefined = really wait; tests move their frozen clock instead, so a one-minute wait costs nothing. */
+  aiSleep?: (ms: number) => Promise<void>;
   /** Creates an SSRF-safe, robots-respecting fetcher sharing the process-wide per-domain limiter. */
   makeFetcher(over?: { maxRetries?: number }): SafeFetcher;
 }
@@ -87,6 +92,8 @@ export interface ServiceOverrides {
   makeFetcher?: Services['makeFetcher'];
   resolver?: Services['resolver'];
   socialHttp?: HttpJson;
+  geminiHttp?: GeminiHttp;
+  aiSleep?: (ms: number) => Promise<void>;
 }
 
 export function createLlm(config: AppConfig): LlmProvider {
@@ -151,6 +158,8 @@ export function createServices(config: AppConfig, db: Db, overrides: ServiceOver
     browser: overrides.browser ?? null,
     resolver: overrides.resolver ?? ((host) => dns.promises.lookup(host, { all: true, verbatim: true })),
     ...(overrides.socialHttp ? { socialHttp: overrides.socialHttp } : {}),
+    ...(overrides.geminiHttp ? { geminiHttp: overrides.geminiHttp } : {}),
+    ...(overrides.aiSleep ? { aiSleep: overrides.aiSleep } : {}),
     makeFetcher: overrides.makeFetcher ?? ((over) => new SafeFetcher({ ...fetchPolicyFrom(config), ...(over ?? {}) }, { limiter })),
   };
   const mailer = overrides.mailer ?? overrides.mailerFactory?.(base);

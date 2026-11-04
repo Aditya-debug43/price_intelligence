@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { inject } from 'vitest';
 import { MemoryStorage, generateKeyRingSpec, loadConfig } from '@ci/core';
-import { DomainLimiter, SafeFetcher } from '@ci/connectors';
+import { DomainLimiter, SafeFetcher, type GeminiHttp } from '@ci/connectors';
 import { emailOutbox, orgSettings, withTenant, type Db } from '@ci/database';
 import {
   InlineQueue,
@@ -34,6 +34,10 @@ export interface Harness {
   queue: InlineQueue;
   storage: MemoryStorage;
   fixtures: FixtureServer;
+  /**
+   * The imitation Gemini API. No test ever reaches Google: until a test sets a handler, any call to Gemini fails loudly. `calls` records every request (address, headers and body).
+   */
+  gemini: { set(handler: GeminiHttp | null): void; calls: { url: string; headers: Record<string, string>; body: string }[] };
   /** The test mail server: every email the product sends lands here, like an inbox (after `queue.drain()` runs the send jobs). */
   mail: CaptureTransport;
   /** Move the shared clock. All services — and the fictional sites — read time through it. */
@@ -65,6 +69,16 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
   const fixtures = await startFixtureServer({ now: () => now });
   const queue = new InlineQueue();
   const mail = new CaptureTransport();
+  const gemini: Harness['gemini'] & { handler: GeminiHttp | null } = {
+    handler: null,
+    calls: [],
+    set(handler) { gemini.handler = handler; },
+  };
+  const geminiHttp: GeminiHttp = async (url, init) => {
+    gemini.calls.push({ url, headers: init.headers, body: init.body ?? '' });
+    if (!gemini.handler) throw new Error('A test reached Gemini without an imitation (harness.gemini.set).');
+    return gemini.handler(url, init);
+  };
   const config = loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: urls.appUrl,
@@ -81,6 +95,9 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
     storage,
     queue,
     log,
+    geminiHttp,
+    // a wait for a rate limit moves the (frozen) clock instead of really waiting
+    aiSleep: async (ms: number) => void (now = new Date(now.getTime() + ms)),
     ...(opts.real
       ? {} // real clock, real pacing, real DNS, the production fetch policy
       : {
@@ -101,6 +118,7 @@ export async function createHarness(opts: { now?: string; extraEnv?: Record<stri
     storage,
     fixtures,
     mail,
+    gemini,
     setNow: (d) => void (now = new Date(d)),
     advance: (ms) => void (now = new Date(now.getTime() + ms)),
     emails: () => db.worker.select().from(emailOutbox),

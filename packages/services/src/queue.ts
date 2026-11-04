@@ -16,6 +16,8 @@ const QUEUE_OPTIONS: Record<JobName, { expireInSeconds: number; retryLimit: numb
   'daily-assemble': { expireInSeconds: 30 * 60, retryLimit: 2, retryDelay: 60 },
   'refresh-fx': { expireInSeconds: 5 * 60, retryLimit: 2, retryDelay: 300 },
   'integration-event': { expireInSeconds: 5 * 60, retryLimit: 3, retryDelay: 30 },
+  // a window of AI analysis ends by itself (time budget, quota pause) and re-queues the rest; the run's progress is stored, so a retry loses nothing
+  'ai-match': { expireInSeconds: 15 * 60, retryLimit: 2, retryDelay: 120 },
 };
 
 export class PgBossQueue implements JobQueue {
@@ -42,7 +44,7 @@ export async function createBoss(connectionString: string, log: Logger, applicat
 /** Registers a handler per queue and the recurring jobs (scheduler tick, retention, FX refresh). */
 export async function registerWorkers(boss: PgBoss, svc: Services, opts: { concurrency?: Partial<Record<JobName, number>>; schedulerEnabled?: boolean } = {}): Promise<void> {
   const concurrency: Record<JobName, number> = {
-    'profile-site': 3, 'scan-site': 3, 'match-products': 1, 'sync-inventory': 2, 'sync-social': 1, 'generate-report': 1, 'send-email': 3, retention: 1, 'scheduler-tick': 1, 'daily-assemble': 1, 'refresh-fx': 1, 'integration-event': 2,
+    'profile-site': 3, 'scan-site': 3, 'match-products': 1, 'sync-inventory': 2, 'sync-social': 1, 'generate-report': 1, 'send-email': 3, retention: 1, 'scheduler-tick': 1, 'daily-assemble': 1, 'refresh-fx': 1, 'integration-event': 2, 'ai-match': 1,
     ...(opts.concurrency ?? {}),
   };
   for (const name of JOB_NAMES) {
@@ -64,6 +66,9 @@ export async function registerWorkers(boss: PgBoss, svc: Services, opts: { concu
     await boss.schedule('scheduler-tick', '* * * * *', {}, { key: 'default' });
     await boss.schedule('retention', '17 6 * * *', {}, { key: 'default' });
     if (svc.config.FX_PROVIDER === 'open-er-api') await boss.schedule('refresh-fx', '5 */12 * * *', {}, { key: 'default' });
+    // the AI-analysis safety net exists only while a Gemini key is configured
+    if (svc.config.GEMINI_API_KEY) await boss.schedule('ai-match', '* * * * *', {}, { key: 'tick' });
+    else await boss.unschedule('ai-match', 'tick').catch(() => undefined);
   }
 }
 

@@ -14,6 +14,17 @@ import {
   date,
 } from 'drizzle-orm/pg-core';
 import type {
+  AiConfidence,
+  AiEngineReading,
+  AiEvidenceItem,
+  AiFeedbackAction,
+  AiFoundBy,
+  AiGuardNote,
+  AiMatchType,
+  AiPolicyReading,
+  AiRunStatus,
+  AiRunUsage,
+  AiSuggestionStatus,
   AlertSeverity,
   AlertType,
   Availability,
@@ -988,6 +999,174 @@ export const auditEvents = pgTable(
   },
   (t) => [index('audit_org_idx').on(t.orgId, t.createdAt)],
 );
+
+// ═══════════════════════════════════════════════════════ AI-assisted matching (migration 0018)
+// AI suggestions live in their OWN tables. Nothing here changes a match, a price or a report: a person's decision on a suggestion goes through the
+// existing human-decision functions, and the AI record keeps what the model said, what the safeguards allowed and what the person did.
+
+/** One analysis run: which of the shop's products to look at, how far it got, what it used. Resumable (the queue and the cursor are stored). */
+export const aiMatchRuns = pgTable(
+  'ai_match_runs',
+  {
+    id: pk(),
+    orgId: orgId(),
+    kind: text('kind').notNull().default('sample'),
+    status: text('status').$type<AiRunStatus>().notNull().default('queued'),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    /** The request that started the run (scope, limit, per-site shortlist size). */
+    params: jsonb('params').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    /** The source variants to analyse, in order, and how many are done: a paused or restarted run continues where it stopped. */
+    sourceIds: uuid('source_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    cursor: integer('cursor').notNull().default(0),
+    progress: jsonb('progress').$type<{ sources: number; sourcesDone: number; candidates: number; answered: number; cachedResults: number }>().notNull().default(sql`'{}'::jsonb`),
+    usage: jsonb('usage').$type<AiRunUsage>().notNull().default(sql`'{}'::jsonb`),
+    pauseReason: text('pause_reason'),
+    resumeAt: ts('resume_at'),
+    error: text('error'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    /** Touched whenever the run makes progress: a run that says "running" but has not moved for a while lost its worker and is picked up again. */
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    startedAt: ts('started_at'),
+    finishedAt: ts('finished_at'),
+  },
+  (t) => [index('ai_runs_org_idx').on(t.orgId, t.createdAt), index('ai_runs_status_idx').on(t.status)],
+);
+
+/** What the model (after the safeguards) said about one source product and one competitor product. One row per pair: a re-run updates it, never duplicates it. */
+export const aiMatchSuggestions = pgTable(
+  'ai_match_suggestions',
+  {
+    id: pk(),
+    orgId: orgId(),
+    runId: uuid('run_id').references(() => aiMatchRuns.id, { onDelete: 'set null' }),
+    sourceVariantId: uuid('source_variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    competitorVariantId: uuid('competitor_variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    competitorSiteId: uuid('competitor_site_id')
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    /** After the safeguards. `ai_match_type` is what the model itself said. */
+    matchType: text('match_type').$type<AiMatchType>().notNull(),
+    aiMatchType: text('ai_match_type').$type<AiMatchType>().notNull(),
+    confidence: text('confidence').$type<AiConfidence>().notNull(),
+    aiConfidence: text('ai_confidence').$type<AiConfidence>().notNull(),
+    priceComparable: boolean('price_comparable').notNull().default(false),
+    requiresReview: boolean('requires_review').notNull().default(true),
+    explanation: text('explanation').notNull(),
+    supporting: jsonb('supporting').$type<AiEvidenceItem[]>().notNull().default(sql`'[]'::jsonb`),
+    conflicting: jsonb('conflicting').$type<AiEvidenceItem[]>().notNull().default(sql`'[]'::jsonb`),
+    missing: jsonb('missing').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    guards: jsonb('guards').$type<AiGuardNote[]>().notNull().default(sql`'[]'::jsonb`),
+    foundBy: jsonb('found_by').$type<AiFoundBy[]>().notNull().default(sql`'[]'::jsonb`),
+    engine: jsonb('engine').$type<AiEngineReading>(),
+    policy: jsonb('policy').$type<AiPolicyReading>().notNull().default(sql`'{}'::jsonb`),
+    /** Hash of everything the answer depends on (both products' facts, the engine's reading, model, prompt): an unchanged pair is answered from here and never sent again. */
+    inputHash: text('input_hash').notNull(),
+    sourceFingerprint: text('source_fingerprint').notNull(),
+    candidateFingerprint: text('candidate_fingerprint').notNull(),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    sourceUrl: text('source_url'),
+    candidateUrl: text('candidate_url'),
+    status: text('status').$type<AiSuggestionStatus>().notNull().default('pending'),
+    reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+    reviewedAt: ts('reviewed_at'),
+    reviewRelationship: text('review_relationship'),
+    reviewNote: text('review_note'),
+    analysedAt: ts('analysed_at').notNull().defaultNow(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('ai_suggestions_pair_uq').on(t.sourceVariantId, t.competitorVariantId),
+    index('ai_suggestions_org_status_idx').on(t.orgId, t.status, t.matchType),
+    index('ai_suggestions_source_idx').on(t.sourceVariantId),
+    index('ai_suggestions_run_idx').on(t.runId),
+  ],
+);
+
+/** Append-only: what a person did with an AI suggestion (the labelled-example store for measuring the AI later). Plain ids so it outlives a removed variant. */
+export const aiMatchFeedback = pgTable(
+  'ai_match_feedback',
+  {
+    id: pk(),
+    orgId: orgId(),
+    suggestionId: uuid('suggestion_id'),
+    sourceVariantId: uuid('source_variant_id').notNull(),
+    competitorVariantId: uuid('competitor_variant_id').notNull(),
+    action: text('action').$type<AiFeedbackAction>().notNull(),
+    aiMatchType: text('ai_match_type').$type<AiMatchType>().notNull(),
+    aiConfidence: text('ai_confidence').$type<AiConfidence>().notNull(),
+    /** What the person said the pair is (for accept / change), and the competitor product they chose instead (for choose_other). */
+    relationship: text('relationship'),
+    chosenVariantId: uuid('chosen_variant_id'),
+    matchId: uuid('match_id'),
+    note: text('note'),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('ai_feedback_org_idx').on(t.orgId, t.createdAt), index('ai_feedback_pair_idx').on(t.sourceVariantId, t.competitorVariantId)],
+);
+
+/** The compact product dossier the AI is shown, cached per variant and rebuilt only when the product's own facts change (fingerprint) or the dossier format does (version). */
+export const aiDossiers = pgTable(
+  'ai_dossiers',
+  {
+    id: pk(),
+    orgId: orgId(),
+    variantId: uuid('variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    fingerprint: text('fingerprint').notNull(),
+    version: text('version').notNull(),
+    dossier: jsonb('dossier').$type<Record<string, unknown>>().notNull(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('ai_dossiers_variant_uq').on(t.variantId)],
+);
+
+/** What Shelfwatch has sent to Gemini, per day (Pacific, when Google's daily quota resets) and model. Global: one API key is shared by every workspace. */
+export const aiUsageDaily = pgTable(
+  'ai_usage_daily',
+  {
+    id: pk(),
+    day: date('day', { mode: 'string' }).notNull(),
+    model: text('model').notNull(),
+    requests: integer('requests').notNull().default(0),
+    successes: integer('successes').notNull().default(0),
+    failures: integer('failures').notNull().default(0),
+    rateLimited: integer('rate_limited').notNull().default(0),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
+    thoughtTokens: bigint('thought_tokens', { mode: 'number' }).notNull().default(0),
+    cachedResults: integer('cached_results').notNull().default(0),
+    candidatesAnswered: integer('candidates_answered').notNull().default(0),
+    ms: bigint('ms', { mode: 'number' }).notNull().default(0),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('ai_usage_day_model_uq').on(t.day, t.model)],
+);
+
+/** What Google's own answers have taught Shelfwatch about the free tier (it never claims to know the remaining quota), and whether processing is paused or stopped. Global, one row per model. */
+export const aiQuotaState = pgTable('ai_quota_state', {
+  model: text('model').primaryKey(),
+  learnedRpm: integer('learned_rpm'),
+  learnedRpd: integer('learned_rpd'),
+  learnedTpm: integer('learned_tpm'),
+  /** Processing waits until then (a minute or daily quota was hit). */
+  pausedUntil: ts('paused_until'),
+  pauseReason: text('pause_reason'),
+  /** Set when processing must not continue without a person (a non-free-tier quota was seen, the key was rejected, the model is gone). */
+  stopped: text('stopped'),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+});
 
 // ═══════════════════════════════════════════════════════ global reference data
 

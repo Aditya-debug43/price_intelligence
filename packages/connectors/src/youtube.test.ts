@@ -172,7 +172,7 @@ describe('reading a channel’s uploads', () => {
     const r = await run(http);
     const p = r.posts[0]!;
     expect(p).toMatchObject({ externalId: 'a1', title: 'New tyres', url: 'https://www.youtube.com/watch?v=a1', kind: 'video', engagement: { views: 1000, likes: 5, comments: 0, shares: null } });
-    expect(p.publishedAt.toISOString()).toBe(day(3));
+    expect(p.publishedAt!.toISOString()).toBe(day(3));
     expect(p.text).toHaveLength(500);
     expect(p.details).toMatchObject({ videoId: 'a1', channelId: UC, channelTitle: 'Brand Channel', thumbnailUrl: 'https://i.ytimg.com/h.jpg', durationSeconds: 3723, liveBroadcast: 'none' });
     expect(p.details!.description).toHaveLength(2000);
