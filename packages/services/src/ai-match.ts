@@ -7,8 +7,12 @@ import {
   DEFAULT_BATCH_LIMITS,
   analyseCatalogue,
   applyGuards,
+  autoClassOf,
+  CLASS_RELATIONSHIP,
   buildAiDossier,
   buildRetrievalIndex,
+  extractSpecTable,
+  factGroupOf,
   groundingText,
   hashText,
   pacificDay,
@@ -21,6 +25,7 @@ import {
   type AppConfig,
   type Corpus,
   type Dossier,
+  type PageSpecFact,
   type PayloadGroup,
   type PlannedRequest,
   type RetrievalIndex,
@@ -47,7 +52,9 @@ import { aiDossiers, aiMatchFeedback, aiMatchRuns, aiMatchSuggestions, aiQuotaSt
 import type { Services, JobQueue } from './context.ts';
 import { askRequest, pairKey, type AskDeps, type UsageEvent } from './ai-gemini.ts';
 import { withHeavyWork } from './heavy.ts';
-import { MatchError, decideMatch, loadEngineInputs, setManualMatch } from './matching.ts';
+import { autoApprovePair, enabledAutoClasses } from './match-eval.ts';
+import { loadVectors, semanticHits } from './ai-embed.ts';
+import { MatchError, decideMatch, loadEngineInputs, rejectPair, setManualMatch } from './matching.ts';
 import { BUCKET_SQL, type MatchBucket } from './queries.ts';
 
 /**
@@ -317,11 +324,15 @@ const TIME_BUDGET_MS = 6 * 60_000;
 const STOP_KINDS = new Set(['paid_tier', 'invalid_key', 'model_unavailable', 'not_configured']);
 const STALE_RUNNING_MS = 20 * 60_000;
 
-interface Ctx {
+export interface Ctx {
   corpus: Corpus;
   index: RetrievalIndex;
   sources: Set<string>;
   descriptions: Map<string, string | null>;
+  /** What each product page's specification lines state (see `extractSpecTable`). */
+  specs: Map<string, PageSpecFact[]>;
+  /** Embeddings of the products, when semantic search is set up and the catalogue has been embedded: they only ADD candidates. */
+  semantic: { competitors: Map<string, Float32Array>; all: Map<string, Float32Array> } | null;
   dossiers: Map<string, AiDossier>;
   urls: Map<string, string | null>;
 }
@@ -355,9 +366,39 @@ async function loadFitmentExcerpts(db: DbLike, orgId: string): Promise<Map<strin
   return new Map(rows.rows.map((r) => [r.id, r.d]));
 }
 
-async function buildContext(db: DbLike, orgId: string): Promise<Ctx> {
+export /** The specification lines a product page states (read by `extractSpecTable`): only products whose description has such lines are returned, and only the first part of the text. */
+async function loadSpecTexts(db: DbLike, orgId: string): Promise<Map<string, PageSpecFact[]>> {
+  const rows = await db.execute<{ id: string; t: string }>(sql`
+    select p.id, left(regexp_replace(left(p.description, 6000), '<[^>]+>', ' ', 'g'), 2500) as t
+    from products p join sites s on s.id = p.site_id
+    where p.org_id = ${orgId} and s.active and p.delisted_at is null and p.description is not null
+      and p.description ~* '(wattage|voltage|lumens|brightness|colou?r temperature|socket|bulb (type|size|model)|can-?bus|dimension|alcohol|abv|package includes|ingredients)[^a-z]{0,6}[:：]'`);
+  const out = new Map<string, PageSpecFact[]>();
+  for (const r of rows.rows) {
+    const facts = extractSpecTable(r.t);
+    if (facts.length) out.set(r.id, facts);
+  }
+  return out;
+}
+
+/** The vectors of the catalogue, if semantic search is configured and the products have been embedded. */
+async function loadSemantic(db: DbLike, orgId: string, competitorIds: string[], model: string | undefined): Promise<Ctx['semantic']> {
+  if (!model) return null;
+  const have = await loadVectors(db, orgId, model);
+  if (!have.size) return null;
+  const all = new Map([...have].map(([id, x]) => [id, x.v]));
+  return { all, competitors: new Map(competitorIds.filter((id) => all.has(id)).map((id) => [id, all.get(id)!])) };
+}
+
+export async function semanticFor(ctx: Ctx, variantId: string) {
+  const v = ctx.semantic?.all.get(variantId);
+  return v && ctx.semantic ? semanticHits(v, ctx.semantic.competitors) : null;
+}
+
+export async function buildContext(db: DbLike, orgId: string, embeddingModel?: string): Promise<Ctx> {
   const inputs = await loadEngineInputs(db, orgId);
   const excerpts = await loadFitmentExcerpts(db, orgId);
+  const specTexts = await loadSpecTexts(db, orgId);
   const corpus = analyseCatalogue(inputs);
   const competitors = inputs.filter((i) => i.role === 'competitor').map((i) => corpus.byVariant.get(i.variantId)!);
   return {
@@ -365,6 +406,8 @@ async function buildContext(db: DbLike, orgId: string): Promise<Ctx> {
     index: buildRetrievalIndex(competitors, corpus),
     sources: new Set(inputs.filter((i) => i.role === 'source').map((i) => i.variantId)),
     descriptions: new Map(inputs.map((i) => [i.variantId, excerpts.get(i.productId) ?? i.description ?? null])),
+    specs: new Map(inputs.map((i) => [i.variantId, specTexts.get(i.productId) ?? []])),
+    semantic: await loadSemantic(db, orgId, inputs.filter((i) => i.role === 'competitor').map((i) => i.variantId), embeddingModel),
     dossiers: new Map(),
     urls: new Map(),
   };
@@ -373,7 +416,7 @@ async function buildContext(db: DbLike, orgId: string): Promise<Ctx> {
 const aiDossierOf = (ctx: Ctx, variantId: string): AiDossier => {
   let d = ctx.dossiers.get(variantId);
   if (!d) {
-    d = buildAiDossier(ctx.corpus.byVariant.get(variantId)!, { alias: ctx.corpus.alias, url: ctx.urls.get(variantId) ?? null, description: ctx.descriptions.get(variantId) ?? null });
+    d = buildAiDossier(ctx.corpus.byVariant.get(variantId)!, { alias: ctx.corpus.alias, url: ctx.urls.get(variantId) ?? null, description: ctx.descriptions.get(variantId) ?? null, specs: ctx.specs.get(variantId) ?? [] });
     ctx.dossiers.set(variantId, d);
   }
   return d;
@@ -427,7 +470,7 @@ export async function processAiRun(svc: Services, orgId: string, runId: string):
   const persist = (extra: Partial<typeof aiMatchRuns.$inferInsert> = {}) => setRun(db, runId, now(), { cursor, usage, progress: { ...progress, sourcesDone: cursor }, ...extra });
 
   try {
-    const ctx = await withHeavyWork(() => buildContext(db, orgId));
+    const ctx = await withHeavyWork(() => buildContext(db, orgId, svc.config.GEMINI_EMBEDDING_MODEL));
     for (;;) {
       if (cursor >= run0.sourceIds.length) {
         await persist({ status: 'completed', finishedAt: now(), pauseReason: null, resumeAt: null });
@@ -499,7 +542,7 @@ async function runWindow(
 
   // shortlists: several diverse candidates per competitor website, found by many local methods
   const shortlists = new Map<string, AiCandidate[]>();
-  for (const sv of sources) shortlists.set(sv, retrieveShortlist(ctx.index, ctx.corpus.byVariant.get(sv)!, { perSiteProducts: perSite }, null));
+  for (const sv of sources) shortlists.set(sv, retrieveShortlist(ctx.index, ctx.corpus.byVariant.get(sv)!, { perSiteProducts: perSite }, await semanticFor(ctx, sv)));
   const involved = [...new Set([...sources, ...[...shortlists.values()].flatMap((l) => l.map((c) => c.variantId))])];
   const urlRows = await db.execute<{ id: string; url: string | null }>(sql`select id, url from variants where id in (${uuidList(involved)})`);
   for (const r of urlRows.rows) ctx.urls.set(r.id, r.url);
@@ -530,6 +573,7 @@ async function runWindow(
   usage.cachedResults += cached;
   progress.cachedResults += cached;
   if (cached) await addUsage(db, s.model, now(), { cachedResults: cached });
+  const enabledAuto = await enabledAutoClasses(db, orgId);
   await storeDossiers(db, orgId, todo.flatMap((p) => [p.aiS, p.aiC]));
   if (!todo.length) return { kind: 'complete' };
 
@@ -564,7 +608,7 @@ async function runWindow(
       if (!req) return;
       const res = await askRequest(req, deps);
       const got = res.status === 'done' ? res.decisions : res.partial;
-      const saved = await saveDecisions(db, orgId, runId, s, got, pairs, existing, now());
+      const saved = await saveDecisions(db, orgId, runId, s, got, pairs, existing, enabledAuto, now());
       usage.candidatesAnswered += saved;
       progress.answered += saved;
       if (saved) await addUsage(db, s.model, now(), { candidatesAnswered: saved });
@@ -602,6 +646,7 @@ async function saveDecisions(
   got: Map<string, AiDecision>,
   pairs: Map<string, PairCtx>,
   existing: Map<string, { id: string; status: AiSuggestionStatus; matchType: AiMatchType }>,
+  enabledAuto: Set<string>,
   now: Date,
 ): Promise<number> {
   let saved = 0;
@@ -627,6 +672,14 @@ async function saveDecisions(
       quantity: eng ? { verdict: eng.quantity.verdict as 'same' | 'different' | 'unknown', note: eng.quantity.note } : null,
       bundle: eng?.bundle ? { verdict: eng.bundle.verdict, note: eng.bundle.note } : null,
     };
+    // which class of automatic approval the deterministic conditions qualify this answer for: recorded for EVERY answer so a class can be measured before it is ever used
+    const autoClass = autoClassOf({
+      matchType: g.match_type, confidence: g.confidence_level, guardCodes: g.guards.map((x) => x.code), domain: p.aiS.domain,
+      gtinEqual: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value === p.cand.identifiers.gtin.value,
+      sameBrand: !!p.src.brand.key && p.src.brand.key === p.cand.brand.key, mpnEqual: !!p.src.identifiers.mpn && p.src.identifiers.mpn.value === p.cand.identifiers.mpn?.value,
+      codesAgree: !!eng?.evidence.items.some((i) => i.kind === 'identity_code' && i.effect === 'supports'),
+      quantity: (eng?.quantity.verdict ?? 'unknown') as 'same' | 'different' | 'unknown', bundle: eng?.bundle?.verdict ?? null, engine: eng ? { relationship: eng.relationship, conflicts: eng.conflicts } : null, decidedByPerson: false,
+    });
     const before = existing.get(key);
     const keepReview = !!before && before.status !== 'pending' && before.matchType === g.match_type;
     const values = {
@@ -635,7 +688,7 @@ async function saveDecisions(
       priceComparable: g.price_comparable, requiresReview: g.requires_human_review, explanation: g.explanation,
       supporting: g.supporting_evidence, conflicting: g.conflicting_evidence, missing: g.missing_evidence, guards: g.guards,
       foundBy: p.c.foundBy.map((f) => ({ method: f.method, rank: f.rank, detail: f.detail })), engine, policy,
-      inputHash: p.inputHash, sourceFingerprint: p.aiS.fingerprint, candidateFingerprint: p.aiC.fingerprint, model: s.model, promptVersion: AI_PROMPT_VERSION,
+      autoClass, inputHash: p.inputHash, sourceFingerprint: p.aiS.fingerprint, candidateFingerprint: p.aiC.fingerprint, model: s.model, promptVersion: AI_PROMPT_VERSION,
       sourceUrl: p.aiS.url, candidateUrl: p.aiC.url, analysedAt: now, updatedAt: now,
     };
     const { orgId: _o, sourceVariantId: _s, competitorVariantId: _c, ...update } = values;
@@ -646,6 +699,11 @@ async function saveDecisions(
         target: [aiMatchSuggestions.sourceVariantId, aiMatchSuggestions.competitorVariantId],
         set: keepReview ? update : { ...update, status: 'pending', reviewedBy: null, reviewedAt: null, reviewRelationship: null, reviewNote: null },
       });
+    // a class a person switched on after it passed the measured gate: the pair is confirmed by the system (reversible, audited), and only if no person has decided it
+    if (autoClass && enabledAuto.has(`${p.aiS.domain}:${autoClass}`)) {
+      const done = await autoApprovePair(db, orgId, { sourceVariantId: p.sv, competitorVariantId: p.cv, competitorSiteId: p.siteId, autoClass, quantity: eng?.quantity ?? null, bundle: eng?.bundle ?? null }, now);
+      if (done === 'approved') await db.update(aiMatchSuggestions).set({ status: 'accepted', reviewRelationship: CLASS_RELATIONSHIP[autoClass], reviewNote: 'Approved automatically: this class passed the measured release gate.', reviewedAt: now }).where(and(eq(aiMatchSuggestions.sourceVariantId, p.sv), eq(aiMatchSuggestions.competitorVariantId, p.cv)));
+    }
     saved++;
   }
   return saved;
@@ -698,7 +756,7 @@ function productView(r: Row, p: 's' | 'c', dossier: AiDossier | undefined): AiPr
   return {
     variantId: String(r[`${p}VariantId`]), productId: String(r[`${p}ProductId`]), siteName: String(r[`${p}Site`] ?? ''), title: String(r[`${p}Title`] ?? ''), variantTitle: str(r[`${p}VariantTitle`]), brand: str(r[`${p}Brand`]),
     price: numOrNull(r[`${p}Price`]), currency: str(r[`${p}Currency`]), url: str(r[`${p}Url`]) ?? dossier?.url ?? null,
-    productType: dossier?.productType ?? null, identifiers: dossier?.identifiers ?? {},
+    productType: dossier?.productType ?? null, identifiers: dossier?.identifiers ?? {}, groups: dossier ? Object.fromEntries(Object.keys(dossier.attributes).map((k) => [k, factGroupOf(k)])) : {},
     attributes: dossier ? Object.fromEntries(Object.entries(dossier.attributes).map(([k, v]) => [k, { value: v.value, source: v.source }])) : {}, unknown: dossier?.unknown ?? [], domain: dossier?.domain ?? 'general',
   };
 }
@@ -811,6 +869,10 @@ export async function reviewAiSuggestion(db: DbLike, orgId: string, userId: stri
     chosen = req.competitorVariantId;
     matchId = await decide(req.competitorVariantId, req.relationship, `Chose another product instead of an AI suggestion (${AI_TYPE_LABEL[s.matchType]})`);
     status = 'changed';
+  } else if (req.action === 'reject') {
+    // the person says these two products are NOT a match: recorded as their own rejection (never suggested again)
+    matchId = await rejectPair(db, orgId, userId, { sourceVariantId: s.sourceVariantId, competitorVariantId: s.competitorVariantId, note: `Rejected an AI suggestion (${AI_TYPE_LABEL[s.matchType]})${note ? `: ${note}` : ''}`.slice(0, 500) }, now);
+    status = 'rejected';
   } else if (req.action === 'uncertain') {
     status = 'uncertain';
   } else {

@@ -145,7 +145,7 @@ export async function getEvidence(db: DbLike, orgId: string, id: string) {
 
 // ───────────────────────────────────────────────────────────── matches
 
-export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity' | 'pack_unverified';
+export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity' | 'pack_unverified' | 'auto_approved' | 'equivalents';
 
 export interface MatchFilter {
   /** The tab of Match Review: what is waiting, what is only for reference, what a person decided, what needs a second look. */
@@ -178,6 +178,10 @@ export const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
   // pairs the quantity policy leaves out of price comparison (different actual quantities), whatever was decided about them; a person’s decision is shown as it is
   quantity: sql`m.price_exclusion is not null and m.status <> 'rejected' and m.superseded_at is null`,
   // pairs a person confirmed as the SAME product whose listings do not establish that the two packs hold the same quantity and contents, and nobody has attested it: confirmed, but not yet counted in a direct price comparison
+  // pairs the matcher confirmed on its own under the workspace's auto-confirmation policy (a person's later decision clears the marker and is final)
+  auto_approved: sql`m.status = 'accepted' and m.auto_confirmed_at is not null`,
+  // compatible equivalents: confirmed, or suggested and still waiting (never the same product, never in the identical-item price position)
+  equivalents: sql`m.relationship = 'equivalent' and (m.status = 'accepted' or (m.status in ('needs_review','auto') and m.superseded_at is null))`,
   pack_unverified: sql`m.status = 'accepted' and m.pack_attested_at is null and m.price_exclusion is null and coalesce(m.relationship, case m.match_class when 'identical' then 'exact' else m.match_class end) = 'exact' and (m.quantity_check->>'verdict' = 'unknown' or m.bundle_check->>'verdict' = 'unknown')`,
 };
 

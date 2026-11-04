@@ -2,6 +2,7 @@ import { modelNumbersIn, VARIANT_WORDS } from '../matching.ts';
 import { hashText } from '../match/engine.ts';
 import { isBulbCode } from '../match/bundle.ts';
 import type { Dossier } from '../match/dossier.ts';
+import type { PageSpecFact, PageSpecKey } from './specs.ts';
 
 /**
  * The product dossier AI is shown (pure). It is built from what the rule engine already extracted — never invented — and every attribute keeps WHERE it was read
@@ -41,7 +42,7 @@ export interface AiDossier {
   version: string;
 }
 
-export const AI_DOSSIER_VERSION = 'ai-dossier-2';
+export const AI_DOSSIER_VERSION = 'ai-dossier-3';
 
 const AUTOMOTIVE_WORDS = /\b(headlights?|head ?lamps?|bulbs?|led|fog|brake light|tail ?lights?|turn signal|backup|reverse light|dome light|license plate|wipers?|floor mats?|cargo|tailgate|mud flaps?|running boards?|side steps?|seat covers?|decoder|canceler|harness|retainer|adapter)\b/i;
 const FORM_WORDS = new Set(['strained', 'puree', 'pureed', 'dried', 'dry', 'dehydrated', 'frozen', 'canned', 'fresh', 'powder', 'powdered', 'mix', 'concentrate', 'instant', 'ready', 'baby', 'toddler', 'juice', 'sauce', 'syrup', 'spray', 'sparkling', 'still']);
@@ -56,7 +57,23 @@ export function aiDomainOf(d: Dossier): AiDomain {
 const years = (f: NonNullable<Dossier['fitment']>): string => [...f.ranges.map((r) => (r.from === r.to ? `${r.from}` : `${r.from}-${r.to}`)), ...f.years.map(String)].join(', ');
 const sourceName = (s: string): string => ({ title: 'title', variant_title: 'variant title', option: 'variant option', description: 'description chart', category: 'category', tag: 'tag', gtin_field: 'barcode field', mpn_field: 'part-number field', sku_field: 'SKU field' } as Record<string, string>)[s] ?? s;
 
+/** Which kind of fact each attribute is: what the product IS (identity), what is SOLD (offer), what it FITS or does (compatibility) and how big or strong it is (physical). Kept apart on purpose. */
+export type FactGroup = 'identity' | 'offer' | 'compatibility' | 'physical';
+const GROUP_OF: Record<string, FactGroup> = {
+  quantity: 'offer', pack_count: 'offer', bundle: 'offer', package_contents: 'offer', vintage_year: 'identity',
+  vehicle: 'compatibility', model_years: 'compatibility', lamp_position: 'compatibility', beam_or_function: 'compatibility', housing_mentioned: 'compatibility', canbus_mentioned: 'compatibility', voltage_v: 'compatibility', fitment_text: 'compatibility', spec_part_codes: 'compatibility', spec_lamp_position: 'compatibility',
+  power_w: 'physical', lumens: 'physical', colour_temperature_k: 'physical', colour: 'physical', length_mm: 'physical', dimensions: 'physical',
+};
+export const factGroupOf = (key: string): FactGroup => GROUP_OF[key.replace(/_per_spec_table$/, '')] ?? 'identity';
+/** The attribute each kind of page specification becomes. */
+const SPEC_ATTRIBUTE: Record<PageSpecKey, string> = {
+  power_w: 'power_w', voltage_v: 'voltage_v', lumens: 'lumens', colour_temperature_k: 'colour_temperature_k', part_codes: 'spec_part_codes', lamp_position: 'spec_lamp_position', canbus: 'canbus_mentioned',
+  dimensions: 'dimensions', package_contents: 'package_contents', fitment_text: 'fitment_text', alcohol_percent: 'alcohol_percent', ingredients: 'ingredients',
+};
+
 export interface AiDossierExtra {
+  /** What the product page's specification lines state (see `extractSpecTable`). */
+  specs?: PageSpecFact[];
   /** The catalogue's alias map (H11 → H8): the codes are shown as the listing writes them, with the other names of the same part. */
   alias?: Map<string, string>;
   url?: string | null;
@@ -122,8 +139,19 @@ export function buildAiDossier(d: Dossier, extra: AiDossierExtra = {}): AiDossie
     set('percent_claims', [...text.matchAll(/\d+(?:[.,]\d+)?\s?%/g)].map((m) => m[0]!), 'title');
     set('numbers_that_belong_to_the_name', modelNumbersIn(d.title), 'title');
     set('vintage_year', d.vintages.map(String), 'title');
+    // alcohol content: a number with its unit, or an explicit "alcohol free" (an alcohol-free drink is not the alcoholic one)
+    const abv = text.match(/(\d+(?:[.,]\d+)?)\s?%\s?(?:abv|alc(?:ohol)?|vol)\b/i);
+    if (abv) set('alcohol_percent', Number(abv[1]!.replace(',', '.')), 'title');
+    else if (/\b(?:alcohol[- ]free|non[- ]?alcoholic)\b|\b0[.,]0\s?%/i.test(text)) set('alcohol_percent', 0, 'title');
     if (d.exclusions.length) set('not_for', d.exclusions, 'title');
     if (domain === 'grocery' && !d.identifiers.gtin) unknown.push('barcode');
+  }
+  // what the product page's own specification lines state (only what is stated; a figure the title also gives is kept as the title's, and a differing page figure is shown beside it)
+  for (const f of extra.specs ?? []) {
+    const key = SPEC_ATTRIBUTE[f.key];
+    const value = f.value as string | number | boolean;
+    if (!(key in attrs)) set(key, value, 'description spec table');
+    else if (String(attrs[key]!.value) !== String(value)) set(`${key}_per_spec_table`, value, 'description spec table');
   }
   const brandName = d.brand.name;
   // a brand the vendor field does not give may still be named by the title ("Belga Star Lager 6 pack"): the AI is shown how the title begins, so it never calls a named brand unknown

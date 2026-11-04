@@ -8,6 +8,7 @@ import { csvTableFor, csvTableLabel, exportUrl, reportTabFrom, type ReportTab } 
 import { MarketingSummaryCard } from '../social';
 import { Age, ArrowIcon, CapabilityPill, Card, DataState, EmptyState, Icon, PageHead, Pct, PriceTag, SourceLink, StandingBar, Tabs, useDocumentTitle, useToast } from '../ui';
 import type { ReportListItem, ReportRecord } from '../types';
+import { MatchCountsPanel } from '../match-counts';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   ready: { label: 'Ready', cls: 'good' },
@@ -170,7 +171,8 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
             </div>
           )}
           <div className="kpis">
-            <Kpi label="Your products matched" value={k.matchedProducts} sub={`${k.identicalMatches} identical-product comparisons`} />
+            <Kpi label="Your variants compared" value={k.matchedProducts} sub={`${k.identicalMatches} identical-item pairs${k.coverage ? ` · ${k.coverage.directlyComparableOwnVariants} variants (${k.coverage.directlyComparableOwnProducts} parent products) directly comparable` : ''}`} />
+            {k.equivalentBenchmark && <Kpi label="Compatible equivalents" value={k.equivalentBenchmark.ownVariants} sub={`your variants with one · ${k.equivalentBenchmark.averageDiffPct === null ? 'no equal-quantity price gap' : `${formatPct(k.equivalentBenchmark.averageDiffPct)} average gap`} · never counted as the same item`} />}
             <Kpi label="Cheaper at your shop" value={k.productsCheaperAtSource} sub="comparisons, identical products" />
             <Kpi label="Pricier at your shop" value={k.productsPricierAtSource} sub="comparisons, identical products" />
             <Kpi label="Average price gap" value={k.averageDiffPct === null ? '—' : formatPct(k.averageDiffPct)} sub="competitor vs you, identical only" />
@@ -215,6 +217,7 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
           )
         )}
 
+        {tab === 'prices' && data.kpis.coverage && <div style={{ marginBottom: 12 }}><Card><MatchCountsPanel counts={data.kpis.coverage} /></Card></div>}
         {tab === 'prices' && (
           identical.length === 0 && data.comparisons.length === 0 ? <Card><EmptyState title="No price comparisons in this report">No products were matched between your shop and a competitor when this report was prepared.</EmptyState></Card> : (
             <Card pad={false}>
@@ -231,6 +234,23 @@ function ReportBody({ report, data, orgId }: { report: ReportRecord; data: Repor
               {data.comparisons.length > 150 && <div className="pager"><span>Showing the first 150 of {data.comparisons.length}. Export to see all rows.</span></div>}
             </Card>
           )
+        )}
+        {tab === 'prices' && (data.equivalents ?? []).length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <Card title="Compatible equivalents (a benchmark of their own)" pad={false}>
+              <div className="small muted" style={{ padding: '8px 18px' }}>Another maker’s products confirmed to do the same job. They are <b>not the same product</b> and are never counted in the identical-item figures above; a price gap is shown only between equal quantities.</div>
+              <div className="table-wrap"><table className="table" style={{ minWidth: 700 }}>
+                <thead><tr><th>Your product</th><th>Competitor’s equivalent</th><th className="r">Gap (equal quantity)</th></tr></thead>
+                <tbody>{(data.equivalents ?? []).slice(0, 100).flatMap((row) => row.cells.map((c) => (
+                  <tr key={`${row.sourceVariantId}-${c.variantId}`}>
+                    <td><div className="title">{row.title}</div><div className="sub">{[row.brand, row.variantTitle && row.variantTitle.toLowerCase() !== 'default title' ? row.variantTitle : null].filter(Boolean).join(' · ')}</div></td>
+                    <td><div className="title">{c.title}</div><div className="sub">{c.siteName}{c.variantTitle && c.variantTitle.toLowerCase() !== 'default title' ? ` · ${c.variantTitle}` : ''}</div></td>
+                    <td className="r num">{c.unitDiffPct === null ? <span className="muted">not compared</span> : formatPct(c.unitDiffPct)}</td>
+                  </tr>
+                )))}</tbody>
+              </table></div>
+            </Card>
+          </div>
         )}
 
         {tab === 'offers' && (
@@ -361,7 +381,7 @@ interface Cmp {
   };
 }
 
-const KPI_LABEL: Record<string, string> = { matchedProducts: 'Products matched', identicalMatches: 'Identical matches', productsCheaperAtSource: 'Cheaper at your shop', productsPricierAtSource: 'Pricier at your shop', productsAtParity: 'About equal', averageDiffPct: 'Average price gap (%)', activeOffers: 'Active offers', lowStockCount: 'Low stock', outOfStockCount: 'Out of stock', newCompetitorProducts: 'New competitor products', marketingItems: 'Marketing items', sourceProducts: 'Your products', competitorProducts: 'Competitor products' };
+const KPI_LABEL: Record<string, string> = { matchedProducts: 'Your variants compared', identicalMatches: 'Identical-item pairs', productsCheaperAtSource: 'Cheaper at your shop', productsPricierAtSource: 'Pricier at your shop', productsAtParity: 'About equal', averageDiffPct: 'Average price gap (%)', activeOffers: 'Active offers', lowStockCount: 'Low stock', outOfStockCount: 'Out of stock', newCompetitorProducts: 'New competitor products', marketingItems: 'Marketing items', sourceProducts: 'Your variants (sellable versions)', competitorProducts: 'Competitor products' };
 
 export function ComparePage() {
   const { orgId } = useOrg();

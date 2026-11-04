@@ -388,8 +388,13 @@ export interface ReportKpis {
   outOfStockCount: number;
   newCompetitorProducts: number;
   marketingItems: number;
+  /** Own VARIANTS (sellable versions), despite the historical name: the number of products you sell, counting each variant. See `coverage.ownParentProducts` for parent products. */
   sourceProducts: number;
   competitorProducts: number;
+  /** What each matching number counts (absent from reports saved before it existed). */
+  coverage?: MatchCounts;
+  /** The compatible-equivalent benchmark: own variants with a confirmed equivalent, pairs, pairs compared on price (same quantity only) and their average difference. Never part of the identical-item figures. */
+  equivalentBenchmark?: { ownVariants: number; pairs: number; comparedPairs: number; averageDiffPct: number | null };
 }
 
 export interface ReportData {
@@ -413,6 +418,8 @@ export interface ReportData {
   headline: string;
   warnings: string[];
   comparisons: ComparisonRow[];
+  /** Confirmed compatible equivalents: a benchmark of their own, never counted as the same item. Absent from reports saved before it existed. */
+  equivalents?: ComparisonRow[];
   offers: OfferRow[];
   stock: StockRow[];
   marketing: MarketingRow[];
@@ -423,4 +430,36 @@ export interface ReportData {
   aiSummary: { text: string; validated: boolean; provider: string } | null;
   /** What the observed marketing activity shows, per competitor. Absent in snapshots saved before it existed. */
   marketingSummary?: MarketingSummary | null;
+}
+
+/** Counts per kind of relationship (pairs, or unique own variants, as the field says). */
+export interface MatchCountsByRelationship {
+  exact: number;
+  variant: number;
+  equivalent: number;
+  substitute: number;
+  related: number;
+}
+
+/**
+ * What the matching numbers count, kept apart so they are never added together (see `loadMatchCounts`): own parent products, own sellable variants, PAIRS (own variant × competitor variant),
+ * and unique own variants / products in each situation.
+ */
+export interface MatchCounts {
+  ownParentProducts: number;
+  ownVariants: number;
+  confirmedPairs: MatchCountsByRelationship;
+  suggestedPairs: MatchCountsByRelationship;
+  /** Unique own variants with at least one confirmed / suggested pair of that kind (one variant can appear in several kinds). */
+  confirmedOwnVariants: MatchCountsByRelationship;
+  suggestedOwnVariants: MatchCountsByRelationship;
+  ownVariantsWithConfirmed: number;
+  ownProductsWithConfirmed: number;
+  /** Own variants whose only live pairs are related or not enough information. */
+  uncertainOwnVariants: number;
+  /** Own variants with no live pair at all: no counterpart found. */
+  noCounterpartOwnVariants: number;
+  /** Own variants / parent products with a confirmed identical-item pair whose packs are verified and that is not in doubt. */
+  directlyComparableOwnVariants: number;
+  directlyComparableOwnProducts: number;
 }

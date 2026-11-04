@@ -13,11 +13,11 @@ export type AiConfidence = (typeof AI_CONFIDENCE)[number];
 export const AI_EVIDENCE_RESULTS = ['agree', 'different', 'conflict', 'unknown'] as const;
 export type AiEvidenceResult = (typeof AI_EVIDENCE_RESULTS)[number];
 
-export const AI_SUGGESTION_STATUSES = ['pending', 'accepted', 'changed', 'uncertain', 'none_of_these', 'stale'] as const;
+export const AI_SUGGESTION_STATUSES = ['pending', 'accepted', 'changed', 'rejected', 'uncertain', 'none_of_these', 'stale'] as const;
 export type AiSuggestionStatus = (typeof AI_SUGGESTION_STATUSES)[number];
 export const AI_RUN_STATUSES = ['queued', 'running', 'paused', 'completed', 'failed', 'cancelled'] as const;
 export type AiRunStatus = (typeof AI_RUN_STATUSES)[number];
-export const AI_FEEDBACK_ACTIONS = ['accept', 'change', 'uncertain', 'none_of_these', 'choose_other'] as const;
+export const AI_FEEDBACK_ACTIONS = ['accept', 'change', 'reject', 'uncertain', 'none_of_these', 'choose_other'] as const;
 export type AiFeedbackAction = (typeof AI_FEEDBACK_ACTIONS)[number];
 
 /** How strongly each type says "the same thing", for capping (higher = more claim). */
@@ -88,6 +88,8 @@ export interface AiProductView {
   url: string | null;
   /** What the product says it is ("headlight bulb") and the identifiers it publishes: shown beside the attributes the AI was given. */
   productType: string | null;
+  /** Which kind of fact each attribute is: identity (what it is), offer (what is sold), compatibility (what it fits or does), physical (how big or strong). */
+  groups?: Record<string, 'identity' | 'offer' | 'compatibility' | 'physical'>;
   identifiers: { gtin?: string; mpn?: string; sku?: string };
   /** The attributes the AI was shown (value + where it was read), for a side-by-side comparison. */
   attributes: Record<string, { value: unknown; source: string }>;

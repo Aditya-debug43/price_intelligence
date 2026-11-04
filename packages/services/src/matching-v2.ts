@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { ENGINE_VERSION, runEngine, type DossierInput, type EngineResult, type Suggestion } from '@ci/core';
 import { INCOMPARABLE_QUANTITY_MISMATCH, classOfRelationship, relationshipOfClass, type MatchingEngine, type MatchRelationship, type PriceExclusion } from '@ci/shared';
 import { matchRuns, productMatches, type DbLike } from '@ci/database';
@@ -82,7 +82,7 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
   // only what the comparison below reads (never the evidence text itself, which is large: one sentence of it is enough to tell whether a row changed)
   const existing = await db.select({
     id: productMatches.id, sourceVariantId: productMatches.sourceVariantId, competitorVariantId: productMatches.competitorVariantId, status: productMatches.status, relationship: productMatches.relationship,
-    tier: productMatches.tier, pairHash: productMatches.pairHash, engineVersion: productMatches.engineVersion, supersededAt: productMatches.supersededAt, autoConfirmedAt: productMatches.autoConfirmedAt,
+    tier: productMatches.tier, pairHash: productMatches.pairHash, engineVersion: productMatches.engineVersion, supersededAt: productMatches.supersededAt, autoConfirmedAt: productMatches.autoConfirmedAt, method: productMatches.method,
     decidedAt: productMatches.decidedAt, summary: sql<string | null>`${productMatches.evidence}->>'summary'`,
     priceExclusion: productMatches.priceExclusion, priceExcludedAt: productMatches.priceExcludedAt, quantityVerdict: sql<string | null>`${productMatches.quantityCheck}->>'verdict'`, bundleVerdict: sql<string | null>`${productMatches.bundleCheck}->>'verdict'`,
   }).from(productMatches).where(eq(productMatches.orgId, orgId));
@@ -97,7 +97,8 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
     seen.add(key);
     const ex = byPair.get(key);
     // a confirmation the ENGINE made is the engine's to keep up to date; one a person made is not
-    const engineOwned = !!ex && ex.status === 'accepted' && ex.autoConfirmedAt !== null;
+    // (a confirmation that carries the AI marker was approved under a measured gate, not by this engine: the engine treats it like a person's, protecting it and flagging it if a product changes)
+    const engineOwned = !!ex && ex.status === 'accepted' && ex.autoConfirmedAt !== null && ex.method !== 'ai_auto';
     const eligible = autoOn && s.autoEligible;
     const exclusion = exclusionOf(s.quantity, s.bundle);
     const values = {
@@ -174,7 +175,7 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
   }
   r.superseded = stale.length;
   // a confirmation the engine made for a pair it no longer proposes is withdrawn with the suggestion (a person's confirmation is never touched)
-  const withdrawn = notSeen.filter((m) => m.status === 'accepted' && m.autoConfirmedAt !== null).map((m) => m.id);
+  const withdrawn = notSeen.filter((m) => m.status === 'accepted' && m.autoConfirmedAt !== null && m.method !== 'ai_auto').map((m) => m.id);
   for (const part of chunks(withdrawn, 500)) {
     await db.update(productMatches).set({ status: 'needs_review', autoConfirmedAt: null, decidedAt: null, decisionNote: null, supersededAt: now, updatedAt: now }).where(and(inArray(productMatches.id, part), eq(productMatches.orgId, orgId), isNotNull(productMatches.autoConfirmedAt), eq(productMatches.status, 'accepted')));
   }
@@ -202,7 +203,7 @@ export async function persistSuggestions(db: DbLike, orgId: string, suggestions:
 /** Takes back every confirmation the ENGINE made in a workspace (they return to the review queue as suggestions). A person's confirmations are never touched. */
 export async function withdrawAutoConfirmations(db: DbLike, orgId: string, now: Date): Promise<number> {
   const rows = await db.update(productMatches).set({ status: 'needs_review', autoConfirmedAt: null, decidedAt: null, decisionNote: null, updatedAt: now })
-    .where(and(eq(productMatches.orgId, orgId), eq(productMatches.status, 'accepted'), isNotNull(productMatches.autoConfirmedAt))).returning({ id: productMatches.id });
+    .where(and(eq(productMatches.orgId, orgId), eq(productMatches.status, 'accepted'), isNotNull(productMatches.autoConfirmedAt), ne(productMatches.method, 'ai_auto'))).returning({ id: productMatches.id });
   await recordMatchEvents(db, orgId, rows.map((r) => r.id), 'auto_withdrawn', { note: 'Automatic confirmation was turned off for this workspace.' });
   return rows.length;
 }

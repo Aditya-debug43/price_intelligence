@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DEFAULTS, EVIDENCE_TIERS, MATCH_CLASSES, MATCH_RELATIONSHIPS, bulkAcceptSchema, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
 import { integrationConnections, matchEvents, productMatches, reports, sites } from '@ci/database';
 import {
-  attestPack, bulkAcceptMatches, dataQuality, decideMatch, rejectProductPair, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
+  attestPack, listNoCounterpart, loadMatchCounts, bulkAcceptMatches, dataQuality, decideMatch, rejectProductPair, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
   loadStock, setVariantThreshold, assertCanMatch, loadReadiness, loadJourney, searchMatchCandidates, setManualMatch, reviewOffer, matchSummary,
 } from '@ci/services';
 import { HttpError, parse, requireRole } from '../app.ts';
@@ -77,7 +77,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get('/matches', async (req) => {
     const q = parse(
       paginationSchema.extend({
-        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside', 'quantity', 'pack_unverified']).optional(),
+        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside', 'quantity', 'pack_unverified', 'auto_approved', 'equivalents']).optional(),
         status: z.enum(MATCH_STATUSES).optional(),
         class: z.enum(MATCH_CLASSES).optional(),
         relationship: z.enum(MATCH_RELATIONSHIPS).optional(),
@@ -99,6 +99,15 @@ export async function catalogRoutes(app: FastifyInstance) {
     const body = parse(z.object({ sourceProductId: uuid, competitorProductId: uuid, note: z.string().max(500).optional() }), req.body);
     return req.tx((tx) => rejectProductPair(tx, req.orgId!, body.sourceProductId, body.competitorProductId, req.user!.id, body.note, app.svc.clock()));
   });
+
+  /** What each matching number counts: own parent products, own variants, pairs, and unique own variants in each situation (never added together). */
+  /** Your variants with no live pair: "no counterpart found" (what the matcher found, not a finding about the market). */
+  app.get('/matches/no-counterpart', async (req) => {
+    const q = parse(paginationSchema.extend({ q: z.string().max(120).optional() }), req.query);
+    return req.tx((tx) => listNoCounterpart(tx, req.orgId!, { q: q.q, page: q.page, pageSize: q.pageSize }));
+  });
+
+  app.get('/matches/counts', async (req) => req.tx((tx) => loadMatchCounts(tx, req.orgId!)));
 
   /** What exists, what waits, what is confirmed and what the last run did: the facts the empty states and the tab counts are built from. */
   app.get('/matches/summary', async (req) => req.tx((tx) => matchSummary(tx, req.orgId!)));

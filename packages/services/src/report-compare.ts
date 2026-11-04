@@ -13,10 +13,11 @@ export interface ReportComparison {
 
 /** Compares two saved snapshots. Only snapshot content is used, so the result is reproducible. */
 export function compareReports(a: ReportData, b: ReportData): ReportComparison {
-  const kpiKeys = Object.keys(a.kpis) as (keyof ReportKpis)[];
+  // only the plain numbers are compared; the structured additions (match counts, the equivalent benchmark) have their own displays
+  const kpiKeys = (Object.keys(a.kpis) as (keyof ReportKpis)[]).filter((k) => typeof a.kpis[k] === 'number' || a.kpis[k] === null);
   const kpiDelta = kpiKeys.map((key) => {
-    const av = a.kpis[key];
-    const bv = b.kpis[key];
+    const av = a.kpis[key] as number | null;
+    const bv = (b.kpis[key] ?? null) as number | null;
     return { key, a: av, b: bv, delta: av !== null && bv !== null ? roundMoney(bv - av, 2) : null };
   });
 

@@ -44,6 +44,32 @@ export function comparisonTable(d: ReportData): Table {
   };
 }
 
+/**
+ * The compatible-equivalent benchmark: another maker's products verified to do the same job. A benchmark of its own: never part of the identical-item price position, and a price difference is
+ * shown only between equal quantities. Absent from reports saved before equivalents existed.
+ */
+export function equivalentsTable(d: ReportData): Table {
+  const rows: Cell[][] = [];
+  for (const r of d.equivalents ?? []) {
+    for (const c of r.cells) {
+      rows.push([r.title, r.variantTitle ?? '', r.brand ?? '', r.category ?? '', c.siteName, c.title, c.variantTitle ?? '', c.confirmation ?? '', r.sourcePrice.normalized, c.price.normalized, d.meta.reportingCurrency, c.unitDiffPct, c.quantity?.verdict ?? '', c.url ?? '', c.caveats.join('; ')]);
+    }
+  }
+  return { name: 'Compatible equivalents', columns: ['Product', 'Variant', 'Brand', 'Category', 'Competitor', 'Equivalent product', 'Equivalent variant', 'Confirmation', `Your price (${d.meta.reportingCurrency})`, `Equivalent price (${d.meta.reportingCurrency})`, 'Currency', 'Difference % (equal quantity only)', 'Quantity check', 'Source link', 'Caveats'], rows };
+}
+
+/** What each matching number counts (own parent products, own variants, pairs and unique own variants), as saved with the report. */
+export function matchCountsTable(d: ReportData): Table {
+  const c = d.kpis.coverage;
+  const rows: Cell[][] = [];
+  if (c) {
+    rows.push(['Own parent products', c.ownParentProducts], ['Own variants (sellable versions)', c.ownVariants], ['Own variants with a confirmed relationship', c.ownVariantsWithConfirmed], ['Own parent products with a confirmed relationship', c.ownProductsWithConfirmed],
+      ['Own variants with a directly comparable identical-item pair', c.directlyComparableOwnVariants], ['Own parent products with a directly comparable identical-item pair', c.directlyComparableOwnProducts], ['Own variants with only related or unclear pairs', c.uncertainOwnVariants], ['Own variants with no counterpart found', c.noCounterpartOwnVariants]);
+    for (const rel of ['exact', 'variant', 'equivalent', 'substitute', 'related'] as const) rows.push([`Confirmed pairs: ${rel}`, c.confirmedPairs[rel]], [`Suggested pairs: ${rel}`, c.suggestedPairs[rel]], [`Own variants with a confirmed ${rel} pair`, c.confirmedOwnVariants[rel]], [`Own variants with a suggested ${rel} pair`, c.suggestedOwnVariants[rel]]);
+  }
+  return { name: 'Match counts', columns: ['Measure', 'Count'], rows };
+}
+
 export function offersTable(d: ReportData): Table {
   return {
     name: 'Offers',
@@ -169,7 +195,7 @@ function assortmentBasisTable(d: ReportData): Table {
 /** The worksheets of one report: every table that belongs to it, and none of another report's. */
 export function reportSheets(d: ReportData, report: CsvDataset): ReportSheet[] {
   switch (report) {
-    case 'comparison': return [{ table: comparisonTable(d), empty: 'No price comparison rows are in this saved report.' }, { table: fxTable(d), empty: 'All prices were in the reporting currency.' }];
+    case 'comparison': return [{ table: comparisonTable(d), empty: 'No price comparison rows are in this saved report.' }, { table: equivalentsTable(d), empty: d.equivalents ? 'No compatible equivalents are confirmed in this saved report.' : 'This saved report was made before compatible equivalents existed.' }, { table: matchCountsTable(d), empty: 'This saved report was made before the separate match counts existed.' }, { table: fxTable(d), empty: 'All prices were in the reporting currency.' }];
     case 'offers': return [{ table: offersTable(d), empty: 'No offers or promotions were observed in this saved report.' }];
     case 'stock': return [{ table: stockTable(d), empty: 'No low-stock, out-of-stock or unknown-availability items were found.' }];
     case 'marketing': return [{ table: marketingTable(d), empty: 'No marketing activity was observed.' }];
@@ -253,7 +279,8 @@ export async function renderXlsx(d: ReportData, report?: CsvDataset): Promise<Bu
   put('Headline', d.headline);
   if (d.aiSummary) put('AI summary (validated)', d.aiSummary.text);
   sum.addRow([]);
-  for (const [k, v] of Object.entries(d.kpis)) put(k, v);
+  for (const [k, v] of Object.entries(d.kpis)) if (v === null || typeof v !== 'object') put(k, v as Cell);
+  if (d.kpis.equivalentBenchmark) put('compatibleEquivalentBenchmark', `${d.kpis.equivalentBenchmark.ownVariants} own variants, ${d.kpis.equivalentBenchmark.pairs} pairs, ${d.kpis.equivalentBenchmark.comparedPairs} compared on price (average difference ${d.kpis.equivalentBenchmark.averageDiffPct ?? 'n/a'}%): never counted as the same item`);
   sum.addRow([]);
   sum.addRow(['Notes']).font = { bold: true };
   for (const w of d.warnings) sum.addRow(['', w]);
@@ -536,8 +563,8 @@ export function renderPdf(d: ReportData, section?: CsvDataset): Promise<Buffer> 
   h2('Key figures');
   const k = d.kpis;
   table([{ h: 'Measure', w: 5 }, { h: 'Value', w: 2, align: 'right' }], [
-    ['Matched products (with competitors)', String(k.matchedProducts)],
-    ['Identical matches', String(k.identicalMatches)],
+    ['Own variants with a comparison', String(k.matchedProducts)],
+    ['Identical-item pairs', String(k.identicalMatches)],
     ['Your price lower than competitor (confirmed identical)', String(k.productsCheaperAtSource)],
     ['Your price higher than competitor (confirmed identical)', String(k.productsPricierAtSource)],
     ['Average difference vs. competitors', formatPct(k.averageDiffPct)],

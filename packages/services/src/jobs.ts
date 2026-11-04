@@ -12,6 +12,16 @@ import { schedulerTick, dailyAssemble } from './scheduler.ts';
 import { refreshMarketRates } from './fx.ts';
 import { aiResumeTick, processAiRun } from './ai-match.ts';
 import { withHeavyWork } from './heavy.ts';
+import { runEvaluation } from './match-eval.ts';
+import { embedCatalogue } from './ai-embed.ts';
+
+/** One slice of embedding the catalogue; the rest is queued again (soon, or tomorrow when the daily quota is used up). */
+async function embedAndContinue(svc: Services, orgId: string) {
+  const r = await embedCatalogue(svc, orgId);
+  if (r.outcome === 'continue') await svc.queue.enqueue('ai-match', { orgId, task: 'embed' }, { singletonKey: `embed:${orgId}`, startAfterSeconds: 5 });
+  else if (r.outcome === 'daily') await svc.queue.enqueue('ai-match', { orgId, task: 'embed' }, { singletonKey: `embed:${orgId}`, startAfterSeconds: 3 * 3600 });
+  return r;
+}
 
 type Handler<T> = (svc: Services, data: T) => Promise<unknown>;
 
@@ -35,7 +45,8 @@ export const JOB_HANDLERS: { [K in JobName]: Handler<any> } = {
     if (d.topic === 'app/uninstalled') await handleShopifyUninstalled(svc, d.shop);
   },
   // a run's slice of AI analysis; without a run id it is the once-a-minute safety net that re-queues a run that lost its job
-  'ai-match': (svc, d: { orgId?: string; runId?: string }) => (d.orgId && d.runId ? processAiRun(svc, d.orgId, d.runId) : aiResumeTick(svc)),
+  // (`task: 'evaluate'` measures the system against the labelled cases)
+  'ai-match': (svc, d: { orgId?: string; runId?: string; task?: string; userId?: string }) => (d.orgId && d.task === 'embed' ? embedAndContinue(svc, d.orgId) : d.orgId && d.task === 'evaluate' ? runEvaluation(svc, d.orgId, d.userId ?? null) : d.orgId && d.runId ? processAiRun(svc, d.orgId, d.runId) : aiResumeTick(svc)),
 };
 
 /** Marks a manually requested report as failed if its job dies for good (so the UI stops polling). */

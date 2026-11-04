@@ -113,7 +113,7 @@ describe('each selection of the dropdown gives its own Excel file', () => {
   });
 
   it('the comparison is the price comparison and its exchange rates; coverage has its data notes; assortment its basis', async () => {
-    expect(ownSheets('comparison')).toEqual(['Price comparison', 'Exchange rates']);
+    expect(ownSheets('comparison')).toEqual(['Price comparison', 'Compatible equivalents', 'Match counts', 'Exchange rates']);
     expect(ownSheets('coverage')).toEqual(['Coverage', 'Data notes']);
     expect(ownSheets('assortment')).toEqual(['Assortment gaps', 'Assortment basis']);
     for (const ds of ['offers', 'stock', 'marketing', 'marketing_summary', 'insights'] as const) expect(ownSheets(ds), ds).toHaveLength(1);
@@ -257,7 +257,8 @@ describe('the saved snapshot is never touched', () => {
 describe('a report with nothing in it', () => {
   const emptied = (): ReportData => ({ ...data, comparisons: [], fx: [], offers: [], stock: [], marketing: [], marketingSummary: null, insights: [], sites: [], warnings: [], assortment: { ...data.assortment, competitorOnly: [], sourceOnly: [] } });
   const message: Record<CsvDataset, string[]> = {
-    comparison: ['No price comparison rows are in this saved report.', 'All prices were in the reporting currency.'],
+    // (the third sheet holds the match counts saved with the report, so it is never empty here)
+    comparison: ['No price comparison rows are in this saved report.', 'No compatible equivalents are confirmed in this saved report.', 'This saved report was made before the separate match counts existed.', 'All prices were in the reporting currency.'],
     offers: ['No offers or promotions were observed in this saved report.'],
     stock: ['No low-stock, out-of-stock or unknown-availability items were found.'],
     marketing: ['No marketing activity was observed.'],

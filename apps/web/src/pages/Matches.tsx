@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDateTime, type AiStatusView, type EvidenceItem, type MatchEvidence } from '@ci/shared';
+import { formatDateTime, type MatchCounts, type AiStatusView, type EvidenceItem, type MatchEvidence } from '@ci/shared';
 import { api, errorMessage, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { Age, Card, DataState, EmptyState, Modal, PageHead, Pager, SourceLink, Tabs, useToast } from '../ui';
 import { matchStateMessage, type MatchSummaryView } from '../match-text';
 import { AiSuggestionsTab } from './AiSuggestions';
+import { EvaluationTab } from './Evaluation';
+import { NoCounterpartList } from './NoCounterpart';
+import { MatchCountsPanel } from '../match-counts';
 
 interface MatchRow {
   id: string; matchClass: string; relationship: string; tier: string | null; evidence: MatchEvidence | null; engineVersion: string | null; needsReevaluation: boolean; supersededAt: string | null;
@@ -33,7 +36,9 @@ interface Candidate {
   suggestion: { relationship: string; tier: string; summary: string; reasons: string[] } | null;
 }
 
-type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity' | 'pack_unverified';
+type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity' | 'pack_unverified' | 'auto_approved' | 'equivalents';
+type TabId = Bucket | 'ai' | 'eval' | 'none';
+const LIST_TABS: TabId[] = ['ai', 'eval', 'none'];
 
 /** What a person can say two products are. The wording is the contract: a stand-in is never called the same product. */
 const RELATIONSHIPS = [
@@ -66,15 +71,16 @@ const EFFECT: Record<EvidenceItem['effect'], { icon: string; label: string; cls:
 
 export function MatchesPage() {
   const { orgId, isAdmin } = useOrg();
-  const [tab, setTab] = useState<Bucket | 'ai'>('review');
+  const [tab, setTab] = useState<TabId>('review');
   const [page, setPage] = useState(1);
   const [choosing, setChoosing] = useState<MatchRow | null>(null);
   const toast = useToast();
   const summary = useOrgQuery<MatchSummaryView>(['matches', 'summary'], '/matches/summary');
   // "To review" lists one item per product pair (your product against one competitor product), not one per variant pair
-  const q = useOrgQuery<{ rows: MatchRow[]; total: number }>(['matches', tab, page], `/matches${qs({ bucket: tab === 'ai' ? undefined : tab, page, pageSize: 15, group: tab === 'review' ? 'product' : undefined })}`, { placeholderData: (p) => p, enabled: tab !== 'ai' });
+  const q = useOrgQuery<{ rows: MatchRow[]; total: number }>(['matches', tab, page], `/matches${qs({ bucket: LIST_TABS.includes(tab) ? undefined : (tab as Bucket), page, pageSize: 15, group: tab === 'review' ? 'product' : undefined })}`, { placeholderData: (p) => p, enabled: !LIST_TABS.includes(tab) });
   // AI suggestions are kept apart from the matches above: they only count here as a number on their own tab
   const ai = useOrgQuery<AiStatusView>(['ai', 'status'], '/ai/status');
+  const counts = useOrgQuery<MatchCounts>(['matches', 'counts'], '/matches/counts');
   const refresh = ['matches', 'comparison', 'dashboard', 'journey'];
   const decide = useOrgMutation(
     (id, v: { id: string; decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => api.post(orgPath(id, `/matches/${v.id}/decision`), { decision: v.decision, relationship: v.relationship }),
@@ -93,19 +99,23 @@ export function MatchesPage() {
     (r) => toast.push(`${r.rejected} suggestion${r.rejected === 1 ? '' : 's'} for these two products marked as not a match. Your decision is kept every time matching runs again.`),
   );
   const s = summary.data;
-  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside, quantity: s.counts.quantityExcluded ?? 0, pack_unverified: s.counts.packUnverified ?? 0 }[b]) : null);
+  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside, quantity: s.counts.quantityExcluded ?? 0, pack_unverified: s.counts.packUnverified ?? 0, auto_approved: s.counts.autoApproved ?? 0, equivalents: s.counts.equivalents ?? 0 }[b]) : null);
   const label = (text: string, b: Bucket) => (count(b) === null ? text : `${text} (${count(b)})`);
-  const tabs: { id: Bucket | 'ai'; label: string }[] = [
-    { id: 'review', label: label('To review', 'review') },
-    { id: 'substitutes', label: label('Substitutes', 'substitutes') },
+  const tabs: { id: TabId; label: string }[] = [
+    { id: 'review', label: label('Needs a decision', 'review') },
+    ...((count('auto_approved') ?? 0) > 0 ? [{ id: 'auto_approved' as Bucket, label: label('Automatically approved', 'auto_approved') }] : []),
+    ...((count('equivalents') ?? 0) > 0 ? [{ id: 'equivalents' as Bucket, label: label('Equivalents', 'equivalents') }] : []),
+    { id: 'substitutes', label: label('Suggested substitutes', 'substitutes') },
     { id: 'unclear', label: label('Related & unclear', 'unclear') },
     { id: 'confirmed', label: label('Confirmed', 'confirmed') },
     { id: 'rejected', label: label('Not a match', 'rejected') },
+    { id: 'none', label: counts.data ? `No counterpart found (${counts.data.noCounterpartOwnVariants})` : 'No counterpart found' },
     ...((count('quantity') ?? 0) > 0 ? [{ id: 'quantity' as Bucket, label: label('Not compared', 'quantity') }] : []),
     ...((count('pack_unverified') ?? 0) > 0 ? [{ id: 'pack_unverified' as Bucket, label: label('Packs not verified', 'pack_unverified') }] : []),
     ...((count('look_again') ?? 0) > 0 ? [{ id: 'look_again' as Bucket, label: label('Look again', 'look_again') }] : []),
     ...((count('set_aside') ?? 0) > 0 ? [{ id: 'set_aside' as Bucket, label: label('Set aside', 'set_aside') }] : []),
     { id: 'ai', label: ai.data && ai.data.counts.pending > 0 ? `AI suggestions (${ai.data.counts.pending})` : 'AI suggestions' },
+    { id: 'eval', label: 'Evaluation' },
   ];
   return (
     <>
@@ -126,8 +136,9 @@ export function MatchesPage() {
       {tab === 'review' && s && s.counts.awaitingProductPairs !== undefined && s.counts.awaitingProductPairs < s.counts.awaiting && (
         <div className="small muted" style={{ marginBottom: 8 }}>{s.counts.awaitingProductPairs} product pairs to look at, covering {s.counts.awaiting} variant pairs: a product with several variants is one item here; open it to see its variants.</div>
       )}
+      {counts.data && <div style={{ marginBottom: 12 }}><Card><MatchCountsPanel counts={counts.data} /></Card></div>}
       <Tabs value={tab} onChange={(t) => { setTab(t); setPage(1); }} tabs={tabs} />
-      {tab === 'ai' ? <AiSuggestionsTab /> : <DataState
+      {tab === 'ai' ? <AiSuggestionsTab /> : tab === 'eval' ? <EvaluationTab /> : tab === 'none' ? <NoCounterpartList /> : <DataState
         q={q}
         isEmpty={(d) => d.total === 0}
         empty={
@@ -153,7 +164,7 @@ export function MatchesPage() {
   );
 }
 
-function emptyTitle(tab: Bucket | 'ai', s: MatchSummaryView | undefined): string {
+function emptyTitle(tab: TabId, s: MatchSummaryView | undefined): string {
   if (tab === 'review') {
     if (!s) return 'Nothing to show';
     return s.state === 'ok' || s.state === 'none_confirmed' ? (s.counts.awaiting === 0 && (s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.rejected) > 0 ? 'No same-product suggestion is waiting' : 'Nothing is waiting for review') : matchStateMessage(s).title;
@@ -161,12 +172,14 @@ function emptyTitle(tab: Bucket | 'ai', s: MatchSummaryView | undefined): string
   return 'Nothing here';
 }
 
-function emptyText(tab: Bucket | 'ai', s: MatchSummaryView | undefined) {
+function emptyText(tab: TabId, s: MatchSummaryView | undefined) {
   if (tab === 'review') return s ? matchStateMessage(s).body : 'Loading…';
   if (tab === 'substitutes') return 'No substitutes suggested yet. A substitute is a different product that does the same job; it is shown in the price comparison with its differences, and confirming one is optional.';
   if (tab === 'unclear') return 'Related products and pairs without enough information are kept here for reference. They never count as work to do and never appear in a price comparison.';
   if (tab === 'confirmed') return 'Nothing confirmed yet. Confirm a suggestion and it is kept here, and used in the price comparison once it is the same product, or in the substitutes view once it is a substitute.';
   if (tab === 'rejected') return 'You have not rejected any suggestions. A rejected pair is never suggested again.';
+  if (tab === 'auto_approved') return 'Nothing has been confirmed by the matcher itself. Automatic confirmation of clear-cut matches is a setting of your workspace, and automatic approval of AI answers stays off until it passes a measured release gate on the Evaluation tab.';
+  if (tab === 'equivalents') return 'No compatible equivalent has been confirmed or suggested. A compatible equivalent is another maker’s product verified to do the same job; it is never the same product.';
   if (tab === 'pack_unverified') return 'Every confirmed same-product pair has its packs verified.';
   if (tab === 'quantity') return 'No pair is left out of price comparison for holding different quantities or different bundle contents.';
   if (tab === 'look_again') return 'No decided pair has a changed product.';

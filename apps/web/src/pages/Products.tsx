@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatDateTime, formatMoney } from '@ci/shared';
+import { formatDateTime, formatMoney, type MatchCounts } from '@ci/shared';
 import { api, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { Age, Card, DataState, EmptyState, PageHead, Pager, ProvenancePill, SourceLink, useToast } from '../ui';
@@ -26,12 +26,14 @@ export function ProductsPage() {
   const page = Number(get('page', '1'));
   const params = { siteId: get('siteId'), q: get('q'), matched: get('matched'), stale: get('stale'), delisted: get('delisted'), page, pageSize: 40 };
   const sites = useOrgQuery<{ sites: { id: string; name: string; role: string }[] }>('site-names', '/site-names');
+  const counts = useOrgQuery<MatchCounts>(['matches', 'counts'], '/matches/counts');
   const q = useOrgQuery<{ rows: ProductRow[]; total: number }>(['products', params], `/products${qs(params)}`, { placeholderData: (p) => p });
   const unreadSite = useUncollected(params.siteId || undefined);
   const onlyThisSite = !!params.siteId && !params.q && !params.matched && !params.stale && !params.delisted;
   return (
     <>
       <PageHead eyebrow="Market" title="Products" subtitle="Everything collected from your website and your competitors, with the last time each price was seen." />
+      {counts.data && <div className="small muted" style={{ margin: '0 0 8px' }}>You sell <b>{counts.data.ownParentProducts.toLocaleString()}</b> parent products in <b>{counts.data.ownVariants.toLocaleString()}</b> sellable variants; <b>{counts.data.ownVariantsWithConfirmed.toLocaleString()}</b> variants have a confirmed match and <b>{counts.data.directlyComparableOwnVariants.toLocaleString()}</b> a directly comparable price. The list below shows products and variants as the shops publish them.</div>}
       <div className="filters">
         <div className="field wide"><label htmlFor="p-q">Search</label><input id="p-q" type="search" defaultValue={params.q} onKeyDown={(e) => e.key === 'Enter' && set({ q: (e.target as HTMLInputElement).value })} onBlur={(e) => e.target.value !== params.q && set({ q: e.target.value })} placeholder="Product name" /></div>
         <div className="field"><label htmlFor="p-s">Website</label><select id="p-s" value={params.siteId} onChange={(e) => set({ siteId: e.target.value })}><option value="">All websites</option>{sites.data?.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AI_TYPE_LABEL, AI_TYPE_TO_RELATIONSHIP, formatDateTime, type AiEvidenceItem, type AiMatchType, type AiProductView, type AiRunView, type AiStatusView, type AiSuggestionView } from '@ci/shared';
 import { api, errorMessage, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
-import { Age, Card, DataState, EmptyState, Modal, Pager, SourceLink, useToast } from '../ui';
+import { Age, Card, DataState, EmptyState, Pager, SourceLink, useToast } from '../ui';
+import { ProductSearchModal } from '../product-search';
 
 /**
  * The AI suggestions tab of Match review. Everything here is a SUGGESTION: it is kept apart from your matches and your prices, nothing on this tab changes either until a person
@@ -96,20 +97,43 @@ export function showValue(v: unknown): string {
   return String(v);
 }
 
-export function comparisonRows(source: AiProductView, candidate: AiProductView): { label: string; a: string; b: string; src: string; srcB: string; differs: boolean }[] {
-  const out: { label: string; a: string; b: string; src: string; srcB: string; differs: boolean }[] = [];
-  const add = (label: string, a: string | null | undefined, b: string | null | undefined, src = '', srcB = '') => {
+type Group = 'identity' | 'offer' | 'compatibility' | 'physical';
+export const GROUP_LABEL: Record<Group, string> = { identity: 'What it is', offer: 'What is sold', compatibility: 'What it fits or does', physical: 'Size and strength' };
+const GROUP_ORDER: Group[] = ['identity', 'offer', 'compatibility', 'physical'];
+/** Where each fixed row belongs; a fact not listed takes the kind the server gave it. */
+const ROW_GROUP: Record<string, Group> = {
+  part_codes: 'identity', same_part_also_written_as: 'identity', is_accessory_not_bulb: 'identity', flavour_or_variety: 'identity', product_form: 'identity', edition: 'identity', percent_claims: 'identity', numbers_that_belong_to_the_name: 'identity', vintage_year: 'identity', not_for: 'identity',
+  quantity: 'offer', pack_count: 'offer', bundle: 'offer',
+  vehicle: 'compatibility', model_years: 'compatibility', lamp_position: 'compatibility', beam_or_function: 'compatibility', housing_mentioned: 'compatibility', canbus_mentioned: 'compatibility', voltage_v: 'compatibility',
+  power_w: 'physical', lumens: 'physical', colour_temperature_k: 'physical', colour: 'physical',
+};
+type CompareRow = { label: string; a: string; b: string; src: string; srcB: string; differs: boolean; group: Group };
+
+export function comparisonRows(source: AiProductView, candidate: AiProductView): CompareRow[] {
+  const out: CompareRow[] = [];
+  const shown = new Set<string>();
+  const add = (label: string, a: string | null | undefined, b: string | null | undefined, src = '', srcB = '', group: Group = 'identity') => {
     if (!a && !b) return;
-    out.push({ label, a: a ?? '', b: b ?? '', src, srcB, differs: !!a && !!b && a.toLowerCase() !== b.toLowerCase() });
+    out.push({ label, a: a ?? '', b: b ?? '', src, srcB, differs: !!a && !!b && a.toLowerCase() !== b.toLowerCase(), group });
   };
   add('Brand', source.brand, candidate.brand);
   add('Kind of product', source.productType, candidate.productType);
   for (const row of ATTRIBUTE_ROWS[source.domain === 'general' ? candidate.domain : source.domain]) {
     const key = row.keys[0]!;
+    shown.add(key);
     const x = source.attributes[key];
     const y = candidate.attributes[key];
-    add(row.label, showValue(x?.value), showValue(y?.value), x?.source, y?.source);
+    add(row.label, showValue(x?.value), showValue(y?.value), x?.source, y?.source, ROW_GROUP[key] ?? 'identity');
   }
+  // everything else the listings state (the page's own specification lines, package contents, fitment text, dimensions, alcohol content…)
+  const rest = [...new Set([...Object.keys(source.attributes), ...Object.keys(candidate.attributes)])].filter((k) => !shown.has(k)).sort();
+  for (const key of rest) {
+    const x = source.attributes[key];
+    const y = candidate.attributes[key];
+    const group = source.groups?.[key] ?? candidate.groups?.[key] ?? 'identity';
+    add(key.replace(/_per_spec_table$/, ' (page specification)').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()), showValue(x?.value), showValue(y?.value), x?.source, y?.source, group);
+  }
+  out.sort((p, q) => GROUP_ORDER.indexOf(p.group) - GROUP_ORDER.indexOf(q.group));
   add('Barcode', source.identifiers.gtin, candidate.identifiers.gtin);
   add('Part number', source.identifiers.mpn, candidate.identifiers.mpn);
   return out;
@@ -125,12 +149,15 @@ export function AttributeTable({ s }: { s: AiSuggestionView }) {
         <table className="table">
           <thead><tr><th /><th>Your product</th><th>{s.candidate.siteName}</th></tr></thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.label}>
+            {rows.map((r, i) => (
+              <Fragment key={r.label}>
+                {(i === 0 || rows[i - 1]!.group !== r.group) && <tr><td colSpan={3} className="small" style={{ background: 'var(--panel-2, #f6f6f3)' }}><b>{GROUP_LABEL[r.group]}</b></td></tr>}
+              <tr>
                 <td className="muted small">{r.label}</td>
                 <td style={r.differs ? { background: 'var(--amber-wash, #fff4c2)' } : undefined}>{r.a || <span className="muted">not stated</span>}{r.a && r.src && <span className="small muted"> · read from {r.src}</span>}</td>
                 <td style={r.differs ? { background: 'var(--amber-wash, #fff4c2)' } : undefined}>{r.b || <span className="muted">not stated</span>}{r.b && r.srcB && <span className="small muted"> · read from {r.srcB}</span>}</td>
               </tr>
+              </Fragment>
             ))}
             <tr><td className="muted small">Product page</td><td><SourceLink href={s.source.url} product={s.source.title} /></td><td><SourceLink href={s.candidate.url} product={s.candidate.title} /></td></tr>
           </tbody>
@@ -169,11 +196,12 @@ export interface AiActions {
   onChange: (relationship: string) => void;
   onUncertain: () => void;
   onNone: () => void;
+  onReject: () => void;
   onFindAnother: () => void;
   busy: boolean;
 }
 
-const STATUS_WORDS: Record<string, string> = { accepted: 'You accepted this', changed: 'You changed this', uncertain: 'You marked this as unsure', none_of_these: 'You said none of these fits', stale: 'The products changed since' };
+const STATUS_WORDS: Record<string, string> = { accepted: 'Accepted', rejected: 'You rejected this as not a match', changed: 'You changed this', uncertain: 'You marked this as unsure', none_of_these: 'You said none of these fits', stale: 'The products changed since' };
 
 export function AiSuggestionCard({ s, orgId, isAdmin, actions }: { s: AiSuggestionView; orgId: string; isAdmin: boolean; actions?: AiActions }) {
   const [rel, setRel] = useState<string>(AI_TYPE_TO_RELATIONSHIP[s.matchType] ?? 'substitute');
@@ -248,6 +276,7 @@ export function AiSuggestionCard({ s, orgId, isAdmin, actions }: { s: AiSuggesti
           </select>
           <button className="btn btn-sm" disabled={actions.busy} onClick={() => actions.onChange(rel)}>Change to this</button>
           <button className="btn btn-sm" disabled={actions.busy} onClick={actions.onUncertain}>Not sure yet</button>
+          <button className="btn btn-sm btn-danger" disabled={actions.busy} onClick={actions.onReject} title="Records that these two products are not a match: your own rejection, kept every time matching runs again.">Not a match</button>
           <button className="btn btn-sm" disabled={actions.busy} onClick={actions.onFindAnother}>Find another product…</button>
           <button className="btn btn-sm btn-danger" disabled={actions.busy} onClick={actions.onNone} title="Closes every waiting AI suggestion for this product. Your matches are not changed.">None of these</button>
         </div>
@@ -326,53 +355,31 @@ export function AiRunPanel({ run, isAdmin, onPause, onResume, onCancel, busy }: 
 
 // ───────────────────────────────────────────────────────────── choosing another product
 
-interface Candidate { variantId: string; title: string; variantTitle: string | null; brand: string | null; sizeLabel: string | null; sku: string | null; price: number | null; currency: string | null; availability: string; observedAt: string | null; url: string; siteName: string; suggestion: { relationship: string; summary: string } | null }
-
-function FindAnother({ s, onClose, onChosen }: { s: AiSuggestionView; onClose: () => void; onChosen: (c: Candidate, relationship: string) => void }) {
-  const [text, setText] = useState('');
-  const [needle, setNeedle] = useState('');
-  const [rel, setRel] = useState<string>('exact');
-  useEffect(() => {
-    const t = setTimeout(() => setNeedle(text.trim()), 300);
-    return () => clearTimeout(t);
-  }, [text]);
+function FindAnother({ s, onClose, onChosen }: { s: AiSuggestionView; onClose: () => void; onChosen: (c: { variantId: string }, relationship: string) => void }) {
   // the whole competitor catalogue, not only what the AI looked at
-  const q = useOrgQuery<{ candidates: Candidate[] }>(['match-candidates', s.source.variantId, needle, 'ai'], `/matches/candidates${qs({ sourceVariantId: s.source.variantId, q: needle, limit: 20 })}`);
-  return (
-    <Modal title={`Which product matches “${s.source.title}”?`} onClose={onClose}>
-      <div className="stack-s">
-        <div className="field"><label htmlFor="ai-cand-q">Search the competitors’ products</label><input id="ai-cand-q" type="search" autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="Name, brand, SKU or barcode" /></div>
-        <div className="field"><label htmlFor="ai-cand-c">These products are</label><select id="ai-cand-c" value={rel} onChange={(e) => setRel(e.target.value)}>{RELATIONSHIPS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</select></div>
-        <DataState q={q} isEmpty={(d) => d.candidates.length === 0} empty={<p className="muted">No product matches that search.</p>}>
-          {(d) => (
-            <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
-              <table className="table">
-                <tbody>
-                  {d.candidates.map((c) => (
-                    <tr key={c.variantId}>
-                      <td>
-                        <div className="title">{c.title}{c.variantTitle ? ` — ${c.variantTitle}` : ''}</div>
-                        <div className="sub">{[c.siteName, c.brand, c.sizeLabel, c.sku].filter(Boolean).join(' · ')} · <b className="num">{money(c.price, c.currency)}</b> · <SourceLink href={c.url} product={c.title} text="View source" /></div>
-                        {c.suggestion && <div className="small muted">{c.suggestion.summary}</div>}
-                      </td>
-                      <td className="r"><button className="btn btn-sm btn-primary" disabled={c.variantId === s.candidate.variantId} onClick={() => onChosen(c, rel)}>{c.variantId === s.candidate.variantId ? 'The AI’s suggestion' : 'Use this product'}</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </DataState>
-        <p className="small muted" style={{ margin: 0 }}>Your choice is recorded as your own decision, exactly as when you choose a product in the other tabs.</p>
-      </div>
-    </Modal>
-  );
+  return <ProductSearchModal title={`Which product matches “${s.source.title}”?`} sourceVariantId={s.source.variantId} currentVariantId={s.candidate.variantId} onClose={onClose} onChosen={(c, relationship) => onChosen({ variantId: c.variantId }, relationship)} />;
 }
 
 // ───────────────────────────────────────────────────────────── the tab
 
-const STATUS_FILTERS = [['pending', 'Waiting for you'], ['accepted', 'Accepted'], ['changed', 'Changed'], ['uncertain', 'Not sure yet'], ['none_of_these', 'None of these'], ['all', 'All']] as const;
+const STATUS_FILTERS = [['pending', 'Waiting for you'], ['accepted', 'Accepted'], ['changed', 'Changed'], ['rejected', 'Rejected'], ['uncertain', 'Not sure yet'], ['none_of_these', 'None of these'], ['all', 'All']] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number][0];
+
+/** Semantic search: finds differently worded listings of the same thing. It only ADDS candidates; the rule-based checks still remove anything incompatible. Built once, in the background, within the free quota. */
+export function SemanticSearch({ isAdmin }: { isAdmin: boolean }) {
+  const toast = useToast();
+  const st = useOrgQuery<{ model: string | null; embedded: number; total: number }>(['ai', 'embeddings'], '/ai/embeddings');
+  const run = useOrgMutation((id, _: void) => api.post(orgPath(id, '/ai/embeddings/run')), ['ai'], () => toast.push('Building the semantic index in the background; it continues within the free quota.'));
+  const d = st.data;
+  if (!d) return null;
+  return (
+    <div className="small" style={{ marginTop: 8 }}>
+      <b>Semantic search:</b>{' '}
+      {d.model ? <>{d.embedded.toLocaleString()} of {d.total.toLocaleString()} products embedded. It finds differently worded listings of the same thing and only adds candidates: anything incompatible is still removed by the rule-based checks.{isAdmin && d.embedded < d.total && <> <button className="btn btn-sm" disabled={run.isPending} onClick={() => run.mutate(undefined)}>Build / continue</button></>}</> : <span className="muted">not set up on this server (no embedding model is configured); the word-based and rule-based search is used.</span>}
+      {run.error && <span className="muted"> {errorMessage(run.error)}</span>}
+    </div>
+  );
+}
 
 export function AiSuggestionsTab() {
   const { orgId, isAdmin } = useOrg();
@@ -407,6 +414,7 @@ export function AiSuggestionsTab() {
       {err && <div className="callout bad" role="alert">{errorMessage(err)}</div>}
       <Card title="Analysis">
         {s ? <AiStatusPanel status={s} isAdmin={isAdmin} onResumeGemini={() => resumeGemini.mutate(undefined)} busy={resumeGemini.isPending} /> : <div className="muted small">Loading…</div>}
+        {s?.configured && <SemanticSearch isAdmin={isAdmin} />}
         {run && <div style={{ marginTop: 10 }}><AiRunPanel run={run} isAdmin={isAdmin} busy={control.isPending} onPause={() => control.mutate({ run: run.id, action: 'pause' })} onResume={() => control.mutate({ run: run.id, action: 'resume' })} onCancel={() => control.mutate({ run: run.id, action: 'cancel' })} /></div>}
         {isAdmin && s?.configured && !run && s.state !== 'stopped' && (
           <div className="row" style={{ alignItems: 'end', marginTop: 10, flexWrap: 'wrap' }}>
@@ -450,6 +458,7 @@ export function AiSuggestionsTab() {
                     onChange: (relationship) => review.mutate({ id: r.id, body: { action: 'change', relationship } }),
                     onUncertain: () => review.mutate({ id: r.id, body: { action: 'uncertain' } }),
                     onNone: () => review.mutate({ id: r.id, body: { action: 'none_of_these' } }),
+                    onReject: () => review.mutate({ id: r.id, body: { action: 'reject' } }),
                     onFindAnother: () => setFinding(r),
                   }}
                 />

@@ -1071,6 +1071,8 @@ export const aiMatchSuggestions = pgTable(
     engine: jsonb('engine').$type<AiEngineReading>(),
     policy: jsonb('policy').$type<AiPolicyReading>().notNull().default(sql`'{}'::jsonb`),
     /** Hash of everything the answer depends on (both products' facts, the engine's reading, model, prompt): an unchanged pair is answered from here and never sent again. */
+    /** Which class of automatic approval the deterministic conditions qualify this answer for (see core `autoClassOf`), or null. Recorded for every answer so the class can be measured before it is ever used. */
+    autoClass: text('auto_class'),
     inputHash: text('input_hash').notNull(),
     sourceFingerprint: text('source_fingerprint').notNull(),
     candidateFingerprint: text('candidate_fingerprint').notNull(),
@@ -1172,6 +1174,96 @@ export const aiQuotaState = pgTable('ai_quota_state', {
   stopped: text('stopped'),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
+
+// ═══════════════════════════════════════════════════════ independent evaluation of matching (migration 0020)
+// A case is one of the shop's variants at one competitor website, with what an INDEPENDENT PERSON established as its true counterpart there (or that it has none). The system's own answers are never
+// stored here as truth. The development and holdout sets are kept apart by a fixed rule on the product, so tuning on one never touches the other.
+
+export const matchEvalCases = pgTable(
+  'match_eval_cases',
+  {
+    id: pk(),
+    orgId: orgId(),
+    sourceVariantId: uuid('source_variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    competitorSiteId: uuid('competitor_site_id')
+      .notNull()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    domain: text('domain').notNull(),
+    /** Why it was selected: confirmed, suggested, rejected, set_aside, ai, no_counterpart, lookalike, auto_audit, random. */
+    stratum: text('stratum').notNull(),
+    split: text('split').$type<'development' | 'holdout'>().notNull(),
+    status: text('status').$type<'pending' | 'labelled' | 'skipped'>().notNull().default('pending'),
+    /** The label: the competitor variant that is the true counterpart (null with relationship "none"), and what the two are. */
+    truthVariantId: uuid('truth_variant_id'),
+    truthRelationship: text('truth_relationship'),
+    /** Whether the labeller says they know these products well (for automotive parts the gate counts only these labels). */
+    expertise: text('expertise').$type<'knowledgeable' | 'general'>(),
+    labelledBy: uuid('labelled_by').references(() => users.id, { onDelete: 'set null' }),
+    labelledAt: ts('labelled_at'),
+    note: text('note'),
+    selectedAt: ts('selected_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('match_eval_case_uq').on(t.sourceVariantId, t.competitorSiteId), index('match_eval_org_idx').on(t.orgId, t.status, t.split)],
+);
+
+/** A product's embedding (Gemini free tier), one per variant and model, rebuilt only when what it was made from changes. Used only to ADD candidates to retrieval: it never overrides a decisive incompatibility. */
+export const aiEmbeddings = pgTable(
+  'ai_embeddings',
+  {
+    id: pk(),
+    orgId: orgId(),
+    variantId: uuid('variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    model: text('model').notNull(),
+    /** Hash of the text the vector was made from: an unchanged product is never embedded again. */
+    textHash: text('text_hash').notNull(),
+    dims: integer('dims').notNull(),
+    vector: text('vector').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('ai_embeddings_variant_model_uq').on(t.variantId, t.model), index('ai_embeddings_org_idx').on(t.orgId, t.model)],
+);
+
+/** Each measurement of the system against the labelled cases (kept, so progress and regressions are visible). */
+export const matchEvalReports = pgTable(
+  'match_eval_reports',
+  {
+    id: pk(),
+    orgId: orgId(),
+    split: text('split').notNull(),
+    report: jsonb('report').$type<Record<string, unknown>>().notNull(),
+    gates: jsonb('gates').$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
+    cases: integer('cases').notNull(),
+    engineVersion: text('engine_version'),
+    model: text('model'),
+    promptVersion: text('prompt_version'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('match_eval_reports_org_idx').on(t.orgId, t.createdAt)],
+);
+
+/** Whether a class of automatic approval is switched on for a workspace and domain. Off unless a person turned it on after the gate passed; turned off again if later audits fall below it. */
+export const matchAutoApproval = pgTable(
+  'match_auto_approval',
+  {
+    id: pk(),
+    orgId: orgId(),
+    domain: text('domain').notNull(),
+    autoClass: text('auto_class').notNull(),
+    enabled: boolean('enabled').notNull().default(false),
+    enabledBy: uuid('enabled_by').references(() => users.id, { onDelete: 'set null' }),
+    enabledAt: ts('enabled_at'),
+    /** The gate result the person saw when enabling it, and why it was last switched off. */
+    gateAtEnable: jsonb('gate_at_enable').$type<Record<string, unknown>>(),
+    disabledReason: text('disabled_reason'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('match_auto_approval_uq').on(t.orgId, t.domain, t.autoClass)],
+);
 
 // ═══════════════════════════════════════════════════════ global reference data
 

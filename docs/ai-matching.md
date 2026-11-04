@@ -116,3 +116,31 @@ At the application's own cap of 200 requests per Pacific day and about 10 pair d
 * The rule engine's own per-website cap (three suggestions, two substitutes) is unchanged: it is a display limit, not the retrieval used for AI.
 * Reports draw on the same-product view only, so equivalents are in no report; separate report counts for parent products / variants / confirmed / suggested / directly comparable are not yet split out.
 * Existing confirmations whose packs are unknown now show under **Match review → Packs not verified** and drop out of the direct price comparison until attested. This is deliberate and visibly changes the headline figures.
+
+---
+
+# Update (directive 30, 2026-11-04): the rest of the guide
+
+Directive 29 left several items open. This update completes them (see also `docs/matching-evaluation.md`). Status words: **built** = in the code; **tested** = automated tests pass; **production** = running on the server (filled in when deployed).
+
+| Guide requirement | Built | Tested | Notes |
+|---|---|---|---|
+| Fact sheet: identity / offer / compatibility kept apart, each fact with its source | yes | yes | The comparison groups facts as "What it is", "What is sold", "What it fits or does", "Size and strength", each with where it was read. New: the product page's own specification lines (wattage, voltage, lumens, colour temperature, socket, position, CAN-bus, dimensions, package contents, fitment, alcohol, ingredients) are read by `core/ai/specs.ts`; physical dimensions stay dimensions; alcohol content is a fact; unknown stays unknown |
+| Vehicle name vs accessory; bulb length vs quantity; named brand not "unknown" | yes (directive 29) | yes | |
+| Candidate discovery: several methods, variants kept through the check, pool beyond the AI shortlist, hard conflicts remove candidates | yes | yes | Up to three variants per competitor product reach the evidence check; the internal pool is 25–60 products per website; the AI judges 3 per website; "Find another product" searches the whole catalogue |
+| Semantic retrieval (embeddings) | yes | yes (imitation API) | `ai-embed.ts`: paced, resumable background embedding (about 80 texts a minute, below the free limit), vectors kept per product and rebuilt only when its text changes; embeddings only ADD candidates; a different bulb code still removes one. Needs `GEMINI_EMBEDDING_MODEL` (off until set) |
+| Compatible equivalent as a real relationship end to end | yes | yes | Gemini → shared types → `product_matches.relationship` → Match review → its own Price comparison view → reports/exports (own sheet, own KPI) |
+| Equivalents in Reports | yes | yes | A "Compatible equivalents" worksheet and section and an `equivalentBenchmark` KPI, never part of the identical-item figures; saved reports are unchanged |
+| Separate counts (parent products, variants, pairs, unique variants, confirmed/suggested, equivalents, substitutes, related, uncertain, no counterpart, directly comparable) | yes | yes | `loadMatchCounts`, `/matches/counts`; shown on Match review, Products and Reports (saved with new reports); KPI labels say "variants" where they count variants |
+| Match review: Needs a decision / Automatically approved / Equivalents / Suggested substitutes / Related & unclear / No counterpart found / Uncertain / Changed since approval / Packs not verified | yes | yes | Uncertain is a status of an AI suggestion (AI tab filter); real actions: Accept, Change, **Not a match (Reject)**, Not sure yet, None of these, Find another product |
+| Manual search by part number, aliases, vehicle | yes (directive 29) | yes | Shared search is used from AI suggestions, "no counterpart found" and labelling |
+| Evaluation framework: labels, development vs holdout, blind labelling, scoring, intervals | yes | yes | `match-eval.ts`, `core/ai/evaluation.ts`, `/eval/*`, Evaluation tab |
+| Release gate and gated automatic approval | yes | yes | Closed with no labels. When a class is on: only no-person-decided pairs, protected from the rule engine, audited, reversible, self-disabling |
+| Independent human labels / the gates actually passing | **no** | n/a | Requires people; see "Pending" |
+
+## Pending (genuinely dependent on people or data)
+
+* **Independent labels.** About 300–500 cases across both workspaces must be labelled by people, including automotive cases by someone who knows the parts. Until then no gate can pass and no class is approved automatically; candidate recall, precision and recall on production data are therefore **not yet measured** (the measuring tool exists and is tested).
+* **Fitment data.** A product-to-vehicle fitment table does not exist in the data; compatibility rests on what listings state (titles, options, descriptions, spec lines). ACES/VCdb would have to be sourced or created.
+* **Embeddings on production** need an embedding model to be configured and the catalogue embedded (hours at the free rate); not on by default.
+* Not built: an Insights card for the equivalent benchmark; browser-level end-to-end tests of the screens (the screens are covered by render tests and the API by integration tests).

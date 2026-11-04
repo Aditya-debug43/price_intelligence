@@ -92,6 +92,9 @@ beforeAll(async () => {
   }
   await h.queue.drain();
   await runMatching(h.svc, db(), org);
+  // the usage and quota records are global (one key serves every workspace): start from a clean slate so what this file counts is its own
+  await db().delete(aiUsageDaily);
+  await db().delete(aiQuotaState);
   const distinct = <T extends { productId: string }>(rows: T[]) => { const seen = new Set<string>(); return rows.filter((r) => !seen.has(r.productId) && !!seen.add(r.productId)); };
   const src = distinct(await db().select({ id: variants.id, productId: variants.productId }).from(variants).where(eq(variants.siteId, siteIds.source!)).limit(200));
   const rival = distinct(await db().select({ id: variants.id, productId: variants.productId }).from(variants).where(eq(variants.siteId, siteIds.woo!)).limit(200));

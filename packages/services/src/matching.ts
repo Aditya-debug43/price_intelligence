@@ -495,3 +495,24 @@ export async function attestPack(db: DbLike, orgId: string, matchId: string, use
   await db.insert(auditEvents).values({ orgId, userId, action: p.attested ? 'match.attest_pack' : 'match.withdraw_pack_attestation', target: matchId, meta: { note: p.note ?? null } });
   return row!;
 }
+
+/**
+ * A person says two products are NOT a match, for a pair that may or may not already exist as a record (an AI suggestion often has none). The decision is stored as the person's own rejection,
+ * with its history; a pair that already exists is rejected through the ordinary decision function.
+ */
+export async function rejectPair(db: DbLike, orgId: string, userId: string, p: { sourceVariantId: string; competitorVariantId: string; note?: string }, now: Date): Promise<string> {
+  const [existing] = await db.select({ id: productMatches.id }).from(productMatches).where(and(eq(productMatches.orgId, orgId), eq(productMatches.sourceVariantId, p.sourceVariantId), eq(productMatches.competitorVariantId, p.competitorVariantId)));
+  if (existing) {
+    await decideMatch(db, orgId, existing.id, userId, { decision: 'reject', note: p.note }, now);
+    return existing.id;
+  }
+  const rows = await db.select({ id: variants.id, siteId: products.siteId, role: sites.role }).from(variants).innerJoin(products, eq(products.id, variants.productId)).innerJoin(sites, eq(sites.id, products.siteId)).where(and(eq(variants.orgId, orgId), inArray(variants.id, [p.sourceVariantId, p.competitorVariantId])));
+  const src = rows.find((r) => r.id === p.sourceVariantId);
+  const comp = rows.find((r) => r.id === p.competitorVariantId);
+  if (!src || !comp) throw new MatchError('Product not found');
+  if (src.role !== 'source' || comp.role !== 'competitor') throw new MatchError('A match pairs one of your products with a competitor’s product.', 400);
+  const [row] = await db.insert(productMatches).values({ orgId, sourceVariantId: p.sourceVariantId, competitorVariantId: p.competitorVariantId, competitorSiteId: comp.siteId, matchClass: 'not_comparable', confidence: 0, status: 'rejected', method: 'manual', reasons: ['Rejected by a person'], components: {}, relationship: 'non_match', decidedBy: userId, decidedAt: now, decisionNote: p.note ?? null }).returning();
+  await recordMatchEvents(db, orgId, [row!.id], 'decided', { actorId: userId, decision: 'reject', note: p.note ?? null });
+  await db.insert(auditEvents).values({ orgId, userId, action: 'match.reject', target: row!.id, meta: { from: null, to: 'not_comparable', relationship: 'non_match' } });
+  return row!.id;
+}

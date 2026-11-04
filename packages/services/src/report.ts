@@ -33,6 +33,7 @@ import type { Services } from './context.ts';
 import { loadFxTable, ensureFxRates } from './fx.ts';
 import { loadCoverage } from './coverage.ts';
 import { loadComparison } from './comparison.ts';
+import { loadMatchCounts } from './match-counts.ts';
 import { loadAssortment, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps, loadStock } from './live.ts';
 import { raiseAlert, alertRecipients } from './alerts.ts';
 import { layout } from './mailer.ts';
@@ -68,6 +69,9 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
   const coverage = await loadCoverage(db, orgId, now, staleHours);
   const activeCoverage = coverage.filter((c) => siteRows.some((s) => s.id === c.siteId));
   const comparisons = await loadComparison(db, { orgId, reportingCurrency: reporting, fx, now, staleAfterHours: staleHours });
+  // compatible equivalents are a benchmark of their own: never part of the identical-item price position above
+  const equivalents = await loadComparison(db, { orgId, reportingCurrency: reporting, fx, now, staleAfterHours: staleHours, view: 'equivalents', include: 'confirmed' });
+  const matchCounts = await loadMatchCounts(db, orgId);
 
   // ── offers, own stock, marketing (the same live views the interactive pages use)
   const maps = await loadSiteMaps(db, orgId);
@@ -118,6 +122,11 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
     marketingItems: marketing.length,
     sourceProducts: sourceVariantCount,
     competitorProducts: activeCoverage.filter((c) => c.role === 'competitor').reduce((a, c) => a + c.productsKnown, 0),
+    coverage: matchCounts,
+    equivalentBenchmark: (() => {
+      const compared = equivalents.flatMap((r) => r.cells.filter((c) => c.unitDiffPct !== null));
+      return { ownVariants: equivalents.length, pairs: equivalents.reduce((a, r) => a + r.cells.length, 0), comparedPairs: compared.length, averageDiffPct: compared.length ? roundMoney(compared.reduce((a, c) => a + (c.unitDiffPct as number), 0) / compared.length, 2) : null };
+    })(),
   };
 
   const insights = generateInsights({
@@ -166,6 +175,7 @@ export async function assembleReportData(svc: Services, db: DbLike, orgId: strin
     headline,
     warnings,
     comparisons,
+    equivalents,
     offers: offerOut,
     stock,
     marketing,
@@ -350,7 +360,7 @@ export async function emailReportSummary(svc: Services, db: DbLike, orgId: strin
   const lines = [
     data.headline,
     '',
-    `Matched products: ${k.matchedProducts} · Cheaper at your shop: ${k.productsCheaperAtSource} · Pricier: ${k.productsPricierAtSource} · Active offers: ${k.activeOffers} · Low stock: ${k.lowStockCount} · Out of stock: ${k.outOfStockCount}`,
+    `Own variants with a comparison: ${k.matchedProducts} · Cheaper at your shop: ${k.productsCheaperAtSource} · Pricier: ${k.productsPricierAtSource} · Active offers: ${k.activeOffers} · Low stock: ${k.lowStockCount} · Out of stock: ${k.outOfStockCount}`,
     ...top.map((t) => `• ${t.title}`),
     ...(data.warnings.length ? ['', 'Notes:', ...data.warnings.slice(0, 4).map((w) => `- ${w}`)] : []),
     '',
@@ -360,7 +370,7 @@ export async function emailReportSummary(svc: Services, db: DbLike, orgId: strin
     subject,
     `<p style="font-size:17px">${esc(data.headline)}</p>
      <table style="border-collapse:collapse;width:100%;font:14px Arial,sans-serif;margin:16px 0"><tr>
-       ${[['Matched', k.matchedProducts], ['Cheaper here', k.productsCheaperAtSource], ['Pricier here', k.productsPricierAtSource], ['Offers', k.activeOffers], ['Low stock', k.lowStockCount], ['Out of stock', k.outOfStockCount]].map(([l, v]) => `<td style="padding:8px;border:1px solid #d9d2c3;text-align:center"><div style="font-size:20px;font-weight:700">${v}</div><div style="color:#5f7378;font-size:12px">${l}</div></td>`).join('')}
+       ${[['Variants compared', k.matchedProducts], ['Cheaper here', k.productsCheaperAtSource], ['Pricier here', k.productsPricierAtSource], ['Offers', k.activeOffers], ['Low stock', k.lowStockCount], ['Out of stock', k.outOfStockCount]].map(([l, v]) => `<td style="padding:8px;border:1px solid #d9d2c3;text-align:center"><div style="font-size:20px;font-weight:700">${v}</div><div style="color:#5f7378;font-size:12px">${l}</div></td>`).join('')}
      </tr></table>
      <ul style="padding-left:18px">${top.map((t) => `<li style="margin-bottom:6px">${esc(t.title)}</li>`).join('')}</ul>
      ${data.warnings.length ? `<p style="background:#fff4c2;border:1px solid #e6bb1a;padding:10px;font:13px Arial,sans-serif"><strong>Data notes</strong><br>${data.warnings.slice(0, 4).map(esc).join('<br>')}</p>` : ''}

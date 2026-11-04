@@ -6,3 +6,5 @@ export * from './guard.ts';
 export * from './batching.ts';
 export * from './limiter.ts';
 export * from './gate.ts';
+export * from './evaluation.ts';
+export * from './specs.ts';

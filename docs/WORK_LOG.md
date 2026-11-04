@@ -1072,3 +1072,11 @@ The existing Marketing Activity page, no new dashboard. The YouTube card reports
 **Not deployed.** The server was unreachable (the laptop's address changed). Nothing was pushed, so the site and server still run `37facce`. To deploy: allow the laptop's current address for SSH, then push and run `sudo shelfwatch-update` immediately.
 
 **Not done.** Automatic approval; variant-level recall measurement on labels; embeddings; separate report counts.
+
+## 2026-11-04 — Directive 30: finish the whole matching guide — built and tested; DEPLOYMENT STATUS in the final report
+
+**What.** Everything the guide asked that directive 29 left open: separate counts everywhere, equivalents in reports, the complete Match review set of lists and a Reject action, the independent evaluation framework and release gate, gated automatic approval (closed: no labels), page specification lines, semantic retrieval. See `docs/ai-matching.md` (Update, directive 30) and `docs/matching-evaluation.md`.
+
+**Verification.** Lint 0 errors; typecheck; production build; full suite (new: match-eval e2e 16, semantic retrieval e2e 6, web render tests 21 in two files, spec/auto-class/gate unit tests); five deliberate mutations of the rules (re-evaluation, attested pack, automatic approval on a name alone, gate bypass, compatibility gate) and two more of the approval conditions were each detected by a failing test; the tests that encoded the old report-sheet list were updated deliberately.
+
+**Not done.** Independent labels (a dependency on people), fitment data, an Insights card for equivalents, browser-level tests.
