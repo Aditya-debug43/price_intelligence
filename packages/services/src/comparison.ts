@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { assessQuantities, buildPriceView, measureStored, roundMoney, type FxTable } from '@ci/core';
-import { formatMoney, relationshipOfClass, type Availability, type ComparisonCell, type ComparisonRow, type MatchClass, type MatchRelationship, type MatchStatus, type PriceView, type QuantityCheck, type UnitPriceView } from '@ci/shared';
+import { formatMoney, relationshipOfClass, type Availability, type ComparisonAlternative, type ComparisonCell, type ComparisonRow, type MatchClass, type MatchRelationship, type MatchStatus, type PriceView, type QuantityCheck, type UnitPriceView } from '@ci/shared';
 import { offers, productMatches, products, sites, variants, type DbLike } from '@ci/database';
 import { productPageLink } from './source-url.ts';
 
@@ -13,12 +13,14 @@ import { productPageLink } from './source-url.ts';
  * The quantity-compatibility policy (core/quantity-policy.ts) is enforced here, before any price is read: a pair whose two products hold DIFFERENT actual quantities (10 L against 20 L, 500 g
  * against 1 kg, a pack of 6 against 12) is left out of the price and substitute views whatever its status, a person’s confirmation included (the confirmation itself is untouched). Prices are
  * never converted into a price per litre, per kilogram or per item to make such products comparable. A pair whose quantity is not stated on one side is not treated as a match: an automatic
- * confirmation is not a direct comparison, a person’s own confirmation still is.
+ * confirmation is not a direct comparison, and neither is a person's confirmation on its own: it says what the two products are, not that the two packs hold the same quantity and contents.
+ * A person can attest that explicitly (`packAttestedAt`); only then does such a pair count. A pair a changed product put in doubt (`needsReevaluation`) is not counted until it is checked again.
  *
  * The bundle-contents policy (core/match/bundle.ts) works through the same marker: two bundles (combos, kits) whose contents differ are left out; bundles whose contents are not established are
  * labelled, and an automatic confirmation of them is not a direct comparison either.
  */
-export type ComparisonView = 'prices' | 'substitutes' | 'related';
+/** 'equivalents': verified compatible equivalents (another maker, same job): a benchmark of its own, never the identical-item price position. */
+export type ComparisonView = 'prices' | 'substitutes' | 'equivalents' | 'related';
 
 export interface ComparisonOptions {
   view?: ComparisonView;
@@ -73,8 +75,8 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
   const pageLink = (v: VRow): string | null => productPageLink(v.url, siteHost.get(v.siteId));
 
   const which = o.view ?? 'prices';
-  const classes: MatchClass[] = which === 'prices' ? ['identical', 'different_pack'] : which === 'substitutes' ? ['comparable'] : ['not_comparable'];
-  const relationships: MatchRelationship[] = which === 'prices' ? ['exact', 'variant'] : which === 'substitutes' ? ['substitute'] : ['related'];
+  const classes: MatchClass[] = which === 'prices' ? ['identical', 'different_pack'] : which === 'substitutes' || which === 'equivalents' ? ['comparable'] : ['not_comparable'];
+  const relationships: MatchRelationship[] = which === 'prices' ? ['exact', 'variant'] : which === 'substitutes' ? ['substitute'] : which === 'equivalents' ? ['equivalent'] : ['related'];
   const withSuggestions = o.include === 'suggested';
   // a pair is used when it is confirmed, or (only when suggestions are asked for) when it is a current suggestion with real evidence behind it (not one set aside, not an old record without evidence)
   const usable = withSuggestions
@@ -88,7 +90,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
         eq(productMatches.orgId, o.orgId),
         usable,
         inArray(productMatches.matchClass, classes),
-        which === 'related' ? inArray(productMatches.relationship, relationships) : or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
+        which === 'related' || which === 'equivalents' ? inArray(productMatches.relationship, relationships) : or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
       ),
     );
   if (!matchRows.length) return [];
@@ -123,8 +125,11 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
 
     // Best match per competitor site: class, then reviewed status, then confidence.
     const bestBySite = new Map<string, (typeof matchRows)[number]>();
-    for (const m of ms.filter((x) => !leftOut(x)).sort((a, b) => CLASS_RANK[a.matchClass] - CLASS_RANK[b.matchClass] || STATUS_RANK[a.status] - STATUS_RANK[b.status] || (TIER_RANK[a.tier ?? ''] ?? 2) - (TIER_RANK[b.tier ?? ''] ?? 2) || b.confidence - a.confidence)) {
+    const altsBySite = new Map<string, typeof matchRows>();
+    // only a candidate that is live can be the one shown: a delisted best candidate must not hide a live runner-up
+    for (const m of ms.filter((x) => !leftOut(x) && live(vmap.get(x.competitorVariantId))).sort((a, b) => CLASS_RANK[a.matchClass] - CLASS_RANK[b.matchClass] || STATUS_RANK[a.status] - STATUS_RANK[b.status] || (TIER_RANK[a.tier ?? ''] ?? 2) - (TIER_RANK[b.tier ?? ''] ?? 2) || b.confidence - a.confidence)) {
       if (!bestBySite.has(m.competitorSiteId)) bestBySite.set(m.competitorSiteId, m);
+      else altsBySite.set(m.competitorSiteId, [...(altsBySite.get(m.competitorSiteId) ?? []), m]);
     }
     const cells: ComparisonCell[] = [];
     for (const m of bestBySite.values()) {
@@ -138,10 +143,14 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       const diffPct = bothPriced ? roundMoney(((price.normalized! - sourcePrice.normalized!) / sourcePrice.normalized!) * 100, 2) : null;
       const relationship: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
       // a price conclusion needs the quantities shown equal; a person’s own confirmation also stands where a quantity is simply not stated (they could see the products)
-      const quantityOk = q.verdict === 'same' || (q.verdict === 'unknown' && confirmation === 'person');
+      // A confirmation says what the two products ARE; it does not by itself say the two packs hold the same quantity and contents. Where the listings do not establish that, only a
+      // person's explicit pack attestation supplies it (and it never overrides a quantity or a bundle shown to differ, which are left out above).
+      const attested = m.packAttestedAt !== null;
+      const quantityOk = q.verdict === 'same' || (q.verdict === 'unknown' && confirmation === 'person' && attested);
       const bc = m.bundleCheck ?? null;
-      const bundleOk = !bc || bc.verdict === 'equivalent' || (bc.verdict === 'unknown' && confirmation === 'person');
-      const directlyComparable = relationship === 'exact' && bothPriced && confirmation !== 'suggested' && quantityOk && bundleOk;
+      const bundleOk = !bc || bc.verdict === 'equivalent' || (bc.verdict === 'unknown' && confirmation === 'person' && attested);
+      // a pair a changed product put in doubt stays out of price conclusions until a person has looked at it again
+      const directlyComparable = relationship === 'exact' && bothPriced && confirmation !== 'suggested' && quantityOk && bundleOk && !m.needsReevaluation;
       // for a pair that is not a direct comparison the difference is shown only between equal quantities (so it is the plain price difference, never a per-unit one)
       const unitDiffPct = which !== 'related' && !directlyComparable && q.verdict === 'same' && bundleOk ? diffPct : null;
       // what differs, in the matcher's own words (older records carry only their reasons)
@@ -151,12 +160,14 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       else if (price.normalized === null) caveats.push(price.currency ? `No exchange rate for ${price.currency}` : 'Competitor currency unknown, so the price cannot be converted');
       if (sourcePrice.normalized === null && sourcePrice.amount !== null) caveats.push(sourcePrice.currency ? `No exchange rate for ${sourcePrice.currency}` : 'Your currency is unknown');
       if (price.stale) caveats.push('Competitor price is stale');
-      if (m.needsReevaluation) caveats.push('A product changed after you confirmed this pair. Your confirmation stands; check that it still holds.');
+      if (m.needsReevaluation) caveats.push('A product changed after you confirmed this pair. Your confirmation stands, but the pair is not counted in a price comparison until you have checked that it still holds.');
+      if (relationship === 'exact' && confirmation === 'person' && !directlyComparable && !m.needsReevaluation && (q.verdict === 'unknown' || bc?.verdict === 'unknown') && !attested) caveats.push('Not counted as a direct price comparison: you confirmed these are the same product, but nobody has verified that the two packs hold the same quantity and contents. Confirm “same pack” in Match review to include it.');
       if (q.verdict === 'same' && q.packaging.differs) caveats.push(`The same total quantity, packaged differently (${q.a.label ?? '?'} vs ${q.b.label ?? '?'})`);
       if (q.verdict === 'unknown' && which !== 'related') caveats.push(`Quantity not verified: ${q.note.replace(/^Quantity (unknown|unclear): /, '')}. The price difference may not be like for like.`);
       if (bc?.verdict === 'unknown' && which !== 'related') caveats.push(`Bundle contents not verified: ${bc.note}. The price difference may not be like for like.`);
       if (confirmation === 'automatic' && (q.verdict !== 'same' || !bundleOk)) caveats.push('Not counted as a direct price comparison: the matcher confirmed it automatically but the quantities or the bundle contents are not shown to be equal.');
-      if (m.matchClass === 'comparable') caveats.push('A substitute, not the same product: check the differences below');
+      if (relationship === 'equivalent') caveats.push('A compatible equivalent from another maker: it does the same job for the stated use, but it is not the same product. Shown as its own benchmark and never counted as the same item.');
+      else if (m.matchClass === 'comparable') caveats.push('A substitute, not the same product: check the differences below');
       if (which === 'related') caveats.push('A related product that goes with yours: shown for context, not a replacement and not compared on price');
       if (confirmation === 'suggested') caveats.push('Suggested by the matcher; nobody has confirmed it yet');
       if (confirmation === 'automatic') caveats.push('Confirmed automatically by the matcher; you can overrule it in Match review');
@@ -164,7 +175,11 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       cells.push({
         siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: pageLink(cv),
         matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, relationship, tier: m.tier, confidence: m.confidence, reasons: m.reasons, differences, needsReevaluation: m.needsReevaluation, price, availability: cv.availability, unitPrice: NO_UNIT_PRICE,
-        diffAbs, diffPct, unitDiffPct, directlyComparable, confirmation, quantity: { verdict: q.verdict, note: q.note, packagingDiffers: q.packaging.differs }, ...(bc ? { bundle: { verdict: bc.verdict, note: bc.note } } : {}),
+        diffAbs, diffPct, unitDiffPct, directlyComparable, confirmation, packAttested: attested,
+        alternatives: (altsBySite.get(m.competitorSiteId) ?? []).slice(0, 3).map((a): ComparisonAlternative => {
+          const av = vmap.get(a.competitorVariantId)!;
+          return { matchId: a.id, variantId: av.id, productId: av.productId, title: av.title, variantTitle: av.variantTitle, relationship: a.relationship ?? relationshipOfClass(a.matchClass), confirmation: a.status === 'accepted' ? (a.autoConfirmedAt ? 'automatic' : 'person') : 'suggested', url: pageLink(av), price: av.price, currency: av.currency, quantity: qtyOf(a).verdict };
+        }), quantity: { verdict: q.verdict, note: q.note, packagingDiffers: q.packaging.differs }, ...(bc ? { bundle: { verdict: bc.verdict, note: bc.note } } : {}),
         offerSummary: offer ? `On sale: was ${formatMoney(offer.originalPrice, offer.currency)}, now ${formatMoney(offer.salePrice, offer.currency)}${offer.claimedDiscountPct ? ` (claims ${offer.claimedDiscountPct}% off; ${offer.verification === 'verified' ? 'verified by history' : 'not historically verified'})` : ''}` : null,
         caveats,
       });

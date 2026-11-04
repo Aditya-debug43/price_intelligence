@@ -340,15 +340,31 @@ interface PairCtx {
   chk: { q: 'same' | 'different' | 'unknown'; b?: 'equivalent' | 'mismatch' | 'unknown' };
 }
 
+/**
+ * What the product pages say about FIT and WHAT IS IN THE BOX, one short excerpt per product (never a whole page, markup removed): the line around the first mention of fitment, compatibility,
+ * the package contents or the bulb-size chart. The rule engine reads only the bulb-size chart; the AI is also shown these, because a listing that names its vehicles or its kit only in the
+ * description would otherwise look as if it said nothing.
+ */
+async function loadFitmentExcerpts(db: DbLike, orgId: string): Promise<Map<string, string>> {
+  const rows = await db.execute<{ id: string; d: string }>(sql`
+    select id, d from (
+      select p.id, substring(regexp_replace(left(p.description, 8000), '<[^>]+>', ' ', 'g') from '(?i)(.{0,100}(?:location bulb size|fitment|fits |compatib|package includes|in the box|kit includes|includes:|replaces).{0,250})') as d
+      from products p join sites s on s.id = p.site_id
+      where p.org_id = ${orgId} and s.active and p.delisted_at is null and p.description is not null
+    ) x where d is not null`);
+  return new Map(rows.rows.map((r) => [r.id, r.d]));
+}
+
 async function buildContext(db: DbLike, orgId: string): Promise<Ctx> {
   const inputs = await loadEngineInputs(db, orgId);
+  const excerpts = await loadFitmentExcerpts(db, orgId);
   const corpus = analyseCatalogue(inputs);
   const competitors = inputs.filter((i) => i.role === 'competitor').map((i) => corpus.byVariant.get(i.variantId)!);
   return {
     corpus,
     index: buildRetrievalIndex(competitors, corpus),
     sources: new Set(inputs.filter((i) => i.role === 'source').map((i) => i.variantId)),
-    descriptions: new Map(inputs.map((i) => [i.variantId, i.description ?? null])),
+    descriptions: new Map(inputs.map((i) => [i.variantId, excerpts.get(i.productId) ?? i.description ?? null])),
     dossiers: new Map(),
     urls: new Map(),
   };
@@ -602,6 +618,7 @@ async function saveDecisions(
       gtinEqual: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value === p.cand.identifiers.gtin.value,
       gtinDiffer: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value !== p.cand.identifiers.gtin.value,
       codesAgree: !!eng?.evidence.items.some((i) => i.kind === 'identity_code' && i.effect === 'supports'),
+      domain: p.aiS.domain,
       sourceFacts: groundingText(p.aiS),
       candidateFacts: groundingText(p.aiC),
     });

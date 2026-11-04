@@ -32,11 +32,11 @@ export const AI_TYPE_LABEL: Record<AiMatchType, string> = {
   no_match_uncertain: 'No match / uncertain',
 };
 
-/** What each AI type means in the existing relationship model when a PERSON accepts it. "Close equivalent" is stored as a substitute (the finer distinction stays in the AI record and the decision note). */
+/** What each AI type means in the relationship model when a PERSON accepts it. "Close equivalent" is stored as a compatible equivalent (its own relationship, with its own price benchmark). */
 export const AI_TYPE_TO_RELATIONSHIP: Record<AiMatchType, DecidableRelationship | null> = {
   exact_item: 'exact',
   same_product_different_pack: 'variant',
-  close_equivalent: 'substitute',
+  close_equivalent: 'equivalent',
   substitute: 'substitute',
   related: 'related',
   no_match_uncertain: null,
@@ -182,7 +182,7 @@ export type AiRunRequest = z.infer<typeof aiRunSchema>;
 export const aiReviewSchema = z.object({
   action: z.enum(AI_FEEDBACK_ACTIONS),
   /** For "change": what the person says the two products are. */
-  relationship: z.enum(['exact', 'variant', 'substitute', 'related']).optional(),
+  relationship: z.enum(['exact', 'variant', 'equivalent', 'substitute', 'related']).optional(),
   /** For "choose_other": the competitor variant the person chose instead. */
   competitorVariantId: z.uuid().optional(),
   note: z.string().max(500).optional(),

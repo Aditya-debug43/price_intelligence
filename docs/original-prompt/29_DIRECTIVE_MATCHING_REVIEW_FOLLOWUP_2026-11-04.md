@@ -1,0 +1,9 @@
+# Directive 29 — implement the "Matching system review and proposed solution" guide (2026-11-04)
+
+Condensed record (the verbatim guide is in the session transcript). The request: read the whole guide and implement all of it in the existing Shelfwatch codebase — investigate, change, integrate, test, preserve human decisions and production data, avoid unrelated changes, deploy safely, and say clearly what cannot be done and why.
+
+The guide's findings (counts observed on the live site on 2026-11-04; commit 37facce): the empty "To review" tab says everything is decided although thousands of substitute/related suggestions sit outside it; Gemini suggests but does not approve; AI facts were wrong in places (Dodge Charger read as a charger, bulb length read as quantity, a named brand called unknown); candidate retrieval can lose the right variant; descriptions are loaded only for one phrase; "close equivalent" is stored as a substitute; Price Comparison lets a person-confirmed exact pair with unknown quantity count as a direct comparison, ranks before checking delisting, shows one candidate per website and omits variant titles; the page contradicts itself about suggestions; reports label variants "products".
+
+The recommended build order: (1) fix facts and price safety, (2) improve retrieval, (3) add the compatible-equivalent relationship and a hard compatibility gate, (4) evaluate in shadow mode against independent labels, (5) roll out only classes that meet a measured gate. Release gate: candidate recall at least 95%, automatic-approval precision at least 98% for exact items and automotive equivalents, match recall at least 90%, with intervals; targets of 60–70% automatic and 20–30% review are to be worked toward and measured, not claimed.
+
+What was implemented, what was not, and why: docs/ai-matching.md → "Update (directive 29)".

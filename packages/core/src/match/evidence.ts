@@ -594,6 +594,7 @@ function summarise(rel: MatchRelationship, tier: EvidenceTier, items: EvidenceIt
   const head: Record<MatchRelationship, string> = {
     exact: 'Looks like the same product',
     variant: 'Looks like the same product in a different pack, size or colour',
+    equivalent: 'Does the same job as your product for the same use (a compatible equivalent)',
     substitute: 'Could stand in for your product',
     related: 'Goes with your product but is not interchangeable',
     non_match: 'Not the same product',

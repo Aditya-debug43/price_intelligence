@@ -138,6 +138,17 @@ export const COMPANION_NOUNS = new Set([
 const FAR_COMPANION = new Set(['decoder', 'resistor', 'canceler', 'canceller', 'harness', 'adapter', 'adaptor']);
 const NOT_A_PART = /(?:decoders?|resistors?|cancell?ers?|harness(?:es)?|adapters?|adaptors?)[\s-]*(?:free|included)|(?:built[\s-]*in|without|no|includes?|including)\s+(?:\w+\s+)?(?:decoders?|resistors?|cancell?ers?|harness(?:es)?|adapters?|adaptors?)/;
 
+/**
+ * Words that are companion nouns in general but, right after a vehicle maker, are the vehicle's own name: a Dodge Charger is a car, not an electrical charger; a Chevrolet Bolt is a car,
+ * not a fastener. Kept deliberately small and explicit: each entry is a vehicle whose model name is also an accessory noun.
+ */
+const VEHICLE_NAME_AFTER_MAKER: Record<string, Set<string>> = {
+  dodge: new Set(['charger']),
+  chevrolet: new Set(['bolt']),
+  chevy: new Set(['bolt']),
+};
+const isVehicleName = (words: string[], at: number): boolean => at > 0 && !!VEHICLE_NAME_AFTER_MAKER[words[at - 1]!]?.has(words[at]!);
+
 const BUNDLE_RE =/\b(combo|kit|bundle|assortment|multi-?pack|variety pack|value pack|set of \d+)\b/g;
 
 const COLOUR_SEED = ['black', 'white', 'red', 'blue', 'green', 'yellow', 'orange', 'purple', 'pink', 'brown', 'grey', 'gray', 'silver', 'gold', 'amber', 'clear', 'beige', 'cyan', 'navy', 'teal', 'maroon', 'violet', 'turquoise', 'bronze', 'copper', 'tan', 'ivory'];
@@ -360,7 +371,8 @@ export function kindOf(title: string): { tail: string | null; companion: boolean
     const farCompanion = NOT_A_PART.test(seg) ? undefined : words.slice(-7, -3).reverse().find((w) => FAR_COMPANION.has(w));
     // "Bulb-CK Socket", "Bulb Socket Type": a bulb's own base type, not an adapter that goes with a bulb (the title still says "bulb" or "led")
     const baseType = (w: string) => (w === 'socket' || w === 'base') && words.slice(-8).some((x) => x === 'bulb' || x === 'led');
-    const comp = [...last3].reverse().find((w) => COMPANION_NOUNS.has(w) && !baseType(w)) ?? farCompanion;
+    const offset = words.length - last3.length;
+    const comp = [...last3].map((w, i) => ({ w, i: offset + i })).reverse().find(({ w, i }) => COMPANION_NOUNS.has(w) && !baseType(w) && !isVehicleName(words, i))?.w ?? farCompanion;
     return comp ? { tail: comp, companion: true, last3, last8 } : { tail: words[words.length - 1]!, companion: false, last3, last8 };
   }
   return { tail: null, companion: false, last3: [], last8: [] };

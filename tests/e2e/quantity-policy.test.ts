@@ -105,11 +105,18 @@ describe('existing pairs, before anything has been recorded about them', () => {
     expect(cell.unitDiffPct).toBeNull(); // a direct comparison carries no second, per-unit figure
   });
 
-  it('a quantity that is not stated is not taken as a match, but a person’s own confirmation still counts and says so', async () => {
+  it('a quantity that is not stated is not taken as a match, and a confirmation alone does not count: it says so, and a “same pack” attestation supplies it', async () => {
+    const first = cellOf(await comparison(), pairs.honey!)!;
+    expect(first).toBeTruthy();
+    expect(first.quantity?.verdict).toBe('unknown');
+    expect(first.directlyComparable).toBe(false);
+    expect(first.caveats.some((c) => /Quantity not verified/.test(c))).toBe(true);
+    expect(first.caveats.some((c) => /nobody has verified that the two packs hold the same quantity/.test(c))).toBe(true);
+    const r = await owner.post(`${base()}/matches/${pairs.honey!.id}/pack-attestation`, { attested: true });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
     const cell = cellOf(await comparison(), pairs.honey!)!;
-    expect(cell).toBeTruthy();
-    expect(cell.quantity?.verdict).toBe('unknown');
     expect(cell.directlyComparable).toBe(true);
+    expect(cell.quantity?.verdict).toBe('unknown'); // the evidence is still missing from the listings; the person supplied it
     expect(cell.caveats.some((c) => /Quantity not verified/.test(c))).toBe(true);
   });
 

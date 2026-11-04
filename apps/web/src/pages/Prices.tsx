@@ -2,7 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { formatDateTime } from '@ci/shared';
 import { qs } from '../api';
 import { useOrg, useOrgQuery } from '../app-shell';
-import { Card, DataState, EmptyState, PageHead, Pager, PriceTag, SiteStatusPill, Tabs } from '../ui';
+import { Card, DataState, EmptyState, PageHead, Pager, PriceTag, SiteStatusPill, SourceLink, Tabs } from '../ui';
 import type { ComparisonResponse } from '../types';
 import { UncollectedList, useCollectedCompetitors, useUncollected } from '../uncollected';
 import { awaitingNote, comparisonEmpty } from '../match-text';
@@ -28,7 +28,8 @@ export function PricesPage() {
   const d = q.data;
   const substitutes = params.view === 'substitutes';
   const related = params.view === 'related';
-  const viewName = params.view as 'prices' | 'substitutes' | 'related';
+  const equivalents = params.view === 'equivalents';
+  const viewName = params.view as 'prices' | 'substitutes' | 'equivalents' | 'related';
   const unread = useUncollected();
   const readCompetitors = useCollectedCompetitors();
   const competitors = d?.facets.competitors ?? [];
@@ -40,10 +41,10 @@ export function PricesPage() {
       <PageHead
         eyebrow="Market"
         title="Price comparison"
-        subtitle={related ? <>Products that <b>go with</b> yours but are not interchangeable (a different part, kit or variety). Shown for context: their prices are <b>not compared</b> with yours.</> : substitutes ? <>Products at your competitors that can <b>stand in for</b> yours, and are <b>never the same product</b>. The differences that matter (power, light output, size, what it fits) are listed under each price, so read them before comparing.</> : <>One row per product you sell, compared only with the <b>same product</b> or the same product in another pack. Each tag shows the price as the website displays it, how it compares after conversion to <b>{reporting}</b>, and when it was last seen.</>}
+        subtitle={equivalents ? <>Products from <b>another maker</b> that are verified to do the same job as yours for the same use. They are a <b>benchmark of their own</b>: never the same product, and never counted in your price position among identical products.</> : related ? <>Products that <b>go with</b> yours but are not interchangeable (a different part, kit or variety). Shown for context: their prices are <b>not compared</b> with yours.</> : substitutes ? <>Products at your competitors that can <b>stand in for</b> yours, and are <b>never the same product</b>. The differences that matter (power, light output, size, what it fits) are listed under each price, so read them before comparing.</> : <>One row per product you sell, compared only with the <b>same product</b> or the same product in another pack. Each tag shows the price as the website displays it, how it compares after conversion to <b>{reporting}</b>, and when it was last seen.</>}
         actions={<Link className="btn" to={`/o/${orgId}/matches`}>Review matches</Link>}
       />
-      <Tabs value={viewName} onChange={(v) => set({ view: v === 'prices' ? '' : v })} tabs={[{ id: 'prices', label: 'Same products' }, { id: 'substitutes', label: 'Substitutes' }, { id: 'related', label: 'Related' }]} />
+      <Tabs value={viewName} onChange={(v) => set({ view: v === 'prices' ? '' : v })} tabs={[{ id: 'prices', label: 'Same products' }, { id: 'equivalents', label: 'Equivalents' }, { id: 'substitutes', label: 'Substitutes' }, { id: 'related', label: 'Related' }]} />
       <div className="filters" role="search">
         <div className="field wide"><label htmlFor="f-q">Search products</label><input id="f-q" type="search" placeholder="e.g. ketchup, Heinz" defaultValue={params.q} onKeyDown={(e) => e.key === 'Enter' && set({ q: (e.target as HTMLInputElement).value })} onBlur={(e) => e.target.value !== params.q && set({ q: e.target.value })} /></div>
         <div className="field"><label htmlFor="f-c">Category</label><select id="f-c" value={params.category} onChange={(e) => set({ category: e.target.value })}><option value="">All categories</option>{d?.facets.categories.map((c) => <option key={c}>{c}</option>)}</select></div>
@@ -56,9 +57,9 @@ export function PricesPage() {
         </select></div>
       </div>
 
-      {awaitingNote(d?.matching?.awaiting ?? 0) && (
+      {awaitingNote(d?.matching?.awaiting ?? 0, params.include === 'suggested' ? 'suggested' : 'confirmed') && (
         <div className="callout info" role="status" style={{ marginBottom: 12 }}>
-          {awaitingNote(d!.matching!.awaiting)} <Link to={`/o/${orgId}/matches`}>Review them</Link>
+          {awaitingNote(d!.matching!.awaiting, params.include === 'suggested' ? 'suggested' : 'confirmed')} <Link to={`/o/${orgId}/matches`}>Review them</Link>
         </div>
       )}
       {substitutes && (
@@ -66,10 +67,15 @@ export function PricesPage() {
           A substitute is a <b>different product</b> that can stand in for yours. Its price is shown for orientation and is never counted as a price for the same product — check what differs first.{params.include === 'suggested' && <> Substitutes marked <i>suggested</i> are the matcher’s own judgement from the listings; nobody has confirmed them.</>}
         </div>
       )}
+      {equivalents && (
+        <div className="callout info" role="note" style={{ marginBottom: 12 }}>
+          A compatible equivalent is another maker’s product that has been checked to do the same job for the same use (for a vehicle part: the same bulb or socket code, position, function and fit). It is <b>not the same product</b>, so its price is a separate benchmark and never part of your position among identical products. Check what differs under each price.
+        </div>
+      )}
       {viewName === 'prices' && params.include === 'suggested' && (
         <div className="small muted" style={{ marginBottom: 8 }}>Prices marked <i>suggested</i> are for products the matcher thinks are the same but nobody has confirmed: they are shown, but never counted in “cheapest” or “most expensive”. Choose “Confirmed only” to hide them.</div>
       )}
-      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : related ? 'No related products found' : comparisonEmpty(viewName === 'related' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : related ? 'The matcher has not found a related product that goes with one of yours at the competitors collected so far.' : comparisonEmpty(viewName === 'related' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
+      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : related ? 'No related products found' : equivalents ? 'No compatible equivalents yet' : comparisonEmpty(viewName === 'related' || viewName === 'equivalents' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : related ? 'The matcher has not found a related product that goes with one of yours at the competitors collected so far.' : equivalents ? 'A compatible equivalent is another maker’s product checked to do the same job for the same use. None has been confirmed yet: an AI suggestion you accept as a close equivalent appears here.' : comparisonEmpty(viewName === 'related' || viewName === 'equivalents' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
         {(r) => (
           <Card pad={false}>
             <div className="table-wrap">
@@ -86,7 +92,7 @@ export function PricesPage() {
                     <tr key={row.sourceVariantId}>
                       <td>
                         <Link className="title" to={`/o/${orgId}/products/${row.sourceProductId}`}>{row.title}</Link>
-                        <div className="sub">{[row.brand, row.sizeLabel, row.category].filter(Boolean).join(' · ')}</div>
+                        <div className="sub">{[row.brand, row.variantTitle && row.variantTitle.toLowerCase() !== 'default title' ? row.variantTitle : null, row.sizeLabel, row.category].filter(Boolean).join(' · ')}</div>
                         {row.position !== 'no_data' && <span className={`pill ${row.position === 'cheapest' ? 'good' : row.position === 'highest' ? 'bad' : ''}`} style={{ marginTop: 4 }}>{row.position === 'cheapest' ? 'Cheapest' : row.position === 'highest' ? 'Most expensive' : row.position === 'tied' ? 'Tied' : 'In the middle'}</span>}
                       </td>
                       <td><PriceTag you site="Your shop" price={row.sourcePrice} reporting={reporting} availability={row.sourceAvailability} href={row.url ?? null} product={row.title} /></td>
@@ -102,12 +108,19 @@ export function PricesPage() {
                         return (
                           <td key={s.id}>
                             <PriceTag site={c.siteName} price={c.price} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
-                              matchLabel={(() => { const r = c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute'); return `${r === 'exact' ? 'same product' : r === 'variant' ? 'other pack' : r === 'related' ? 'related' : 'substitute'}${c.confirmation === 'suggested' ? ' · suggested' : ''}`; })()} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
+                              matchLabel={(() => { const r = c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute'); return `${r === 'exact' ? 'same product' : r === 'variant' ? 'other pack' : r === 'equivalent' ? 'compatible equivalent' : r === 'related' ? 'related' : 'substitute'}${c.confirmation === 'suggested' ? ' · suggested' : ''}`; })()} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
                             <div className="small muted" style={{ marginTop: 2 }}>{c.confirmation === 'automatic' ? 'Confirmed automatically' : c.confirmation === 'suggested' ? 'Suggested, not confirmed' : c.confirmation === 'person' ? 'Confirmed by you' : ''}</div>
-                            {(substitutes || related) && (c.differences ?? []).length > 0 && <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--amber)' }}>{(c.differences ?? []).slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul>}
+                            {c.variantTitle && c.variantTitle.toLowerCase() !== 'default title' && <div className="small muted">Variant: {c.variantTitle}</div>}
+                            {(c.alternatives ?? []).length > 0 && (
+                              <details className="ev">
+                                <summary>{c.alternatives!.length} other candidate{c.alternatives!.length === 1 ? '' : 's'} at {c.siteName}</summary>
+                                <ul>{c.alternatives!.map((a) => <li key={a.matchId}>{a.title}{a.variantTitle && a.variantTitle.toLowerCase() !== 'default title' ? ` — ${a.variantTitle}` : ''}: {a.relationship === 'exact' ? 'same product' : a.relationship === 'variant' ? 'other pack' : a.relationship === 'equivalent' ? 'compatible equivalent' : a.relationship === 'related' ? 'related' : 'substitute'}, {a.confirmation === 'suggested' ? 'suggested' : 'confirmed'}{a.price !== null ? `, ${a.price.toFixed(2)} ${a.currency ?? ''}` : ''}{a.quantity === 'unknown' ? ', quantity not verified' : ''} · <SourceLink href={a.url} product={a.title} text="View source" /></li>)}</ul>
+                              </details>
+                            )}
+                            {(substitutes || equivalents || related) && (c.differences ?? []).length > 0 && <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--amber)' }}>{(c.differences ?? []).slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul>}
                             {(c.caveats.length > 0 || c.reasons.length > 0) && (
                               <details className="ev">
-                                <summary>{(c.relationship ?? c.matchClass) === 'substitute' || c.matchClass === 'comparable' ? 'A substitute — what differs?' : 'Why this match?'}</summary>
+                                <summary>{c.relationship === 'equivalent' ? 'A compatible equivalent — what differs?' : (c.relationship ?? c.matchClass) === 'substitute' || c.matchClass === 'comparable' ? 'A substitute — what differs?' : 'Why this match?'}</summary>
                                 <div><b>{c.title}</b>{c.variantTitle ? ` — ${c.variantTitle}` : ''}</div>
                                 <ul>{(c.differences ?? []).map((x, i) => <li key={`d${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}{c.reasons.map((x, i) => <li key={i}>{x}</li>)}{c.caveats.map((x, i) => <li key={`c${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}</ul>
                               </details>

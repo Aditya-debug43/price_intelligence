@@ -74,8 +74,25 @@ describe('safeguards: the model proposes, the rules decide what may stand', () =
     expect(g.ai_match_type).toBe('close_equivalent');
     expect(g.price_comparable).toBe(false);
     expect(g.guards.map((x) => x.code)).toContain('engine_hard_conflict');
-    // "no shared identifying evidence" is not a conflict: the AI may judge it
-    expect(applyGuards(decision({ match_type: 'close_equivalent' }), ctx({ engine: { relationship: 'non_match', conflicts: [] } })).match_type).toBe('close_equivalent');
+    // "no shared identifying evidence" is not a conflict, so the AI may still judge the pair, but it cannot call it a VERIFIED equivalent: that is a substitute
+    expect(applyGuards(decision({ match_type: 'close_equivalent' }), ctx({ domain: 'automotive', codesAgree: true, engine: { relationship: 'non_match', conflicts: [] } })).match_type).toBe('substitute');
+    expect(applyGuards(decision({ match_type: 'substitute' }), ctx({ engine: { relationship: 'non_match', conflicts: [] } })).match_type).toBe('substitute');
+  });
+  it('the compatibility gate: a "close equivalent" must be verified, otherwise it is a substitute', () => {
+    const eq = (over: Partial<GuardContext>) => applyGuards(decision({ match_type: 'close_equivalent' }), ctx({ domain: 'automotive', codesAgree: true, engine: { relationship: 'substitute', conflicts: [] }, ...over }));
+    expect(eq({}).match_type).toBe('close_equivalent'); // the part code is shared, nothing conflicts, nothing is in doubt
+    expect(eq({ codesAgree: false })).toMatchObject({ match_type: 'substitute', requires_human_review: true });
+    expect(eq({ codesAgree: false }).guards.map((x) => x.code)).toContain('compat_gate');
+    expect(eq({ engine: null }).match_type).toBe('substitute');
+    expect(eq({ engine: { relationship: 'substitute', conflicts: ['Different lamp position'] } }).match_type).not.toBe('close_equivalent');
+    expect(eq({ domain: 'grocery' }).match_type).toBe('substitute'); // a lager of another brand is a substitute, never an "equivalent"
+    expect(eq({ domain: undefined }).match_type).toBe('substitute');
+    const bundle = (verdict: string) => ({ verdict, note: 'n', exclusion: null }) as unknown as GuardContext['bundle'];
+    expect(eq({ bundle: bundle('unknown') }).match_type).not.toBe('close_equivalent');
+    expect(eq({ bundle: bundle('equivalent') }).match_type).toBe('close_equivalent');
+    expect(eq({ quantity: { verdict: 'different' } as GuardContext['quantity'] }).match_type).toBe('substitute');
+    // an equivalent is never an exact item and never price-comparable as one
+    expect(eq({}).price_comparable).toBe(false);
   });
   it('keeps the bundle policy: a verified mismatch is at most related; unknown contents are never a match unless a barcode proves it', () => {
     const mismatch = { verdict: 'mismatch', note: 'one has a fog light', exclusion: 'x' } as unknown as GuardContext['bundle'];

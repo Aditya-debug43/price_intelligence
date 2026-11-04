@@ -171,7 +171,7 @@ describe('a shadow analysis', () => {
 
   it('stores suggestions in its own tables, with the model, the prompt version and the evidence', async () => {
     const run = await finish(runId);
-    expect(run.status).toBe('completed');
+    expect(run.status, run.error ?? '').toBe('completed');
     expect(run.cursor).toBe(run.sourceIds.length);
     expect(h.gemini.calls.length).toBeGreaterThan(0);
     const rows = await allSuggestions();
@@ -261,7 +261,10 @@ describe('a shadow analysis', () => {
     const now = (await suggestion(pairs.exact!))!;
     expect(now.id).toBe(old.id);
     expect(now.candidateFingerprint).not.toBe(old.candidateFingerprint);
-    expect(now.matchType).toBe('close_equivalent');
+    // the model calls it a close equivalent, but a juice of another listing is no VERIFIED compatible equivalent: the gate makes it a substitute and says so
+    expect(now.aiMatchType).toBe('close_equivalent');
+    expect(now.matchType).toBe('substitute');
+    expect(now.guards.map((g) => g.code)).toContain('compat_gate');
   });
 });
 

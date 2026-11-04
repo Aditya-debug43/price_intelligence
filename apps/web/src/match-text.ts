@@ -6,7 +6,7 @@
 export interface MatchSummaryView {
   engine: 'v1' | 'v2_shadow' | 'v2';
   lastRun: { id: string; engine: string; engineVersion: string | null; startedAt: string; finishedAt: string | null; error: string | null; stats: Record<string, unknown> } | null;
-  counts: { awaiting: number; suggestedSubstitutes?: number; autoConfirmed?: number; awaitingProductPairs?: number; unclear: number; quantityExcluded?: number; quantityExcludedConfirmed?: number; confirmedSame: number; confirmedSubstitutes: number; confirmedRelated: number; rejected: number; needLookAgain: number; setAside: number };
+  counts: { awaiting: number; suggestedSubstitutes?: number; autoConfirmed?: number; awaitingProductPairs?: number; unclear: number; quantityExcluded?: number; quantityExcludedConfirmed?: number; packUnverified?: number; confirmedSame: number; confirmedSubstitutes: number; confirmedRelated: number; rejected: number; needLookAgain: number; setAside: number };
   catalogue: { yourProducts: number; competitorProducts: number; competitorWebsites: number };
   state: 'no_competitors' | 'never_run' | 'shadow' | 'no_candidates' | 'none_confirmed' | 'ok';
   withoutCounterpart: number | null;
@@ -39,9 +39,14 @@ export function matchStateMessage(s: Pick<MatchSummaryView, 'state' | 'counts' |
 }
 
 /** The line shown above the price comparison when suggestions exist that are not in it. */
-export function awaitingNote(awaiting: number): string | null {
+export function awaitingNote(awaiting: number, include: 'suggested' | 'confirmed' = 'confirmed'): string | null {
   if (awaiting <= 0) return null;
-  return `${awaiting} suggested pair${awaiting === 1 ? '' : 's'} ${awaiting === 1 ? 'is' : 'are'} waiting for your decision in Match review and ${awaiting === 1 ? 'is' : 'are'} not shown here. Only pairs you have confirmed are compared.`;
+  const are = awaiting === 1 ? 'is' : 'are';
+  const pairs = `${awaiting} suggested pair${awaiting === 1 ? '' : 's'}`;
+  // what is shown depends on the "Show" filter: say what this page really does, not the opposite
+  return include === 'suggested'
+    ? `${pairs} ${are} waiting for your decision in Match review. Those with real evidence behind them are shown below marked “suggested”; they are never counted in “cheapest” or “most expensive”. Only pairs you have confirmed count as comparisons.`
+    : `${pairs} ${are} waiting for your decision in Match review and ${are} not shown here. Only pairs you have confirmed are compared.`;
 }
 
 /** Why a comparison view is empty, for the two views. */

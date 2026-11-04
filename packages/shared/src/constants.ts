@@ -80,7 +80,11 @@ export type MatchStatus = (typeof MATCH_STATUSES)[number];
  *  non_match    genuinely different, or decisively incompatible
  *  insufficient the information available does not support a reliable conclusion
  */
-export const MATCH_RELATIONSHIPS = ['exact', 'variant', 'substitute', 'related', 'non_match', 'insufficient'] as const;
+/**
+ * What two products are to each other. `equivalent` is a COMPATIBLE EQUIVALENT: a product from another maker that is verified to do the same job for the stated application (the same bulb
+ * socket, fit and function). It is not the same product (never in the identical-item price KPI) and not just a stand-in (a `substitute` differs in something meaningful): it has its own benchmark.
+ */
+export const MATCH_RELATIONSHIPS = ['exact', 'variant', 'equivalent', 'substitute', 'related', 'non_match', 'insufficient'] as const;
 export type MatchRelationship = (typeof MATCH_RELATIONSHIPS)[number];
 
 /** How much independent evidence stands behind a suggestion. Deliberately not a percentage: no number is shown until scores are calibrated on reviewed pairs. */
@@ -176,7 +180,7 @@ export interface BundleCheck {
 }
 
 /** The relationships a person can state when they decide (the machine never states "non_match" as a suggestion; a rejection records it). */
-export const DECIDABLE_RELATIONSHIPS = ['exact', 'variant', 'substitute', 'related'] as const;
+export const DECIDABLE_RELATIONSHIPS = ['exact', 'variant', 'equivalent', 'substitute', 'related'] as const;
 export type DecidableRelationship = (typeof DECIDABLE_RELATIONSHIPS)[number];
 
 /** Rows written before engine v2 carry only a class: this is what each class meant. */
@@ -186,12 +190,14 @@ export function relationshipOfClass(c: MatchClass): MatchRelationship {
 
 /** The class older readers understand. A relationship they have no place for ("related", "insufficient") is stored as not_comparable, so it can never be shown as a comparison. */
 export function classOfRelationship(r: MatchRelationship): MatchClass {
-  return r === 'exact' ? 'identical' : r === 'variant' ? 'different_pack' : r === 'substitute' ? 'comparable' : 'not_comparable';
+  return r === 'exact' ? 'identical' : r === 'variant' ? 'different_pack' : r === 'substitute' || r === 'equivalent' ? 'comparable' : 'not_comparable';
 }
 
 /** Which relationships feed the default Price Comparison (only after a person confirms them) and which feed the separate substitute view. */
 export const PRICE_COMPARISON_RELATIONSHIPS: readonly MatchRelationship[] = ['exact', 'variant'];
 export const SUBSTITUTE_RELATIONSHIPS: readonly MatchRelationship[] = ['substitute'];
+/** The separate benchmark of verified compatible equivalents: never counted as the same item. */
+export const EQUIVALENT_RELATIONSHIPS: readonly MatchRelationship[] = ['equivalent'];
 
 export const MATCHING_ENGINES = ['v1', 'v2_shadow', 'v2'] as const;
 export type MatchingEngine = (typeof MATCHING_ENGINES)[number];

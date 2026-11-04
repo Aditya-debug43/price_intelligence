@@ -33,6 +33,8 @@ export interface MatchSummary {
     /** Pairs left out of price comparison because the two products hold different quantities (current ones, whatever was decided about them), and how many of those a person or the matcher had confirmed. */
     quantityExcluded: number;
     quantityExcludedConfirmed: number;
+    /** Confirmed as the same product, but the packs are not shown to hold the same quantity and contents and nobody attested it: not yet counted in a direct price comparison. */
+    packUnverified: number;
     confirmedSame: number;
     confirmedSubstitutes: number;
     confirmedRelated: number;
@@ -62,6 +64,7 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
       count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class in ('identical','different_pack') and price_exclusion is null)::text as awaiting,
       count(*) filter (where price_exclusion is not null and status <> 'rejected' and superseded_at is null)::text as quantity_excluded,
       count(*) filter (where price_exclusion is not null and status = 'accepted' and superseded_at is null)::text as quantity_excluded_confirmed,
+      count(*) filter (where status = 'accepted' and pack_attested_at is null and price_exclusion is null and coalesce(relationship, case match_class when 'identical' then 'exact' else match_class end) = 'exact' and (quantity_check->>'verdict' = 'unknown' or bundle_check->>'verdict' = 'unknown'))::text as pack_unverified,
       count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class = 'comparable')::text as suggested_substitutes,
       count(*) filter (where status = 'accepted' and auto_confirmed_at is not null)::text as auto_confirmed,
       count(*) filter (where status in ('needs_review','auto') and superseded_at is null and match_class = 'not_comparable')::text as unclear,
@@ -84,7 +87,7 @@ export async function matchSummary(db: DbLike, orgId: string): Promise<MatchSumm
     where v.org_id = ${orgId} and s.active and p.delisted_at is null`);
   const k = cat.rows[0] ?? {};
   const counts = {
-    awaiting: n('awaiting'), suggestedSubstitutes: n('suggested_substitutes'), autoConfirmed: n('auto_confirmed'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), quantityExcluded: n('quantity_excluded'), quantityExcludedConfirmed: n('quantity_excluded_confirmed'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
+    awaiting: n('awaiting'), suggestedSubstitutes: n('suggested_substitutes'), autoConfirmed: n('auto_confirmed'), awaitingProductPairs: Number(pp.rows[0]?.n ?? 0), unclear: n('unclear'), quantityExcluded: n('quantity_excluded'), quantityExcludedConfirmed: n('quantity_excluded_confirmed'), packUnverified: n('pack_unverified'), confirmedSame: n('confirmed_same'), confirmedSubstitutes: n('confirmed_substitutes'), confirmedRelated: n('confirmed_related'),
     rejected: n('rejected'), needLookAgain: n('look_again'), setAside: n('set_aside'),
   };
   const catalogue = { yourProducts: Number(k['mine'] ?? 0), competitorProducts: Number(k['theirs'] ?? 0), competitorWebsites: Number(k['sites'] ?? 0) };

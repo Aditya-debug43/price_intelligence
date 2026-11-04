@@ -643,6 +643,11 @@ export const productMatches = pgTable(
     // ── bundle-contents policy (migration 0016), nullable: null = not assessed (not a lighting bundle, or written before the policy)
     /** What the policy found for two bundles (combos, kits): what each includes and whether the contents are equivalent, shown to differ, or not established. A verified mismatch sets `price_exclusion` too. */
     bundleCheck: jsonb('bundle_check').$type<BundleCheck>(),
+    // ── pack attestation (migration 0019), nullable. A person's confirmation says what the two products ARE to each other; it does not say the two packs hold the same quantity and contents.
+    // When the listings do not establish that, a person can attest it explicitly, and only then does the pair count in a direct price comparison. It never overrides a quantity or a bundle shown to differ.
+    packAttestedBy: uuid('pack_attested_by').references(() => users.id, { onDelete: 'set null' }),
+    packAttestedAt: ts('pack_attested_at'),
+    packAttestationNote: text('pack_attestation_note'),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },

@@ -69,3 +69,50 @@ This is a smoke test, **not an accuracy measurement**.
 * A free-tier daily request limit exists but its size is unknown; very large analyses must be run in slices over several days.
 * Review is admin-only. The screen was typechecked and built but no browser-level test of the tab exists yet (component render tests still to do).
 * Grocery workspaces have not yet had a production AI run.
+
+---
+
+# Update (directive 29, 2026-11-04): facts, price safety, compatible equivalents
+
+Status: **built, tested and committed locally; NOT yet deployed** (the server was unreachable: the laptop's address changed and only the owner can allow the new one in the AWS security group). Deploy = push, then `sudo shelfwatch-update` immediately (migration 0019, additive).
+
+## What the review found, and what changed
+
+| Finding | Change | Where |
+|---|---|---|
+| A **Dodge Charger** was read as an electrical "charger" accessory | A companion noun right after a vehicle maker is the vehicle's name (Dodge Charger, Chevrolet Bolt) | `core/match/dossier.ts` `isVehicleName` |
+| A **42 mm** bulb vs a **41 mm** bulb "held different quantities" | A length on a bulb, lamp or fitting is a physical dimension, never the amount sold; the quantity comes from a count or stays unknown. Cable, tape, ribbon… still count by length | `core/quantity-policy.ts` `DIMENSIONAL_ITEM` |
+| **Belga Star** called brand-unknown although the title names it | The AI is shown how an unbranded title begins (`title_begins_with`), and the prompt says never to call a named brand unknown | `core/ai/dossier.ts`, `prompt.ts` (prompt v3, dossier v2) |
+| Descriptions loaded only if they contain "location bulb size" | The AI now also gets a short, markup-free excerpt around the first mention of fitment, compatibility, package contents or the bulb chart (the rule engine still reads only the chart, so matching is unchanged) | `services/ai-match.ts` `loadFitmentExcerpts` |
+| A person's confirmation silently established equal pack contents | A confirmed pair whose listings do not establish quantity/bundle contents is **not** a direct price comparison until a person attests "same pack" (`POST /matches/:id/pack-attestation`, button on the card, audit event). It never overrides a quantity or bundle shown to differ. Decisions themselves are untouched | `services/comparison.ts`, `services/matching.ts attestPack`, migration 0019 |
+| A pair marked "needs reevaluation" still fed price conclusions | It is excluded from direct comparison until the person has checked it again ("Keep my decision") | `services/comparison.ts` |
+| The best candidate was chosen **before** checking it was delisted | Only live candidates are ranked; the other valid candidates at the same website are listed under the best one (`alternatives`, at most three) | `services/comparison.ts` |
+| Rows omitted variant titles; Match review cards omitted part numbers | Variant name and part number/SKU on Match review and Price comparison | `Matches.tsx`, `Prices.tsx`, `queries.ts` |
+| "Every suggestion has been decided" (an empty *To review* tab) | Says what the list is: only same-product suggestions; shows the number of suggested substitutes and related/unclear pairs that sit in other tabs | `Matches.tsx` |
+| Price page said both "Confirmed and suggested" and "suggestions are not shown" | The note now follows the "Show" filter | `match-text.ts awaitingNote` |
+| "Has a match" counted suggestions | **Has a confirmed match** / **No confirmed match** | `queries.ts`, `Products.tsx` |
+| Manual "Choose a different product" searched names/SKU/barcode only | Also manufacturer part number, model, bulb codes under any of their names (searching H11 finds H8 listings), and vehicle words | `services/matching.ts matchesSearch` |
+| The correct *variant* could disappear before judgment | Up to three variants of each competitor product go through the evidence check and the best by evidence represents the product | `core/ai/retrieval.ts` `variantsPerProduct` |
+
+## Compatible equivalent is a real relationship
+
+`equivalent` is now a relationship (stored in `product_matches.relationship`, class `comparable`; no schema change). It is **not** the same product and not a mere substitute: it has its own **Price comparison → Equivalents** view, is never counted in the identical-item price position (`directlyComparable` is false) and appears in none of the other views. An AI "close equivalent" accepted by a person is stored as `equivalent`. People can also choose it manually in Match review.
+
+**The compatibility gate** (`core/ai/guard.ts`): the AI's "close equivalent" stands only for a part whose fit can be checked (automotive) when the rule engine found the bulb/socket code to be the same and found no decisive difference, and the bundle contents and quantity are not in doubt. Otherwise it is recorded as a **substitute** with the reason (`compat_gate`). Food, drink and other consumables are never "equivalents". The prompt also says a 24-pack is not a 6-pack and an alcohol-free drink is not the alcoholic one.
+
+## Release gate for automatic approval (not enabled)
+
+`core/ai/gate.ts` computes, with Wilson 95% intervals, candidate recall (at least 95%), automatic-approval precision (at least 98%), match recall (at least 90%), and refuses to pass a class with fewer than 100 labelled examples. **No class of automatic approval is switched on**: that needs an independently labelled test set (automotive cases labelled by someone who knows the parts, kept out of development and tuning), which does not exist yet. Until then AI output stays a suggestion and the 60–70% / 20–30% figures are targets, not claims.
+
+## Gemini free-tier scale (for planning)
+
+At the application's own cap of 200 requests per Pacific day and about 10 pair decisions per fully packed request, one day analyses about 2,000 pairs. 5,000 variants × 3 websites × 3 candidates is about 45,000 decisions, about 4,500 requests, about **23 days**. The free tier is workable only if local rules decide most cases and Gemini sees just the uncertain shortlist. The actual Google allowance is per project and was not observed beyond 15 requests a minute; do not split work across keys.
+
+## Pending / not done
+
+* Automatic approval of any class (needs the independent labelled set and the measured gate).
+* Variant-level candidate-recall *measurement* on real labels (retrieval now keeps variants through the check; `scripts/ai-eval-retrieval.ts` still reports product-level recall).
+* Semantic (embedding) retrieval: the production path passes no semantic results; enabling it needs `GEMINI_EMBEDDING_MODEL`, cached vectors and wiring into `retrieveShortlist`.
+* The rule engine's own per-website cap (three suggestions, two substitutes) is unchanged: it is a display limit, not the retrieval used for AI.
+* Reports draw on the same-product view only, so equivalents are in no report; separate report counts for parent products / variants / confirmed / suggested / directly comparable are not yet split out.
+* Existing confirmations whose packs are unknown now show under **Match review → Packs not verified** and drop out of the direct price comparison until attested. This is deliberate and visibly changes the headline figures.

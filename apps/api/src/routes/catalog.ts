@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DEFAULTS, EVIDENCE_TIERS, MATCH_CLASSES, MATCH_RELATIONSHIPS, bulkAcceptSchema, connectionSyncHealth, MATCH_STATUSES, manualMatchSchema, matchDecisionSchema, offerReviewSchema, paginationSchema, variantThresholdSchema, type ComparisonRow, type ReportData } from '@ci/shared';
 import { integrationConnections, matchEvents, productMatches, reports, sites } from '@ci/database';
 import {
-  bulkAcceptMatches, dataQuality, decideMatch, rejectProductPair, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
+  attestPack, bulkAcceptMatches, dataQuality, decideMatch, rejectProductPair, ensureFxRates, getEvidence, getProductDetail, getSettings, listMatches, listProducts, loadAssortment, loadComparison, loadCoverage, loadDashboard, loadFxTable, loadMarketing, loadMarketingSummary, loadOffers, loadSiteMaps,
   loadStock, setVariantThreshold, assertCanMatch, loadReadiness, loadJourney, searchMatchCandidates, setManualMatch, reviewOffer, matchSummary,
 } from '@ci/services';
 import { HttpError, parse, requireRole } from '../app.ts';
@@ -77,7 +77,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get('/matches', async (req) => {
     const q = parse(
       paginationSchema.extend({
-        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside', 'quantity']).optional(),
+        bucket: z.enum(['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'look_again', 'set_aside', 'quantity', 'pack_unverified']).optional(),
         status: z.enum(MATCH_STATUSES).optional(),
         class: z.enum(MATCH_CLASSES).optional(),
         relationship: z.enum(MATCH_RELATIONSHIPS).optional(),
@@ -142,6 +142,14 @@ export async function catalogRoutes(app: FastifyInstance) {
     return req.tx((tx) => bulkAcceptMatches(tx, req.orgId!, req.user!.id, body, app.svc.clock()));
   });
 
+  /** A person says the two packs of a confirmed pair hold the same quantity and contents (or withdraws that): what lets a pair the listings do not settle count in a direct price comparison. */
+  app.post('/matches/:matchId/pack-attestation', async (req) => {
+    requireRole(req, 'admin');
+    const { matchId } = parse(z.object({ matchId: uuid }), req.params);
+    const body = parse(z.object({ attested: z.boolean(), note: z.string().max(500).optional() }), req.body);
+    return { match: await req.tx((tx) => attestPack(tx, req.orgId!, matchId, req.user!.id, body, app.svc.clock())) };
+  });
+
   app.post('/matches/:matchId/decision', async (req) => {
     const { matchId } = parse(z.object({ matchId: uuid }), req.params);
     const body = parse(matchDecisionSchema, req.body);
@@ -155,7 +163,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         q: z.string().max(200).optional(),
         category: z.string().max(200).optional(),
         siteId: uuid.optional(),
-        view: z.enum(['prices', 'substitutes', 'related']).default('prices'),
+        view: z.enum(['prices', 'substitutes', 'equivalents', 'related']).default('prices'),
         include: z.enum(['confirmed', 'suggested']).default('confirmed'),
         matchClass: z.enum(MATCH_CLASSES).optional(),
         freshness: z.enum(['fresh', 'stale', 'any']).default('any'),

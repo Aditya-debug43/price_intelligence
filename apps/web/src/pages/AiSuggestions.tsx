@@ -14,16 +14,17 @@ const TYPE_PILL: Record<AiMatchType, string> = { exact_item: 'good', same_produc
 const TYPE_HELP: Record<AiMatchType, string> = {
   exact_item: 'The same product from the same maker, in the same size and pack.',
   same_product_different_pack: 'The same product, but the size or the number in the pack differs. It is not compared on price.',
-  close_equivalent: 'A different item that matches in purpose and in the specifications that matter. Saved as a substitute if you accept it.',
+  close_equivalent: 'Another maker’s product verified to do the same job for the same use (the same bulb or socket code, position, function and fit). Saved as a compatible equivalent if you accept it: never the same product.',
   substitute: 'Does the same job, but differs in something meaningful.',
   related: 'Goes with the product, but cannot replace it.',
   no_match_uncertain: 'Nothing suitable here, or not enough information to say.',
 };
 const CONFIDENCE: Record<string, { label: string; cls: string }> = { high: { label: 'High confidence', cls: 'good' }, medium: { label: 'Medium confidence', cls: 'info' }, low: { label: 'Low confidence', cls: 'warn' } };
-const REL_LABEL: Record<string, string> = { exact: 'the same product', variant: 'the same product, different pack', substitute: 'a substitute', related: 'related only', non_match: 'not a match', insufficient: 'not enough information' };
+const REL_LABEL: Record<string, string> = { exact: 'the same product', variant: 'the same product, different pack', equivalent: 'a compatible equivalent', substitute: 'a substitute', related: 'related only', non_match: 'not a match', insufficient: 'not enough information' };
 const RELATIONSHIPS = [
   ['exact', 'The same product'],
   ['variant', 'The same product, different pack, size or colour'],
+  ['equivalent', 'A compatible equivalent (another maker, verified to do the same job)'],
   ['substitute', 'A substitute (not the same product)'],
   ['related', 'Related only (goes with it, not interchangeable)'],
 ] as const;
@@ -240,7 +241,7 @@ export function AiSuggestionCard({ s, orgId, isAdmin, actions }: { s: AiSuggesti
       {canAct && actions && (
         <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
           {accept && s.matchType !== 'no_match_uncertain' && (
-            <button className="btn btn-sm btn-primary" disabled={actions.busy} onClick={actions.onAccept} title={`Saves your decision: ${accept}${s.matchType === 'close_equivalent' ? ' (a close equivalent is stored as a substitute)' : ''}.`}>Yes — {accept}</button>
+            <button className="btn btn-sm btn-primary" disabled={actions.busy} onClick={actions.onAccept} title={`Saves your decision: ${accept}.`}>Yes — {accept}</button>
           )}
           <select aria-label="Change what these products are" value={rel} onChange={(e) => setRel(e.target.value)} style={{ maxWidth: 260 }}>
             {RELATIONSHIPS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}

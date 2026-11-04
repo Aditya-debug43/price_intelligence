@@ -44,6 +44,11 @@ const comparison = async () => (await owner.get(`${base()}/comparison?pageSize=5
 const cellOf = (rows: Awaited<ReturnType<typeof comparison>>, p: Pair) => rows.find((r) => r.sourceVariantId === p.s)?.cells.find((c) => c.variantId === p.c);
 /** a row written before the policy existed: no record of either check */
 const forget = (id: string) => db().update(productMatches).set({ priceExclusion: null, priceExcludedAt: null, quantityCheck: null, bundleCheck: null }).where(eq(productMatches.id, id));
+/** A person says the two packs hold the same quantity and contents: what a confirmed pair the listings do not settle needs before it counts in a direct price comparison. */
+const attestPack = async (p: { id?: string }) => {
+  const r = await owner.post(`${base()}/matches/${p.id}/pack-attestation`, { attested: true, note: 'Checked both packs' });
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
+};
 const manual = async (p: Pair, note: string) => {
   const r = await owner.post(`${base()}/matches/manual`, { sourceVariantId: p.s, competitorVariantId: p.c, matchClass: 'identical', note });
   expect(r.status).toBe(201);
@@ -113,6 +118,11 @@ describe('a person records a pair whose bundles differ', () => {
   it('a pair of bundles with equal contents recorded the same way is compared as usual', async () => {
     await manual(pairs.eq!, 'Same combo');
     expect((await policyColumns(pairs.eq!.id!)).ex).toBeNull();
+    // the contents are the same, but neither title states a quantity: a confirmation alone is not a statement about the packs
+    const before = cellOf(await comparison(), pairs.eq!)!;
+    expect(before.bundle?.verdict).toBe('equivalent');
+    expect(before.directlyComparable).toBe(false);
+    await attestPack(pairs.eq!);
     const cell = cellOf(await comparison(), pairs.eq!)!;
     expect(cell.directlyComparable).toBe(true);
     expect(cell.bundle?.verdict).toBe('equivalent');
@@ -208,6 +218,7 @@ describe('what the price comparison and the review screens do afterwards', () =>
   });
 
   it('bundles with the same contents stay comparable, colour options included', async () => {
+    for (const k of ['eq', 'colour']) await attestPack(pairs[k]!);
     const rows = await comparison();
     for (const k of ['eq', 'colour']) {
       const cell = cellOf(rows, pairs[k]!)!;
@@ -218,21 +229,28 @@ describe('what the price comparison and the review screens do afterwards', () =>
   });
 
   it('a source product with another valid competitor match keeps that comparison: only the invalid pair is excluded', async () => {
+    await attestPack(pairs.extra2!);
     const row = (await comparison()).find((r) => r.sourceVariantId === pairs.extra!.s)!;
     expect(row.cells.map((c) => c.variantId)).toEqual([pairs.extra2!.c]);
     expect(row.cells[0]!.directlyComparable).toBe(true);
     expect(row.cells[0]!.bundle?.verdict).toBe('equivalent');
   });
 
-  it('contents that are not established are not treated as different: a person’s own confirmation still counts, and says so', async () => {
+  it('contents that are not established are not treated as different, but a confirmation alone does not count: it says so, and a “same pack” attestation supplies it', async () => {
+    const first = cellOf(await comparison(), pairs.unknown!)!;
+    expect(first).toBeTruthy();
+    expect(first.bundle?.verdict).toBe('unknown');
+    expect(first.directlyComparable).toBe(false);
+    expect(first.caveats.some((c) => /Bundle contents not verified/.test(c))).toBe(true);
+    expect(first.caveats.some((c) => /nobody has verified that the two packs hold the same quantity/.test(c))).toBe(true);
+    await attestPack(pairs.unknown!);
     const cell = cellOf(await comparison(), pairs.unknown!)!;
-    expect(cell).toBeTruthy();
-    expect(cell.bundle?.verdict).toBe('unknown');
     expect(cell.directlyComparable).toBe(true);
     expect(cell.caveats.some((c) => /Bundle contents not verified/.test(c))).toBe(true);
   });
 
   it('a product that is not a lighting bundle is untouched by the policy', async () => {
+    await attestPack(pairs.honey!); // no quantity is stated on either listing
     const cell = cellOf(await comparison(), pairs.honey!)!;
     expect(cell).toBeTruthy();
     expect(cell.bundle).toBeUndefined();

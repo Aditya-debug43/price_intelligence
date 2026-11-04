@@ -97,6 +97,14 @@ function lengthOrArea(text: string): Pick<MeasuredQuantity, 'dimension' | 'total
   return null;
 }
 
+/**
+ * Things whose stated length or width is a PHYSICAL DIMENSION (a 42 mm festoon bulb, a 31 mm dome lamp, a 5 mm LED), never how much is sold: a bulb is not sold "by the millimetre".
+ * Reading such a length as the quantity made a 42 mm bulb and a 41 mm bulb "hold different quantities" and left the pair out of every price comparison. For these a length is a
+ * specification (kept by the dossier as length_mm); the quantity comes from a count ("2 bulbs", "2-pack") or stays unknown. Things really sold by length (cable, tape, hose, ribbon,
+ * a roll of film) are not matched here, so their length is still their quantity.
+ */
+const DIMENSIONAL_ITEM = /\b(?:bulbs?|lamps?|led|leds|festoon|wedge|halogen|hid|xenon|capsule|headlights?|taillights?|tail lights?|fog lights?|brake lights?|turn signals?|dome lights?|interior lights?|license plate|fuses?|relays?|sockets?|connectors?|retainers?|adapters?|decoders?|resistors?|wipers?|blades?|bezels?|lens(?:es)?)\b/i;
+
 /** A few counts the size parser does not know ("60 sheets", "30 tablets"): read only when nothing else states a size. */
 const COUNT_NOUNS = 'sheets?|wipes?|tablets?|capsules?|softgels?|caplets?|pods?';
 function extraCount(text: string): Pick<MeasuredQuantity, 'dimension' | 'total' | 'unitAmount' | 'packCount' | 'label'> | null {
@@ -148,7 +156,9 @@ export function measureQuantity(parsed: ParsedQuantity, t: QuantityTexts): Measu
     const q = parseQuantity(v);
     if (q.kind !== 'unknown') return fromParsed(q, 'option');
   }
-  const own = lengthOrArea(t.title) ?? optionValues.map(lengthOrArea).find(Boolean) ?? null;
+  // a length on a bulb, a lamp, a fitting or a mat is a dimension of the thing, not the amount sold (see DIMENSIONAL_ITEM)
+  const dimensional = DIMENSIONAL_ITEM.test(t.title);
+  const own = dimensional ? null : lengthOrArea(t.title) ?? optionValues.map(lengthOrArea).find(Boolean) ?? null;
   if (own) return { ...own, source: 'title', doubt: null };
   const count = extraCount(t.title);
   if (count) return { ...count, source: 'title', doubt: null };

@@ -19,6 +19,9 @@ interface MatchRow {
   groupSize?: number;
   /** The quantity policy: set when the two products hold different quantities, so the pair is left out of price comparison (a decision on it is untouched). */
   priceExclusion?: string | null;
+  /** A person said the two packs hold the same quantity and contents (what lets a confirmed pair the listings do not settle count in a price comparison). */
+  packAttestedAt?: string | null;
+  sourceMpn?: string | null; competitorMpn?: string | null;
   quantityCheck?: { verdict: string; note: string; a: { label: string | null }; b: { label: string | null }; packaging?: { differs: boolean } } | null;
   /** The bundle-contents policy: what each of two bundles (combos, kits) includes, and whether the contents are the same, different, or not established. */
   bundleCheck?: { verdict: string; note: string; a: { items: string[]; without: string[] }; b: { items: string[]; without: string[] }; onlyA: string[]; onlyB: string[] } | null;
@@ -30,24 +33,28 @@ interface Candidate {
   suggestion: { relationship: string; tier: string; summary: string; reasons: string[] } | null;
 }
 
-type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity';
+type Bucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity' | 'pack_unverified';
 
 /** What a person can say two products are. The wording is the contract: a stand-in is never called the same product. */
 const RELATIONSHIPS = [
   ['exact', 'The same product'],
   ['variant', 'The same product, different pack, size or colour'],
+  ['equivalent', 'A compatible equivalent (another maker, verified to do the same job)'],
   ['substitute', 'A substitute (not the same product)'],
   ['related', 'Related only (goes with it, not interchangeable)'],
 ] as const;
 const REL_LABEL: Record<string, string> = {
-  exact: 'Same product', variant: 'Same product, other pack or colour', substitute: 'Substitute', related: 'Related product', non_match: 'Not a match', insufficient: 'Not enough information',
+  exact: 'Same product', variant: 'Same product, other pack or colour', equivalent: 'Compatible equivalent', substitute: 'Substitute', related: 'Related product', non_match: 'Not a match', insufficient: 'Not enough information',
 };
 const REL_HELP: Record<string, string> = {
   exact: 'The same product from the same maker.', variant: 'The same product, but a different pack size, quantity or colour. When the quantity differs the pair is not compared on price.', substitute: 'A different product that can stand in for yours. It is never shown as the same product.',
+  equivalent: 'A product from another maker that is verified to do the same job for the same use. It is not the same product: it has its own price benchmark and never counts as the same item.',
   related: 'It goes with your product but cannot replace it.', non_match: 'Different products.', insufficient: 'The listings do not say enough to tell.',
 };
 const TIER_LABEL: Record<string, string> = { strong: 'Strong evidence', medium: 'Some evidence', insufficient: 'Not enough evidence' };
 const bundleItems = (s: { items: string[]; without: string[] }) => (s.items.length ? s.items.join(' + ') : 'contents not stated') + (s.without.length ? ` (without ${s.without.join(', ')})` : '');
+/** The variant's own name ("Left", "Red / 2 pack"), left out when the shop only has the default one. */
+const variantName = (v: string | null): string | null => (v && v.toLowerCase() !== 'default title' ? v : null);
 const money = (p: number | null, c: string | null) => (p === null ? '—' : `${p.toFixed(2)} ${c ?? '?'}`);
 
 const EFFECT: Record<EvidenceItem['effect'], { icon: string; label: string; cls: string }> = {
@@ -74,6 +81,11 @@ export function MatchesPage() {
     refresh,
     () => toast.push('Decision saved. It is kept every time matching runs again.'),
   );
+  const attest = useOrgMutation(
+    (id, v: { id: string; attested: boolean }) => api.post(orgPath(id, `/matches/${v.id}/pack-attestation`), { attested: v.attested }),
+    refresh,
+    (_r, v) => toast.push(v.attested ? 'Saved: you checked that the two packs hold the same quantity and contents. The pair now counts in the price comparison.' : 'Withdrawn: the pair no longer counts in the price comparison until the packs are verified.'),
+  );
   const rerun = useOrgMutation((id, _: void) => api.post(orgPath(id, '/matches/run')), refresh, () => toast.push('Matching started. Suggestions appear here when it finishes.'));
   const rejectGroup = useOrgMutation(
     (id, v: { sourceProductId: string; competitorProductId: string }) => api.post<{ rejected: number }>(orgPath(id, '/matches/product-pair/reject'), v),
@@ -81,7 +93,7 @@ export function MatchesPage() {
     (r) => toast.push(`${r.rejected} suggestion${r.rejected === 1 ? '' : 's'} for these two products marked as not a match. Your decision is kept every time matching runs again.`),
   );
   const s = summary.data;
-  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside, quantity: s.counts.quantityExcluded ?? 0 }[b]) : null);
+  const count = (b: Bucket) => (s ? ({ review: s.counts.awaitingProductPairs ?? s.counts.awaiting, substitutes: s.counts.suggestedSubstitutes ?? 0, unclear: s.counts.unclear, confirmed: s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.confirmedRelated, rejected: s.counts.rejected, look_again: s.counts.needLookAgain, set_aside: s.counts.setAside, quantity: s.counts.quantityExcluded ?? 0, pack_unverified: s.counts.packUnverified ?? 0 }[b]) : null);
   const label = (text: string, b: Bucket) => (count(b) === null ? text : `${text} (${count(b)})`);
   const tabs: { id: Bucket | 'ai'; label: string }[] = [
     { id: 'review', label: label('To review', 'review') },
@@ -90,6 +102,7 @@ export function MatchesPage() {
     { id: 'confirmed', label: label('Confirmed', 'confirmed') },
     { id: 'rejected', label: label('Not a match', 'rejected') },
     ...((count('quantity') ?? 0) > 0 ? [{ id: 'quantity' as Bucket, label: label('Not compared', 'quantity') }] : []),
+    ...((count('pack_unverified') ?? 0) > 0 ? [{ id: 'pack_unverified' as Bucket, label: label('Packs not verified', 'pack_unverified') }] : []),
     ...((count('look_again') ?? 0) > 0 ? [{ id: 'look_again' as Bucket, label: label('Look again', 'look_again') }] : []),
     ...((count('set_aside') ?? 0) > 0 ? [{ id: 'set_aside' as Bucket, label: label('Set aside', 'set_aside') }] : []),
     { id: 'ai', label: ai.data && ai.data.counts.pending > 0 ? `AI suggestions (${ai.data.counts.pending})` : 'AI suggestions' },
@@ -104,7 +117,12 @@ export function MatchesPage() {
       />
       {s && s.engine === 'v2_shadow' && <div className="callout info" role="status" style={{ marginBottom: 12 }}>The new matcher is being tested alongside the old one. It records what it would suggest but changes nothing you see here.</div>}
       {isAdmin && tab === 'review' && (q.data?.total ?? 0) > 0 && <BulkAccept />}
-      {(decide.error || rerun.error || rejectGroup.error) && <div className="callout bad" role="alert" style={{ marginBottom: 12 }}>{errorMessage(decide.error ?? rerun.error ?? rejectGroup.error)}</div>}
+      {(decide.error || rerun.error || rejectGroup.error || attest.error) && <div className="callout bad" role="alert" style={{ marginBottom: 12 }}>{errorMessage(decide.error ?? rerun.error ?? rejectGroup.error ?? attest.error)}</div>}
+      {tab === 'review' && s && (s.counts.suggestedSubstitutes ?? 0) + s.counts.unclear > 0 && (
+        <div className="callout info" role="note" style={{ marginBottom: 8 }}>
+          This list holds only suggestions that two products are <b>the same product</b> or the same product in another pack. It being empty does not mean everything has been checked: {s.counts.suggestedSubstitutes ?? 0} suggested substitute{(s.counts.suggestedSubstitutes ?? 0) === 1 ? '' : 's'} and {s.counts.unclear} related or unclear pair{s.counts.unclear === 1 ? '' : 's'} are in their own tabs, and nobody has necessarily looked at them.
+        </div>
+      )}
       {tab === 'review' && s && s.counts.awaitingProductPairs !== undefined && s.counts.awaitingProductPairs < s.counts.awaiting && (
         <div className="small muted" style={{ marginBottom: 8 }}>{s.counts.awaitingProductPairs} product pairs to look at, covering {s.counts.awaiting} variant pairs: a product with several variants is one item here; open it to see its variants.</div>
       )}
@@ -123,7 +141,7 @@ export function MatchesPage() {
         {(d) => (
           <Card pad={false}>
             {d.rows.map((m) => (
-              <MatchCard key={m.id} m={m} orgId={orgId} isAdmin={isAdmin} onDecide={(v) => decide.mutate({ id: m.id, ...v })} onChoose={() => setChoosing(m)}
+              <MatchCard key={m.id} m={m} orgId={orgId} isAdmin={isAdmin} onDecide={(v) => decide.mutate({ id: m.id, ...v })} onChoose={() => setChoosing(m)} onAttest={(attested) => attest.mutate({ id: m.id, attested })}
                 group={(m.groupSize ?? 1) > 1 ? { onDecideMember: (id, v) => decide.mutate({ id, ...v }), onChooseMember: setChoosing, onRejectAll: () => rejectGroup.mutate({ sourceProductId: m.sourceProductId, competitorProductId: m.competitorProductId }), busy: rejectGroup.isPending } : undefined} />
             ))}
             <Pager page={page} pageSize={15} total={d.total} onPage={setPage} />
@@ -138,7 +156,7 @@ export function MatchesPage() {
 function emptyTitle(tab: Bucket | 'ai', s: MatchSummaryView | undefined): string {
   if (tab === 'review') {
     if (!s) return 'Nothing to show';
-    return s.state === 'ok' || s.state === 'none_confirmed' ? (s.counts.awaiting === 0 && (s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.rejected) > 0 ? 'Every suggestion has been decided' : 'Nothing is waiting for review') : matchStateMessage(s).title;
+    return s.state === 'ok' || s.state === 'none_confirmed' ? (s.counts.awaiting === 0 && (s.counts.confirmedSame + s.counts.confirmedSubstitutes + s.counts.rejected) > 0 ? 'No same-product suggestion is waiting' : 'Nothing is waiting for review') : matchStateMessage(s).title;
   }
   return 'Nothing here';
 }
@@ -149,6 +167,7 @@ function emptyText(tab: Bucket | 'ai', s: MatchSummaryView | undefined) {
   if (tab === 'unclear') return 'Related products and pairs without enough information are kept here for reference. They never count as work to do and never appear in a price comparison.';
   if (tab === 'confirmed') return 'Nothing confirmed yet. Confirm a suggestion and it is kept here, and used in the price comparison once it is the same product, or in the substitutes view once it is a substitute.';
   if (tab === 'rejected') return 'You have not rejected any suggestions. A rejected pair is never suggested again.';
+  if (tab === 'pack_unverified') return 'Every confirmed same-product pair has its packs verified.';
   if (tab === 'quantity') return 'No pair is left out of price comparison for holding different quantities or different bundle contents.';
   if (tab === 'look_again') return 'No decided pair has a changed product.';
   return 'The matcher has not set any earlier suggestion aside.';
@@ -202,7 +221,7 @@ function GroupBar({ m, orgId, isAdmin, g }: { m: MatchRow; orgId: string; isAdmi
   );
 }
 
-function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchRow; orgId: string; isAdmin: boolean; onDecide: (v: { decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => void; onChoose: () => void; group?: GroupHandlers }) {
+function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, onAttest, group }: { m: MatchRow; orgId: string; isAdmin: boolean; onDecide: (v: { decision: 'accept' | 'reject' | 'reclassify'; relationship?: string }) => void; onChoose: () => void; onAttest?: (attested: boolean) => void; group?: GroupHandlers }) {
   const decided = m.status === 'accepted' || m.status === 'rejected';
   const earlier = m.engineVersion == null;
   const rel = m.relationship ?? ({ identical: 'exact', different_pack: 'variant', comparable: 'substitute' } as Record<string, string>)[m.matchClass] ?? 'non_match';
@@ -212,13 +231,13 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
         <div>
           <div className="small muted">Your product</div>
           <Link className="title" to={`/o/${orgId}/products/${m.sourceProductId}`}>{m.sourceTitle}</Link>
-          <div className="sub">{[m.sourceBrand, m.sourceSize].filter(Boolean).join(' · ')} · <b className="num">{money(m.sourcePrice, m.sourceCurrency)}</b></div>
+          <div className="sub">{[m.sourceBrand, variantName(m.sourceVariantTitle), m.sourceSize, m.sourceMpn ? `Part ${m.sourceMpn}` : m.sourceSku ? `SKU ${m.sourceSku}` : null].filter(Boolean).join(' · ')} · <b className="num">{money(m.sourcePrice, m.sourceCurrency)}</b></div>
         </div>
         <span aria-hidden="true" style={{ fontSize: 22, color: 'var(--mute)' }}>≟</span>
         <div>
           <div className="small muted">{m.competitorSite}</div>
           <Link className="title" to={`/o/${orgId}/products/${m.competitorProductId}`}>{m.competitorTitle}</Link>
-          <div className="sub">{[m.competitorBrand, m.competitorSize].filter(Boolean).join(' · ')} · <b className="num">{money(m.competitorPrice, m.competitorCurrency)}</b></div>
+          <div className="sub">{[m.competitorBrand, variantName(m.competitorVariantTitle), m.competitorSize, m.competitorMpn ? `Part ${m.competitorMpn}` : m.competitorSku ? `SKU ${m.competitorSku}` : null].filter(Boolean).join(' · ')} · <b className="num">{money(m.competitorPrice, m.competitorCurrency)}</b></div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <span className="pill info" title={REL_HELP[rel]}>{REL_LABEL[rel] ?? rel}</span>
@@ -244,6 +263,14 @@ function MatchCard({ m, orgId, isAdmin, onDecide, onChoose, group }: { m: MatchR
           {decided && <> <b>Your decision on this pair is kept</b>; the pair is just not used for price until the quantities agree.</>}
         </div>
       ) : null}
+      {m.status === 'accepted' && rel === 'exact' && !m.priceExclusion && (m.quantityCheck?.verdict === 'unknown' || m.bundleCheck?.verdict === 'unknown') && (
+        <div className="callout warn" role="status" style={{ margin: '8px 0' }}>
+          {m.packAttestedAt
+            ? <><b>You checked that the two packs hold the same quantity and contents,</b> so this pair counts in the price comparison.</>
+            : <><b>Not counted as a direct price comparison yet.</b> You confirmed these are the same product, but the listings do not say that the two packs hold the same quantity{m.bundleCheck?.verdict === 'unknown' ? ' and contents' : ''}, and a confirmation does not say so by itself.</>}
+          {isAdmin && onAttest && <> <button className="btn btn-sm" onClick={() => onAttest(!m.packAttestedAt)}>{m.packAttestedAt ? 'Withdraw my “same pack” check' : 'Same pack: I checked'}</button></>}
+        </div>
+      )}
       {m.needsReevaluation && (
         <div className="callout info" role="status" style={{ margin: '8px 0' }}>
           A product in this pair changed after you decided. <b>Your decision still stands</b> — look at the two products again and, if it still holds, keep it.

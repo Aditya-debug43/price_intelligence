@@ -80,8 +80,8 @@ export async function listProducts(db: DbLike, orgId: string, f: ProductFilter, 
   if (f.siteId) conds.push(eq(variants.siteId, f.siteId));
   if (f.q) conds.push(ilike(products.title, `%${f.q.replace(/[%_]/g, (c) => `\\${c}`)}%`));
   conds.push(f.delisted ? isNotNull(products.delistedAt) : isNull(products.delistedAt));
-  if (f.matched === 'yes') conds.push(sql`exists (select 1 from product_matches m where (m.source_variant_id = ${variants.id} or m.competitor_variant_id = ${variants.id}) and m.status <> 'rejected' and m.match_class <> 'not_comparable')`);
-  if (f.matched === 'no') conds.push(sql`not exists (select 1 from product_matches m where (m.source_variant_id = ${variants.id} or m.competitor_variant_id = ${variants.id}) and m.status <> 'rejected' and m.match_class <> 'not_comparable')`);
+  if (f.matched === 'yes') conds.push(sql`exists (select 1 from product_matches m where (m.source_variant_id = ${variants.id} or m.competitor_variant_id = ${variants.id}) and m.status = 'accepted' and m.match_class <> 'not_comparable')`); // "has a match" means an active CONFIRMED relationship, not a suggestion nobody has looked at
+  if (f.matched === 'no') conds.push(sql`not exists (select 1 from product_matches m where (m.source_variant_id = ${variants.id} or m.competitor_variant_id = ${variants.id}) and m.status = 'accepted' and m.match_class <> 'not_comparable')`); // "has a match" means an active CONFIRMED relationship, not a suggestion nobody has looked at
   if (f.stale) conds.push(sql`(${variants.observedAt} is null or ${variants.observedAt} < ${new Date(now.getTime() - DEFAULTS.staleAfterHours * 3_600_000).toISOString()}::timestamptz)`);
   const { limit, offset } = clampPage(f.page, f.pageSize);
   const rows = await db
@@ -145,7 +145,7 @@ export async function getEvidence(db: DbLike, orgId: string, id: string) {
 
 // ───────────────────────────────────────────────────────────── matches
 
-export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity';
+export type MatchBucket = 'review' | 'substitutes' | 'unclear' | 'confirmed' | 'rejected' | 'look_again' | 'set_aside' | 'quantity' | 'pack_unverified';
 
 export interface MatchFilter {
   /** The tab of Match Review: what is waiting, what is only for reference, what a person decided, what needs a second look. */
@@ -177,6 +177,8 @@ export const BUCKET_SQL: Record<MatchBucket, ReturnType<typeof sql>> = {
   set_aside: sql`m.superseded_at is not null and m.status in ('needs_review','auto')`,
   // pairs the quantity policy leaves out of price comparison (different actual quantities), whatever was decided about them; a person’s decision is shown as it is
   quantity: sql`m.price_exclusion is not null and m.status <> 'rejected' and m.superseded_at is null`,
+  // pairs a person confirmed as the SAME product whose listings do not establish that the two packs hold the same quantity and contents, and nobody has attested it: confirmed, but not yet counted in a direct price comparison
+  pack_unverified: sql`m.status = 'accepted' and m.pack_attested_at is null and m.price_exclusion is null and coalesce(m.relationship, case m.match_class when 'identical' then 'exact' else m.match_class end) = 'exact' and (m.quantity_check->>'verdict' = 'unknown' or m.bundle_check->>'verdict' = 'unknown')`,
 };
 
 export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
@@ -209,7 +211,7 @@ export async function listMatches(db: DbLike, orgId: string, f: MatchFilter) {
     select m.id, m.match_class as "matchClass", m.confidence, m.status, m.method, m.reasons, m.components, m.decided_at as "decidedAt", m.decision_note as "decisionNote",
            coalesce(m.relationship, case m.match_class when 'identical' then 'exact' when 'different_pack' then 'variant' when 'comparable' then 'substitute' else 'non_match' end) as relationship,
            m.tier, m.evidence, m.engine_version as "engineVersion", m.needs_reevaluation as "needsReevaluation", m.superseded_at as "supersededAt", m.price_exclusion as "priceExclusion", m.quantity_check as "quantityCheck", m.bundle_check as "bundleCheck",
-           ps.title as "sourceTitle", vs.title as "sourceVariantTitle", vs.price as "sourcePrice", vs.currency as "sourceCurrency", vs.qty_label as "sourceSize", ps.brand as "sourceBrand", vs.url as "sourceUrl", ps.id as "sourceProductId",
+           m.pack_attested_at as "packAttestedAt", ps.mpn as "sourceMpn", pc.mpn as "competitorMpn", ps.title as "sourceTitle", vs.title as "sourceVariantTitle", vs.price as "sourcePrice", vs.currency as "sourceCurrency", vs.qty_label as "sourceSize", ps.brand as "sourceBrand", vs.url as "sourceUrl", ps.id as "sourceProductId",
            pc.title as "competitorTitle", vc.title as "competitorVariantTitle", vc.price as "competitorPrice", vc.currency as "competitorCurrency", vc.qty_label as "competitorSize", pc.brand as "competitorBrand", vc.url as "competitorUrl", pc.id as "competitorProductId",
            sc.name as "competitorSite", m.competitor_site_id as "competitorSiteId", m.source_variant_id as "sourceVariantId", m.competitor_variant_id as "competitorVariantId", m.decided_by is not null as "decidedByPerson", (case when m.status = 'accepted' then (case when m.auto_confirmed_at is not null then 'automatic' else 'person' end) end) as "confirmedBy",
            vs.availability as "sourceAvailability", vs.observed_at as "sourceObservedAt", vs.gtin as "sourceGtin", vs.sku as "sourceSku", ps.category as "sourceCategory",

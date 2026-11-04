@@ -372,7 +372,7 @@ export async function searchMatchCandidates(db: DbLike, orgId: string, p: { sour
   const needle = p.q?.trim().toLowerCase();
   const pool = all.filter((r) => r.role === 'competitor' && (!p.siteId || r.siteId === p.siteId));
   const scored = pool
-    .filter((r) => !needle || [r.title, r.variantTitle, r.brand, r.sku, r.gtin].some((v) => v?.toLowerCase().includes(needle)))
+    .filter((r) => !needle || matchesSearch(r, corpus.byVariant.get(r.variantId), corpus, needle))
     .map((r) => {
       const e = evaluatePair(srcDossier, corpus.byVariant.get(r.variantId)!, corpus);
       const usable = e.relationship !== 'non_match';
@@ -393,6 +393,17 @@ export async function searchMatchCandidates(db: DbLike, orgId: string, p: { sour
     gtin: r.gtin, sku: r.sku, price: r.price, currency: r.currency, availability: byId.get(r.variantId)?.availability ?? 'unknown', observedAt: byId.get(r.variantId)?.observedAt ?? null, url: byId.get(r.variantId)?.url ?? '',
     suggestion: sc ? { relationship: sc.relationship, tier: sc.tier, summary: sc.evidence.summary, reasons: sc.evidence.items.filter((i) => i.effect !== 'missing').slice(0, 4).map((i) => i.text) } : null,
   }));
+}
+
+/**
+ * What a person's search text may match: the names and identifiers the listing publishes (title, variant, brand, SKU, barcode, manufacturer part number, model), the part codes it carries (and
+ * the other names of the same part: searching "H11" finds the listing that says "H8"), and the vehicle words it names. Every word of a multi-word search must be found somewhere.
+ */
+export function matchesSearch(r: { title: string; variantTitle: string | null; brand: string | null; sku: string | null; gtin: string | null; mpn: string | null; model: string | null }, d: { codes: string[]; subject: string[] } | undefined, corpus: Pick<Corpus, 'alias'>, needle: string): boolean {
+  const bag = [r.title, r.variantTitle, r.brand, r.sku, r.gtin, r.mpn, r.model, ...(d?.codes ?? []), ...(d?.subject ?? [])].filter(Boolean).join(' ').toLowerCase();
+  if (bag.includes(needle)) return true;
+  const codes = new Set((d?.codes ?? []).map((c) => c.toLowerCase()));
+  return needle.split(/\s+/).filter(Boolean).every((w) => bag.includes(w) || codes.has(corpus.alias.get(w) ?? w));
 }
 
 const corpusCache = new Map<string, { at: number; size: number; corpus: Corpus }>();
@@ -462,4 +473,25 @@ export async function setManualMatch(
   if (superseded.length) await recordMatchEvents(db, orgId, superseded.map((s) => s.id), 'decided', { actorId: userId, decision: 'reject', note: 'Replaced by a manual choice' });
   await db.insert(auditEvents).values({ orgId, userId, action: 'match.manual', target: row.id, meta: { matchClass: values.matchClass, relationship, superseded: superseded.length, replaced: p.replaceMatchId ?? null } });
   return { match: row, superseded: superseded.length };
+}
+
+/**
+ * A person says the two packs of a pair they confirmed hold the same quantity and contents (or withdraws that statement). A confirmation says what the products ARE; this says the packs are
+ * alike, and it is what lets a pair whose listings do not establish quantity or bundle contents count in a direct price comparison. It can only supply evidence that is MISSING: a quantity or
+ * a bundle shown to differ is never overridden (the pair stays out of price comparison), and the confirmation itself is untouched.
+ */
+export async function attestPack(db: DbLike, orgId: string, matchId: string, userId: string, p: { attested: boolean; note?: string }, now: Date) {
+  const [m] = await db.select().from(productMatches).where(and(eq(productMatches.id, matchId), eq(productMatches.orgId, orgId)));
+  if (!m) throw new MatchError('Match not found');
+  if (m.status !== 'accepted') throw new MatchError('Only a pair you have confirmed can be attested: confirm it first.', 409);
+  if (p.attested) {
+    if (m.priceExclusion) throw new MatchError('The quantities or the bundle contents of these two products are shown to differ, so they cannot be attested as the same pack.', 409);
+    if (m.quantityCheck?.verdict === 'same' && (!m.bundleCheck || m.bundleCheck.verdict === 'equivalent')) throw new MatchError('The listings already show the same quantity: nothing needs attesting.', 409);
+  }
+  const set: Partial<typeof productMatches.$inferInsert> = p.attested
+    ? { packAttestedBy: userId, packAttestedAt: now, packAttestationNote: p.note?.trim().slice(0, 500) || null, updatedAt: now }
+    : { packAttestedBy: null, packAttestedAt: null, packAttestationNote: null, updatedAt: now };
+  const [row] = await db.update(productMatches).set(set).where(eq(productMatches.id, matchId)).returning();
+  await db.insert(auditEvents).values({ orgId, userId, action: p.attested ? 'match.attest_pack' : 'match.withdraw_pack_attestation', target: matchId, meta: { note: p.note ?? null } });
+  return row!;
 }

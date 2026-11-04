@@ -85,7 +85,7 @@ export function dossierHash(d: Dossier): string {
   return hashText(JSON.stringify(read));
 }
 
-const REL_ORDER: Record<MatchRelationship, number> = { exact: 0, variant: 1, substitute: 2, related: 3, insufficient: 4, non_match: 5 };
+const REL_ORDER: Record<MatchRelationship, number> = { exact: 0, variant: 1, equivalent: 2, substitute: 2, related: 3, insufficient: 4, non_match: 5 };
 const TIER_ORDER: Record<EvidenceTier, number> = { strong: 0, medium: 1, insufficient: 2 };
 
 export function runEngine(sources: DossierInput[], competitors: DossierInput[], opts: EngineOptions = DEFAULT_ENGINE_OPTIONS): EngineResult {
@@ -98,7 +98,7 @@ export function runEngine(sources: DossierInput[], competitors: DossierInput[], 
   const out: Suggestion[] = [];
   const stats: EngineStats = {
     sources: src.length, competitors: comp.length, candidatesLooked: 0, suggestions: 0,
-    byRelationship: { exact: 0, variant: 0, substitute: 0, related: 0, non_match: 0, insufficient: 0 },
+    byRelationship: { exact: 0, variant: 0, equivalent: 0, substitute: 0, related: 0, non_match: 0, insufficient: 0 },
     byTier: { strong: 0, medium: 0, insufficient: 0 }, droppedAsNonMatch: 0, droppedReasons: {}, sourcesWithSuggestion: 0, ms: 0,
   };
   for (const s of src) {

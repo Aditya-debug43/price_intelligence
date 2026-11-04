@@ -41,7 +41,7 @@ export interface AiDossier {
   version: string;
 }
 
-export const AI_DOSSIER_VERSION = 'ai-dossier-1';
+export const AI_DOSSIER_VERSION = 'ai-dossier-2';
 
 const AUTOMOTIVE_WORDS = /\b(headlights?|head ?lamps?|bulbs?|led|fog|brake light|tail ?lights?|turn signal|backup|reverse light|dome light|license plate|wipers?|floor mats?|cargo|tailgate|mud flaps?|running boards?|side steps?|seat covers?|decoder|canceler|harness|retainer|adapter)\b/i;
 const FORM_WORDS = new Set(['strained', 'puree', 'pureed', 'dried', 'dry', 'dehydrated', 'frozen', 'canned', 'fresh', 'powder', 'powdered', 'mix', 'concentrate', 'instant', 'ready', 'baby', 'toddler', 'juice', 'sauce', 'syrup', 'spray', 'sparkling', 'still']);
@@ -66,7 +66,7 @@ export interface AiDossierExtra {
 
 const cleanNotes = (text: string | null | undefined): string | null => {
   const t = (text ?? '').replace(/\s+/g, ' ').replace(/https?:\/\/\S+/g, '').trim();
-  return t.length >= 20 ? t.slice(0, 280) : null;
+  return t.length >= 20 ? t.slice(0, 460) : null;
 };
 
 export function buildAiDossier(d: Dossier, extra: AiDossierExtra = {}): AiDossier {
@@ -126,6 +126,8 @@ export function buildAiDossier(d: Dossier, extra: AiDossierExtra = {}): AiDossie
     if (domain === 'grocery' && !d.identifiers.gtin) unknown.push('barcode');
   }
   const brandName = d.brand.name;
+  // a brand the vendor field does not give may still be named by the title ("Belga Star Lager 6 pack"): the AI is shown how the title begins, so it never calls a named brand unknown
+  if (!brandName) set('title_begins_with', d.title.replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '), 'title');
   return finish({
     ref: d.variantId,
     productId: d.productId,

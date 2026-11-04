@@ -21,6 +21,8 @@ export interface RetrievalOptions {
   perSiteProducts: number;
   /** Products per website that are looked at (and judged by the rule engine's evidence) before the best `perSiteProducts` are chosen. */
   poolPerSite: number;
+  /** Variants of one competitor product that go through the rule engine's evidence check: the best VARIANT (the right size, the right position) is chosen by evidence, not by how well its title matched the text search. */
+  variantsPerProduct: number;
   /** Candidates the rule engine finds decisively incompatible (a different part code, vehicle, period, voltage…) are left out: an AI verdict could not override them anyway. */
   dropHardConflicts: boolean;
   /** How deep each method's own ranking goes before fusion. */
@@ -37,6 +39,7 @@ export interface RetrievalOptions {
 export const DEFAULT_RETRIEVAL_OPTIONS: RetrievalOptions = {
   perSiteProducts: 4,
   poolPerSite: 30,
+  variantsPerProduct: 3,
   dropHardConflicts: true,
   perMethod: 80,
   fusion: 'sum',
@@ -345,18 +348,23 @@ export function retrieveShortlist(ix: RetrievalIndex, source: Dossier, opts: Par
       fused.set(r.doc, e);
     });
   }
-  // one variant per competitor product (the best one), then the best `poolPerSite` products of each website
-  const bestOfProduct = new Map<string, { doc: number; score: number; by: FoundBy[] }>();
+  // the best `variantsPerProduct` variants of each competitor product are kept through the evidence check (a wrong-size or wrong-position variant must not win an early text-score choice and
+  // hide the right one); the product is represented by its best-scoring variant until then, and the best `poolPerSite` products of each website are judged
+  type Hit = { doc: number; score: number; by: FoundBy[] };
+  const variantsOf = new Map<string, Hit[]>();
   for (const [doc, e] of fused) {
     const d = ix.docs[doc]!.d;
     if (d.siteId === source.siteId) continue;
-    const cur = bestOfProduct.get(d.productId);
-    if (!cur || e.score > cur.score) bestOfProduct.set(d.productId, { doc, score: e.score, by: e.by });
+    const list = variantsOf.get(d.productId) ?? variantsOf.set(d.productId, []).get(d.productId)!;
+    list.push({ doc, score: e.score, by: e.by });
   }
-  const bySite = new Map<string, { doc: number; score: number; by: FoundBy[] }[]>();
-  for (const v of bestOfProduct.values()) {
-    const site = ix.docs[v.doc]!.d.siteId;
-    (bySite.get(site) ?? bySite.set(site, []).get(site)!).push(v);
+  const bySite = new Map<string, (Hit & { alts: Hit[] })[]>();
+  for (const all of variantsOf.values()) {
+    all.sort((a, b) => b.score - a.score || a.doc - b.doc);
+    const alts = all.slice(0, Math.max(1, o.variantsPerProduct));
+    const rep = { ...alts[0]!, alts };
+    const site = ix.docs[rep.doc]!.d.siteId;
+    (bySite.get(site) ?? bySite.set(site, []).get(site)!).push(rep);
   }
   const REL: Record<string, number> = { exact: 1, variant: 1, substitute: 1, related: 0.5, insufficient: 0.35, non_match: 0.15 };
   const out: AiCandidate[] = [];
@@ -364,9 +372,13 @@ export function retrieveShortlist(ix: RetrievalIndex, source: Dossier, opts: Par
     list.sort((a, b) => b.score - a.score || a.doc - b.doc);
     const best = list[0]?.score || 1;
     // the rule engine's evidence about each pool member: a decisive incompatibility removes it, otherwise the evidence is blended with the retrieval score
-    const judged = list.slice(0, o.poolPerSite).map((v) => {
-      const e = evaluatePair(source, ix.docs[v.doc]!.d, ix.corpus);
-      return { ...v, e, blend: 0.45 * (v.score / best) + 0.55 * ((REL[e.relationship] ?? 0.2) * (e.tier === 'strong' ? 1 : 0.85) * (0.6 + 0.4 * Math.min(1, e.rank))) };
+    const judged = list.slice(0, o.poolPerSite).map((p) => {
+      // every kept variant of the product is judged; the one the evidence likes best represents the product
+      const options = p.alts.map((v) => {
+        const e = evaluatePair(source, ix.docs[v.doc]!.d, ix.corpus);
+        return { doc: v.doc, score: v.score, by: v.by, e, blend: 0.45 * (v.score / best) + 0.55 * ((REL[e.relationship] ?? 0.2) * (e.tier === 'strong' ? 1 : 0.85) * (0.6 + 0.4 * Math.min(1, e.rank))) };
+      });
+      return options.sort((a, b) => b.blend - a.blend || a.doc - b.doc)[0]!;
     });
     const hard = (x: (typeof judged)[number]) => x.e.relationship === 'non_match' && x.e.conflicts.length > 0;
     if (stats) { stats.considered += judged.length; stats.droppedHardConflict += judged.filter(hard).length; }

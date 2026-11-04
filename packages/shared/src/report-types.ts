@@ -45,6 +45,21 @@ export interface UnitPriceView {
   unit: string | null;
 }
 
+/** A competitor product that is also a valid candidate for the same own product at the same website, shown beside the best one. */
+export interface ComparisonAlternative {
+  matchId: string;
+  variantId: string;
+  productId: string;
+  title: string;
+  variantTitle: string | null;
+  relationship: MatchRelationship;
+  confirmation: 'person' | 'automatic' | 'suggested';
+  url: string | null;
+  price: number | null;
+  currency: string | null;
+  quantity: QuantityVerdict;
+}
+
 export interface ComparisonCell {
   siteId: string;
   siteName: string;
@@ -88,6 +103,10 @@ export interface ComparisonCell {
   directlyComparable: boolean;
   /** Who stands behind this pair: a person confirmed it, the matcher confirmed it automatically (an identifier, or the same maker with identical names and consistent sizes), or it is only a suggestion nobody has confirmed. */
   confirmation?: 'person' | 'automatic' | 'suggested';
+  /** Whether a person has attested that the two packs hold the same quantity and contents (needed to count a pair whose listings do not establish it). */
+  packAttested?: boolean;
+  /** Other valid, live candidates at the same website (the best one is shown above): so a second good candidate is never hidden. At most three. */
+  alternatives?: ComparisonAlternative[];
   offerSummary: string | null;
   caveats: string[];
 }

@@ -23,13 +23,15 @@ export interface GuardContext {
   gtinDiffer: boolean;
   /** The rule engine found a shared part code, so differing code names the model quotes are aliases of one part rather than a conflict. */
   codesAgree?: boolean;
+  /** What kind of product this is (from the dossier): a compatible equivalent can only be verified for parts whose fit can be checked. */
+  domain?: 'automotive' | 'grocery' | 'general';
   /** Lower-cased text of the facts sent for each product (see `groundingText`). */
   sourceFacts: string;
   candidateFacts: string;
 }
 
 export interface GuardNote {
-  code: 'engine_hard_conflict' | 'bundle_mismatch' | 'bundle_unknown' | 'quantity_different' | 'quantity_unknown' | 'different_brands' | 'brand_unknown' | 'different_barcodes' | 'ungrounded_evidence' | 'low_support' | 'identity_conflict';
+  code: 'engine_hard_conflict' | 'bundle_mismatch' | 'bundle_unknown' | 'quantity_different' | 'quantity_unknown' | 'different_brands' | 'brand_unknown' | 'different_barcodes' | 'ungrounded_evidence' | 'low_support' | 'identity_conflict' | 'compat_gate';
   note: string;
 }
 
@@ -87,6 +89,26 @@ export function applyGuards(d: AiDecision, ctx: GuardContext): GuardedDecision {
     type = cap(type, 'related');
     note('identity_conflict', `The part itself differs (${identityConflict.attribute}: ${String(identityConflict.source_value).slice(0, 40)} against ${String(identityConflict.candidate_value).slice(0, 40)}), so it cannot stand in for the product.`);
     review = true;
+  }
+
+  // THE COMPATIBILITY GATE. A "close equivalent" is a compatible equivalent: another maker's product verified to do the same job for the stated use. Similar is not verified. It may stand only for
+  // a part whose fit can be checked (automotive), when the rule engine found the part code / socket to be the same, found no decisive difference, and the bundle contents and quantity are not
+  // in doubt. Everything else the model calls an equivalent is a substitute: food, drink and other goods differ in taste, recipe or brand and are never "equivalents".
+  if (type === 'close_equivalent') {
+    const why: string[] = [];
+    if (ctx.domain !== 'automotive') why.push('only a part whose fit can be checked can be a verified equivalent; other goods are substitutes');
+    else {
+      if (!ctx.codesAgree) why.push('the bulb or part code is not shown to be the same');
+      if (!ctx.engine) why.push('the rule-based check has not judged this pair');
+      else if (ctx.engine.conflicts.length > 0 || ctx.engine.relationship === 'non_match') why.push('the rule-based check found a difference in what it fits or does');
+      if (ctx.bundle && ctx.bundle.verdict !== 'equivalent') why.push('the bundle contents are not shown to be the same');
+      if (ctx.quantity?.verdict === 'different') why.push('the quantities differ');
+    }
+    if (why.length) {
+      type = 'substitute';
+      note('compat_gate', `Not a verified compatible equivalent (${why.join('; ')}), so it is a substitute.`);
+      review = true;
+    }
   }
 
   // a decisive incompatibility found by the rule engine always stands

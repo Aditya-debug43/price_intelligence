@@ -1062,3 +1062,13 @@ The existing Marketing Activity page, no new dashboard. The YouTube card reports
 **Production smoke run** (workspace adi, 6 products): 6 requests, 44 pairs judged, 0 failures, 0 rate limits, ≈11.9k tokens in / ≈9.6k out; 16 close equivalent, 7 substitute, 12 related, 9 no match; 6 answers changed by safeguards (3 bundle mismatch, 3 bundle unknown); no match, decision or price changed.
 
 **Not done / not verified.** Component render tests for the new tab and a browser-level check; precision/recall measurement against independent human labels; a grocery (Aditya) production run; Groceries To Go Aruba untouched. The Gemini key was pasted in chat: rotate it.
+
+## 2026-11-04 — Directive 29: matching review follow-up (facts, price safety, compatible equivalents) — built and tested; DEPLOYMENT PENDING
+
+**What.** See `docs/ai-matching.md` → "Update (directive 29)". Fact errors fixed (vehicle name vs accessory, bulb length vs quantity, unbranded titles, fitment excerpts); a confirmation no longer silently establishes equal packs (same-pack attestation, migration 0019); needs-reevaluation pairs and delisted best candidates no longer distort price comparison, alternatives shown; `equivalent` relationship with its own Equivalents view and a deterministic compatibility gate; variant-level retrieval; wording/search/filters corrected; release-gate arithmetic (nothing auto-approved).
+
+**Verification.** Lint 0 errors; typecheck; production build; full suite 94 files / 1,505 tests plus 14 web render tests (new: price-safety e2e 10, search 5, facts/gate 7, guard gate; six existing assertions deliberately changed because they encoded the old "a person's confirmation counts without a quantity" rule).
+
+**Not deployed.** The server was unreachable (the laptop's address changed). Nothing was pushed, so the site and server still run `37facce`. To deploy: allow the laptop's current address for SSH, then push and run `sudo shelfwatch-update` immediately.
+
+**Not done.** Automatic approval; variant-level recall measurement on labels; embeddings; separate report counts.
