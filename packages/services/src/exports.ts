@@ -30,7 +30,7 @@ export function comparisonTable(d: ReportData): Table {
   for (const r of d.comparisons) {
     for (const c of r.cells) {
       rows.push([
-        r.title, r.variantTitle ?? '', r.brand ?? '', r.category ?? '', r.sizeLabel ?? '', c.siteName, c.matchClass, c.matchStatus, c.confidence,
+        r.title, r.variantTitle ?? '', r.brand ?? '', r.category ?? '', r.sizeLabel ?? '', c.siteName, c.matchClass, c.matchStatus, c.approval?.by === 'policy' ? '' : c.confidence,
         r.sourcePrice.amount, r.sourcePrice.currency ?? '', r.sourcePrice.normalized, c.price.amount, c.price.currency ?? '', c.price.normalized, d.meta.reportingCurrency,
         c.diffAbs, c.diffPct, c.unitDiffPct, c.directlyComparable ? 'yes' : 'no', r.sourceAvailability, c.availability, iso(r.sourcePrice.observedAt), iso(c.price.observedAt), c.price.stale ? 'stale' : 'fresh',
         c.price.fxRate, c.price.fxSource ?? '', c.offerSummary ?? '', c.url ?? '', r.url ?? '', c.caveats.join('; '),
@@ -52,7 +52,7 @@ export function equivalentsTable(d: ReportData): Table {
   const rows: Cell[][] = [];
   for (const r of d.equivalents ?? []) {
     for (const c of r.cells) {
-      rows.push([r.title, r.variantTitle ?? '', r.brand ?? '', r.category ?? '', c.siteName, c.title, c.variantTitle ?? '', c.confirmation ?? '', r.sourcePrice.normalized, c.price.normalized, d.meta.reportingCurrency, c.unitDiffPct, c.quantity?.verdict ?? '', c.url ?? '', c.caveats.join('; ')]);
+      rows.push([r.title, r.variantTitle ?? '', r.brand ?? '', r.category ?? '', c.siteName, c.title, c.variantTitle ?? '', c.approval?.by === 'policy' ? `approved by policy ${c.approval.policyVersion ?? ''}`.trim() : (c.confirmation ?? ''), r.sourcePrice.normalized, c.price.normalized, d.meta.reportingCurrency, c.unitDiffPct, c.quantity?.verdict ?? '', c.url ?? '', c.caveats.join('; ')]);
     }
   }
   return { name: 'Compatible equivalents', columns: ['Product', 'Variant', 'Brand', 'Category', 'Competitor', 'Equivalent product', 'Equivalent variant', 'Confirmation', `Your price (${d.meta.reportingCurrency})`, `Equivalent price (${d.meta.reportingCurrency})`, 'Currency', 'Difference % (equal quantity only)', 'Quantity check', 'Source link', 'Caveats'], rows };
@@ -380,7 +380,7 @@ export function renderPdf(d: ReportData, section?: CsvDataset): Promise<Buffer> 
     const out: string[][] = [];
     for (const r of [...d.comparisons].sort((a, b) => Math.abs(b.cells[0]?.diffPct ?? 0) - Math.abs(a.cells[0]?.diffPct ?? 0))) {
       for (const c of r.cells) {
-        out.push([r.title + (r.sizeLabel ? ` (${r.sizeLabel})` : ''), c.siteName, formatMoney(r.sourcePrice.amount, r.sourcePrice.currency), formatMoney(c.price.amount, c.price.currency), c.directlyComparable ? formatPct(c.diffPct) : c.unitDiffPct !== null ? `${formatPct(c.unitDiffPct)} per unit` : 'n/a', `${c.matchClass.split('_').join(' ')} ${Math.round(c.confidence * 100)}%`, c.price.stale ? 'stale' : formatAge(c.price.observedAt, now)]);
+        out.push([r.title + (r.sizeLabel ? ` (${r.sizeLabel})` : ''), c.siteName, formatMoney(r.sourcePrice.amount, r.sourcePrice.currency), formatMoney(c.price.amount, c.price.currency), c.directlyComparable ? formatPct(c.diffPct) : c.unitDiffPct !== null ? `${formatPct(c.unitDiffPct)} per unit` : 'n/a', c.approval?.by === 'policy' ? `${c.matchClass.split('_').join(' ')}, approved by policy` : `${c.matchClass.split('_').join(' ')} ${Math.round(c.confidence * 100)}%`, c.price.stale ? 'stale' : formatAge(c.price.observedAt, now)]);
       }
     }
     return out;

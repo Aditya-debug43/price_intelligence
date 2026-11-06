@@ -172,7 +172,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         q: z.string().max(200).optional(),
         category: z.string().max(200).optional(),
         siteId: uuid.optional(),
-        view: z.enum(['prices', 'substitutes', 'equivalents', 'related']).default('prices'),
+        view: z.enum(['approved', 'prices', 'substitutes', 'equivalents', 'related']).default('prices'),
         include: z.enum(['confirmed', 'suggested']).default('confirmed'),
         matchClass: z.enum(MATCH_CLASSES).optional(),
         freshness: z.enum(['fresh', 'stale', 'any']).default('any'),

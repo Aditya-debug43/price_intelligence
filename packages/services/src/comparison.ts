@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { assessQuantities, buildPriceView, measureStored, roundMoney, type FxTable } from '@ci/core';
 import { formatMoney, relationshipOfClass, type Availability, type ComparisonAlternative, type ComparisonCell, type ComparisonRow, type MatchClass, type MatchRelationship, type MatchStatus, type PriceView, type QuantityCheck, type UnitPriceView } from '@ci/shared';
-import { offers, productMatches, products, sites, variants, type DbLike } from '@ci/database';
+import { aiMatchSuggestions, offers, productMatches, products, sites, variants, type DbLike } from '@ci/database';
 import { productPageLink } from './source-url.ts';
 
 /**
@@ -19,8 +19,12 @@ import { productPageLink } from './source-url.ts';
  * The bundle-contents policy (core/match/bundle.ts) works through the same marker: two bundles (combos, kits) whose contents differ are left out; bundles whose contents are not established are
  * labelled, and an automatic confirmation of them is not a direct comparison either.
  */
-/** 'equivalents': verified compatible equivalents (another maker, same job): a benchmark of its own, never the identical-item price position. */
-export type ComparisonView = 'prices' | 'substitutes' | 'equivalents' | 'related';
+/**
+ * 'approved': every APPROVED match in one overview (identical items, pack variants and verified compatible equivalents), each labelled with what it is and who approved it. Substitutes and
+ * related products are not in it. Its price position counts identical items only: an equivalent is its own benchmark, never the identical-item price position.
+ * 'equivalents': verified compatible equivalents (another maker, same job): a benchmark of its own, never the identical-item price position.
+ */
+export type ComparisonView = 'approved' | 'prices' | 'substitutes' | 'equivalents' | 'related';
 
 export interface ComparisonOptions {
   view?: ComparisonView;
@@ -75,8 +79,8 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
   const pageLink = (v: VRow): string | null => productPageLink(v.url, siteHost.get(v.siteId));
 
   const which = o.view ?? 'prices';
-  const classes: MatchClass[] = which === 'prices' ? ['identical', 'different_pack'] : which === 'substitutes' || which === 'equivalents' ? ['comparable'] : ['not_comparable'];
-  const relationships: MatchRelationship[] = which === 'prices' ? ['exact', 'variant'] : which === 'substitutes' ? ['substitute'] : which === 'equivalents' ? ['equivalent'] : ['related'];
+  const classes: MatchClass[] = which === 'approved' ? ['identical', 'different_pack', 'comparable'] : which === 'prices' ? ['identical', 'different_pack'] : which === 'substitutes' || which === 'equivalents' ? ['comparable'] : ['not_comparable'];
+  const relationships: MatchRelationship[] = which === 'approved' ? ['exact', 'variant', 'equivalent'] : which === 'prices' ? ['exact', 'variant'] : which === 'substitutes' ? ['substitute'] : which === 'equivalents' ? ['equivalent'] : ['related'];
   const withSuggestions = o.include === 'suggested';
   // a pair is used when it is confirmed, or (only when suggestions are asked for) when it is a current suggestion with real evidence behind it (not one set aside, not an old record without evidence)
   const usable = withSuggestions
@@ -90,10 +94,17 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
         eq(productMatches.orgId, o.orgId),
         usable,
         inArray(productMatches.matchClass, classes),
-        which === 'related' || which === 'equivalents' ? inArray(productMatches.relationship, relationships) : or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
+        which === 'related' || which === 'equivalents' ? inArray(productMatches.relationship, relationships) : which === 'approved' ? or(and(inArray(productMatches.matchClass, ['identical', 'different_pack']), or(isNull(productMatches.relationship), inArray(productMatches.relationship, ['exact', 'variant']))), and(eq(productMatches.matchClass, 'comparable'), eq(productMatches.relationship, 'equivalent'))) : or(isNull(productMatches.relationship), inArray(productMatches.relationship, relationships)),
       ),
     );
   if (!matchRows.length) return [];
+  // what an automatic approval rests on: the policy reading stored with the AI answer it came from
+  const autoReading = new Map<string, { policyVersion: string | null; reasons: string[] }>();
+  const autoSources = [...new Set(matchRows.filter((m) => m.method === 'ai_auto').map((m) => m.sourceVariantId))];
+  for (let i = 0; i < autoSources.length; i += 800) {
+    const sug = await db.select({ sv: aiMatchSuggestions.sourceVariantId, cv: aiMatchSuggestions.competitorVariantId, policy: aiMatchSuggestions.policy, version: aiMatchSuggestions.autoPolicyVersion }).from(aiMatchSuggestions).where(and(eq(aiMatchSuggestions.orgId, o.orgId), inArray(aiMatchSuggestions.sourceVariantId, autoSources.slice(i, i + 800))));
+    for (const s of sug) autoReading.set(`${s.sv}|${s.cv}`, { policyVersion: s.version ?? null, reasons: s.policy?.compat?.reasons ?? [] });
+  }
   const vmap = await loadVariants(db, [...new Set(matchRows.flatMap((m) => [m.sourceVariantId, m.competitorVariantId]))]);
   // what the quantity policy found for a pair: as recorded when it was judged, else from the sizes stored with the two products (a pair nobody has assessed in full)
   const qtyOf = (m: (typeof matchRows)[number]): QuantityCheck => {
@@ -139,9 +150,11 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       const q = qtyOf(m);
       const confirmation: 'person' | 'automatic' | 'suggested' = m.status === 'accepted' ? (m.autoConfirmedAt ? 'automatic' : 'person') : 'suggested';
       const bothPriced = price.normalized !== null && sourcePrice.normalized !== null && sourcePrice.normalized > 0 && which !== 'related';
-      const diffAbs = bothPriced ? roundMoney(price.normalized! - sourcePrice.normalized!, 4) : null;
-      const diffPct = bothPriced ? roundMoney(((price.normalized! - sourcePrice.normalized!) / sourcePrice.normalized!) * 100, 2) : null;
       const relationship: MatchRelationship = m.relationship ?? relationshipOfClass(m.matchClass);
+      // a compatible equivalent keeps its relationship visible, but its price difference is shown only where the two packs are verified to hold the same quantity (never a guess)
+      const showDiff = bothPriced && (relationship !== 'equivalent' || q.verdict === 'same');
+      const diffAbs = showDiff ? roundMoney(price.normalized! - sourcePrice.normalized!, 4) : null;
+      const diffPct = showDiff ? roundMoney(((price.normalized! - sourcePrice.normalized!) / sourcePrice.normalized!) * 100, 2) : null;
       // a price conclusion needs the quantities shown equal; a person’s own confirmation also stands where a quantity is simply not stated (they could see the products)
       // A confirmation says what the two products ARE; it does not by itself say the two packs hold the same quantity and contents. Where the listings do not establish that, only a
       // person's explicit pack attestation supplies it (and it never overrides a quantity or a bundle shown to differ, which are left out above).
@@ -172,10 +185,23 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
       if (confirmation === 'suggested') caveats.push('Suggested by the matcher; nobody has confirmed it yet');
       if (confirmation === 'automatic') caveats.push('Confirmed automatically by the matcher; you can overrule it in Match review');
       const offer = offerBy.get(cv.id);
+      const reading = autoReading.get(`${m.sourceVariantId}|${m.competitorVariantId}`);
+      const supports = (m.evidence?.items ?? []).filter((i) => i.effect === 'supports').map((i) => i.text).slice(0, 4);
+      const approval: NonNullable<ComparisonCell['approval']> = confirmation === 'suggested'
+        ? { by: 'suggestion', policyVersion: null, reason: 'Suggested; nobody has approved it yet', evidence: supports }
+        : confirmation === 'person'
+          ? { by: 'person', policyVersion: null, reason: m.decisionNote ?? 'Confirmed by a person', evidence: supports }
+          : m.method === 'ai_auto'
+            ? { by: 'policy', policyVersion: reading?.policyVersion ?? null, reason: m.reasons[0] ?? 'Approved automatically under a policy that passed its accuracy gate', evidence: reading?.reasons.length ? reading.reasons : m.reasons.slice(1) }
+            : { by: 'matcher', policyVersion: null, reason: 'Confirmed by the matcher from an identifier or an identical name and size', evidence: supports };
+      const priceLimitation = relationship === 'equivalent'
+        ? (q.verdict === 'same' ? 'A compatible equivalent, not the same item: the difference is for reference and is not part of the identical-item price position.' : 'A compatible equivalent whose pack quantity is not verified: the relationship is shown but no price difference is calculated.')
+        : relationship === 'variant' ? 'The same product in another pack, size or colour: compare with care.'
+        : !directlyComparable && relationship === 'exact' ? 'Not counted as a direct price comparison until the quantity and contents are verified.' : null;
       cells.push({
         siteId: cv.siteId, siteName: siteName.get(cv.siteId) ?? 'Competitor', variantId: cv.id, productId: cv.productId, title: cv.title, variantTitle: cv.variantTitle, url: pageLink(cv),
         matchId: m.id, matchClass: m.matchClass, matchStatus: m.status, relationship, tier: m.tier, confidence: m.confidence, reasons: m.reasons, differences, needsReevaluation: m.needsReevaluation, price, availability: cv.availability, unitPrice: NO_UNIT_PRICE,
-        diffAbs, diffPct, unitDiffPct, directlyComparable, confirmation, packAttested: attested,
+        diffAbs, diffPct, unitDiffPct, directlyComparable, confirmation, packAttested: attested, approval, priceLimitation,
         alternatives: (altsBySite.get(m.competitorSiteId) ?? []).slice(0, 3).map((a): ComparisonAlternative => {
           const av = vmap.get(a.competitorVariantId)!;
           return { matchId: a.id, variantId: av.id, productId: av.productId, title: av.title, variantTitle: av.variantTitle, relationship: a.relationship ?? relationshipOfClass(a.matchClass), confirmation: a.status === 'accepted' ? (a.autoConfirmedAt ? 'automatic' : 'person') : 'suggested', url: pageLink(av), price: av.price, currency: av.currency, quantity: qtyOf(a).verdict };
@@ -189,7 +215,7 @@ export async function loadComparison(db: DbLike, o: ComparisonOptions): Promise<
     // Position among directly comparable identical prices only.
     const comparable = [sourcePrice.normalized, ...cells.filter((c) => c.directlyComparable).map((c) => c.price.normalized)].filter((x): x is number => x !== null);
     let position: ComparisonRow['position'] = 'no_data';
-    if (which === 'prices' && sourcePrice.normalized !== null && cells.some((c) => c.directlyComparable)) {
+    if ((which === 'prices' || which === 'approved') && sourcePrice.normalized !== null && cells.some((c) => c.directlyComparable)) {
       const min = Math.min(...comparable);
       const max = Math.max(...comparable);
       position = min === max ? 'tied' : sourcePrice.normalized === min ? 'cheapest' : sourcePrice.normalized === max ? 'highest' : 'middle';

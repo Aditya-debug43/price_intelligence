@@ -8,3 +8,4 @@ export * from './limiter.ts';
 export * from './gate.ts';
 export * from './evaluation.ts';
 export * from './specs.ts';
+export * from './policy.ts';

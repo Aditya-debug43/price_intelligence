@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AI_TYPE_LABEL, AI_TYPE_TO_RELATIONSHIP, formatDateTime, type AiEvidenceItem, type AiMatchType, type AiProductView, type AiRunView, type AiStatusView, type AiSuggestionView } from '@ci/shared';
+import { AI_TYPE_LABEL, AI_TYPE_TO_RELATIONSHIP, formatDateTime, type AiEvidenceItem, type AiMatchType, type AiProductView, type AiRunView, type AiStatusView, type AiSuggestionView, type MatchFunnelView } from '@ci/shared';
 import { api, errorMessage, orgPath, qs } from '../api';
 import { useOrg, useOrgMutation, useOrgQuery } from '../app-shell';
 import { Age, Card, DataState, EmptyState, Pager, SourceLink, useToast } from '../ui';
@@ -324,6 +324,15 @@ export function AiStatusPanel({ status, isAdmin, onResumeGemini, busy }: { statu
           <div className="muted">Shelfwatch sends at most {l.rpm} requests a minute{l.learned.rpm ? `; Google’s own answers say its limit is ${l.learned.rpm} a minute` : ''}{l.learned.rpd ? ` and ${l.learned.rpd} a day` : ''}. Google does not tell us how much of its free quota is left.</div>
         </div>
       )}
+      {status.configured && (status.keys ?? []).length > 0 && (
+        <ul className="small" style={{ margin: 0, paddingLeft: 16 }} aria-label="Gemini keys">
+          {status.keys!.map((k) => (
+            <li key={k.id}>
+              <b>{k.label}</b> <span className={`pill ${k.state === 'ready' ? 'good' : k.state === 'paused' ? 'warn' : 'bad'}`}>{k.state === 'ready' ? 'ready' : k.state === 'paused' ? 'waiting for quota' : 'stopped'}</span> · {k.today.requests} request{k.today.requests === 1 ? '' : 's'} today · {k.today.inputTokens.toLocaleString()} tokens in{k.today.rateLimited ? ` · ${k.today.rateLimited} rate-limit answer${k.today.rateLimited === 1 ? '' : 's'}` : ''}{k.pausedUntil ? ` · back after ${formatDateTime(k.pausedUntil)}` : ''}{k.stopped ? ` · ${k.stopped}` : ''}{(k.learned.rpm || k.learned.rpd) ? ` · Google’s answers say ${[k.learned.rpm ? `${k.learned.rpm} a minute` : '', k.learned.rpd ? `${k.learned.rpd} a day` : ''].filter(Boolean).join(', ')}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
       {status.state === 'paused' && status.pausedUntil && <div className="callout info" role="status">Paused until {formatDateTime(status.pausedUntil)}{status.pauseReason ? `: ${status.pauseReason}` : ''}. Everything else in Shelfwatch works as usual.</div>}
       {status.state === 'stopped' && (
         <div className="callout bad" role="alert">
@@ -381,6 +390,51 @@ export function SemanticSearch({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+const pctOf = (x: number) => `${(100 * x).toFixed(1)}%`;
+
+/** Where the catalogue stands in matching, in distinct products (never pairs): the stages, the coverage against the targets, and why each product that is not approved is not. */
+export function FunnelCard() {
+  const f = useOrgQuery<MatchFunnelView>(['ai', 'funnel'], '/ai/funnel');
+  const d = f.data;
+  return (
+    <Card title="Matching coverage">
+      {!d ? <div className="muted small">Loading…</div> : (
+        <div className="stack-s">
+          <p className="small muted" style={{ margin: 0 }}>Counted in <b>your own products</b> (variants), not pairs. A product that only has a <i>suggested</i> substitute has a candidate; it is not an automated match and is never counted as one. {d.active.toLocaleString()} active products in {d.parents.toLocaleString()} parent products.</p>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Stage</th><th className="r">Products</th><th className="r">Share of all</th></tr></thead>
+              <tbody>{d.stages.map((s) => <tr key={s.key}><td>{s.label}</td><td className="r num">{s.variants.toLocaleString()}</td><td className="r num">{pctOf(s.share)}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <div className="small">
+            <b>Automatically approved counterpart:</b> {d.coverage.automatic.variants.toLocaleString()} of {d.active.toLocaleString()} products (<b>{pctOf(d.coverage.automatic.share)}</b>) and {d.coverage.automatic.parents.toLocaleString()} of {d.parents.toLocaleString()} parent products ({pctOf(d.coverage.automatic.parentShare)}).
+            {' '}Approved by anyone: {d.coverage.approved.variants.toLocaleString()} ({pctOf(d.coverage.approved.share)}). A candidate exists for {d.coverage.candidate.variants.toLocaleString()} ({pctOf(d.coverage.candidate.share)}).
+          </div>
+          {d.targets && (
+            <div className="small">
+              {([['floor', d.targets.floor, 'half of all products'], ['stretch', d.targets.stretch, '60% of all products']] as const).map(([k, t, l]) => (
+                <div key={k}><span className={`pill ${t.met ? 'good' : 'warn'}`}>{t.met ? 'met' : 'not met'}</span> Target: {l} ({t.variants.toLocaleString()} products){t.met ? '' : ` — short by ${t.shortfall.toLocaleString()}`}</div>
+              ))}
+            </div>
+          )}
+          {d.attribution && d.attribution.length > 0 && (
+            <div className="small"><b>What stands between the catalogue and the first target</b> (each product counted once):<ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>{d.attribution.map((a) => <li key={a.key}>{a.variants.toLocaleString()} — {a.label}</li>)}</ul></div>
+          )}
+          {d.notApproved.length > 0 && (
+            <details className="ev"><summary>Why products are not approved yet</summary><ul>{d.notApproved.map((r) => <li key={r.key}>{r.variants.toLocaleString()} — {r.label}</li>)}</ul></details>
+          )}
+          <div className="small muted">Waiting for people: {d.workload.pendingSuggestions.toLocaleString()} suggestion{d.workload.pendingSuggestions === 1 ? '' : 's'} · {d.workload.needsEvidence.toLocaleString()} product{d.workload.needsEvidence === 1 ? '' : 's'} need more evidence (a code, function or colour the listings do not state) · {d.workload.waitingForQuota.toLocaleString()} waiting for the free quota · {d.workload.notYetWorked.toLocaleString()} not worked on yet.</div>
+          {d.precision.length > 0 && (
+            <div className="small"><b>Audited precision</b> (from the latest measurement, counting independent product families):<ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>{d.precision.map((p) => <li key={`${p.domain}${p.autoClass}`}>{p.domain} {p.autoClass.replace(/_/g, ' ')}: {p.families === 0 ? 'no judged families yet' : `${p.correct} of ${p.families} families correct (${pctOf(p.observed ?? 0)}; 95% range ${pctOf(p.low ?? 0)}–${pctOf(p.high ?? 0)})`}{p.critical > 0 ? `, ${p.critical} critical mistake${p.critical === 1 ? '' : 's'}` : ''} · policy {p.enabled ? 'on' : 'off'}{p.needed.toMinimum > 0 ? ` · ${p.needed.toMinimum} more famil${p.needed.toMinimum === 1 ? 'y' : 'ies'} needed` : ''}</li>)}</ul></div>
+          )}
+          {d.candidateRecall && <div className="small muted">Candidate recall measured against people’s labels: {d.candidateRecall.hits} of {d.candidateRecall.total} true counterparts reached the shortlist.</div>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function AiSuggestionsTab() {
   const { orgId, isAdmin } = useOrg();
   const toast = useToast();
@@ -390,13 +444,15 @@ export function AiSuggestionsTab() {
   const [page, setPage] = useState(1);
   const [finding, setFinding] = useState<AiSuggestionView | null>(null);
   const [limit, setLimit] = useState(20);
-  const [scope, setScope] = useState<'sample' | 'unmatched'>('sample');
+  const [scope, setScope] = useState<'sample' | 'unmatched' | 'sweep'>('sample');
   const active = (r?: AiRunView | null) => !!r && (r.status === 'queued' || r.status === 'running');
   const st = useOrgQuery<AiStatusView>(['ai', 'status'], '/ai/status', { refetchInterval: (q) => (active(q.state.data?.activeRun) ? 5000 : false) });
   const list = useOrgQuery<{ rows: AiSuggestionView[]; total: number }>(['ai', 'suggestions', status, type, decided, page], `/ai/suggestions${qs({ status, matchType: type, decided, page, pageSize: 10 })}`, { placeholderData: (p) => p, refetchInterval: active(st.data?.activeRun) ? 8000 : false });
   const refresh = ['ai', 'matches', 'comparison', 'dashboard', 'journey'];
-  const start = useOrgMutation((id, _: void) => api.post<{ selected: number }>(orgPath(id, '/ai/runs'), { scope, limit, perSite: 3 }), ['ai'], (r) => toast.push(`Analysis started for ${r.selected} product${r.selected === 1 ? '' : 's'}. Suggestions appear here as they are judged.`));
+  const start = useOrgMutation((id, _: void) => api.post<{ selected: number }>(orgPath(id, '/ai/runs'), { scope, limit: scope === 'sweep' ? 20 : limit, perSite: 3 }), ['ai'], (r) => toast.push(`Analysis started for ${r.selected} product${r.selected === 1 ? '' : 's'}. Suggestions appear here as they are judged.`));
   const control = useOrgMutation((id, v: { run: string; action: 'pause' | 'resume' | 'cancel' }) => api.post(orgPath(id, `/ai/runs/${v.run}/${v.action}`)), ['ai']);
+  const continuous = useOrgMutation((id, v: { enabled: boolean }) => api.post(orgPath(id, '/ai/continuous'), v), ['ai'], (_r, v) => toast.push(v.enabled ? 'Continuous matching is on: new and changed products are matched after each collection, within the free quota.' : 'Continuous matching is off.'));
+  const reconcile = useOrgMutation((id, _: void) => api.post(orgPath(id, '/ai/reconcile')), ['ai', 'matches', 'comparison'], () => toast.push('Re-checking every stored answer against the current rules. No request goes to Gemini.'));
   const resumeGemini = useOrgMutation((id, _: void) => api.post(orgPath(id, '/ai/resume-gemini')), ['ai'], () => toast.push('Gemini processing is allowed to continue.'));
   const review = useOrgMutation(
     (id, v: { id: string; body: Record<string, unknown> }) => api.post<{ status: string; affected: number }>(orgPath(id, `/ai/suggestions/${v.id}/review`), v.body),
@@ -405,7 +461,7 @@ export function AiSuggestionsTab() {
   );
   const s = st.data;
   const run = s?.activeRun ?? null;
-  const err = start.error ?? control.error ?? review.error ?? resumeGemini.error;
+  const err = start.error ?? control.error ?? review.error ?? resumeGemini.error ?? continuous.error ?? reconcile.error;
   return (
     <div className="stack-s">
       <div className="callout info" role="note">
@@ -414,17 +470,28 @@ export function AiSuggestionsTab() {
       {err && <div className="callout bad" role="alert">{errorMessage(err)}</div>}
       <Card title="Analysis">
         {s ? <AiStatusPanel status={s} isAdmin={isAdmin} onResumeGemini={() => resumeGemini.mutate(undefined)} busy={resumeGemini.isPending} /> : <div className="muted small">Loading…</div>}
+        {s?.configured && (
+          <div className="small" style={{ marginTop: 8 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="checkbox" checked={s.continuous ?? false} disabled={!isAdmin || continuous.isPending} onChange={(e) => continuous.mutate({ enabled: e.target.checked })} />
+              <span><b>Match automatically.</b> After each collection, new and changed products are found, judged and — where a policy that has passed its accuracy check allows it — approved, with no one pressing Analyse or Accept. Quota is respected: when it runs out the work waits and carries on.</span>
+            </label>
+            {isAdmin && <div style={{ marginTop: 4 }}><button className="btn btn-sm" disabled={reconcile.isPending} onClick={() => reconcile.mutate(undefined)}>Re-check approvals against the current rules</button> <span className="muted">(uses stored answers only; nothing is sent to Gemini)</span></div>}
+          </div>
+        )}
         {s?.configured && <SemanticSearch isAdmin={isAdmin} />}
         {run && <div style={{ marginTop: 10 }}><AiRunPanel run={run} isAdmin={isAdmin} busy={control.isPending} onPause={() => control.mutate({ run: run.id, action: 'pause' })} onResume={() => control.mutate({ run: run.id, action: 'resume' })} onCancel={() => control.mutate({ run: run.id, action: 'cancel' })} /></div>}
         {isAdmin && s?.configured && !run && s.state !== 'stopped' && (
           <div className="row" style={{ alignItems: 'end', marginTop: 10, flexWrap: 'wrap' }}>
-            <div className="field"><label htmlFor="ai-scope">Analyse</label><select id="ai-scope" value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}><option value="sample">A spread of your products, from every part of Match review</option><option value="unmatched">Products the matcher found nothing for</option></select></div>
-            <div className="field"><label htmlFor="ai-limit">How many products</label><input id="ai-limit" type="number" min={1} max={500} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} style={{ width: 90 }} /></div>
+            <div className="field"><label htmlFor="ai-scope">Analyse</label><select id="ai-scope" value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}><option value="sample">A spread of your products, from every part of Match review</option><option value="unmatched">Products the matcher found nothing for</option><option value="sweep">The whole catalogue (what automatic matching does)</option></select></div>
+            {scope !== 'sweep' && <div className="field"><label htmlFor="ai-limit">How many products</label><input id="ai-limit" type="number" min={1} max={500} value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} style={{ width: 90 }} /></div>}
             <button className="btn btn-primary" disabled={start.isPending} onClick={() => start.mutate(undefined)}>Analyse with AI</button>
           </div>
         )}
         {isAdmin && s?.configured && !run && <p className="small muted" style={{ margin: '6px 0 0' }}>A product costs about one request. The free tier allows few requests a day, so start small; answers are kept and never asked for twice unless a product changes.</p>}
       </Card>
+
+      <FunnelCard />
 
       <div className="row" style={{ flexWrap: 'wrap', alignItems: 'end' }}>
         <div className="field"><label htmlFor="ai-status">Show</label><select id="ai-status" value={status} onChange={(e) => { setStatus(e.target.value as StatusFilter); setPage(1); }}>{STATUS_FILTERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>

@@ -23,13 +23,17 @@ export function PricesPage() {
     setSp(n, { replace: true });
   };
   const page = Number(get('page', '1'));
-  const params = { q: get('q'), category: get('category'), siteId: get('siteId'), view: get('view', 'prices'), include: get('include', 'suggested'), matchClass: get('matchClass'), freshness: get('freshness', 'any'), sort: get('sort', 'title'), dir: get('dir', 'asc'), page, pageSize: PAGE_SIZE };
+  const view = get('view', 'approved');
+  // the overview of approved matches shows approved pairs by default; the older views also show the matcher's suggestions, each labelled
+  const defaultInclude = view === 'approved' ? 'confirmed' : 'suggested';
+  const params = { q: get('q'), category: get('category'), siteId: get('siteId'), view, include: get('include', defaultInclude), matchClass: get('matchClass'), freshness: get('freshness', 'any'), sort: get('sort', 'title'), dir: get('dir', 'asc'), page, pageSize: PAGE_SIZE };
   const q = useOrgQuery<ComparisonResponse>(['comparison', params], `/comparison${qs(params)}`, { placeholderData: (prev) => prev });
   const d = q.data;
   const substitutes = params.view === 'substitutes';
   const related = params.view === 'related';
   const equivalents = params.view === 'equivalents';
-  const viewName = params.view as 'prices' | 'substitutes' | 'equivalents' | 'related';
+  const viewName = params.view as 'approved' | 'prices' | 'substitutes' | 'equivalents' | 'related';
+  const approvedView = viewName === 'approved';
   const unread = useUncollected();
   const readCompetitors = useCollectedCompetitors();
   const competitors = d?.facets.competitors ?? [];
@@ -41,16 +45,17 @@ export function PricesPage() {
       <PageHead
         eyebrow="Market"
         title="Price comparison"
-        subtitle={equivalents ? <>Products from <b>another maker</b> that are verified to do the same job as yours for the same use. They are a <b>benchmark of their own</b>: never the same product, and never counted in your price position among identical products.</> : related ? <>Products that <b>go with</b> yours but are not interchangeable (a different part, kit or variety). Shown for context: their prices are <b>not compared</b> with yours.</> : substitutes ? <>Products at your competitors that can <b>stand in for</b> yours, and are <b>never the same product</b>. The differences that matter (power, light output, size, what it fits) are listed under each price, so read them before comparing.</> : <>One row per product you sell, compared only with the <b>same product</b> or the same product in another pack. Each tag shows the price as the website displays it, how it compares after conversion to <b>{reporting}</b>, and when it was last seen.</>}
+        subtitle={approvedView ? <>Every <b>approved</b> match in one overview: the <b>same product</b>, the same product in <b>another pack</b>, and <b>compatible equivalents</b> from other makers, each labelled with what it is and who approved it. Only the same product counts in your price position; an equivalent is a benchmark of its own.</> : equivalents ? <>Products from <b>another maker</b> that are verified to do the same job as yours for the same use. They are a <b>benchmark of their own</b>: never the same product, and never counted in your price position among identical products.</> : related ? <>Products that <b>go with</b> yours but are not interchangeable (a different part, kit or variety). Shown for context: their prices are <b>not compared</b> with yours.</> : substitutes ? <>Products at your competitors that can <b>stand in for</b> yours, and are <b>never the same product</b>. The differences that matter (power, light output, size, what it fits) are listed under each price, so read them before comparing.</> : <>One row per product you sell, compared only with the <b>same product</b> or the same product in another pack. Each tag shows the price as the website displays it, how it compares after conversion to <b>{reporting}</b>, and when it was last seen.</>}
         actions={<Link className="btn" to={`/o/${orgId}/matches`}>Review matches</Link>}
       />
-      <Tabs value={viewName} onChange={(v) => set({ view: v === 'prices' ? '' : v })} tabs={[{ id: 'prices', label: 'Same products' }, { id: 'equivalents', label: 'Equivalents' }, { id: 'substitutes', label: 'Substitutes' }, { id: 'related', label: 'Related' }]} />
+      <Tabs value={viewName} onChange={(v) => set({ view: v === 'approved' ? '' : v, include: '' })} tabs={[{ id: 'approved', label: 'All approved' }, { id: 'prices', label: 'Same products' }, { id: 'equivalents', label: 'Equivalents' }, { id: 'substitutes', label: 'Substitutes' }, { id: 'related', label: 'Related' }]} />
       <div className="filters" role="search">
         <div className="field wide"><label htmlFor="f-q">Search products</label><input id="f-q" type="search" placeholder="e.g. ketchup, Heinz" defaultValue={params.q} onKeyDown={(e) => e.key === 'Enter' && set({ q: (e.target as HTMLInputElement).value })} onBlur={(e) => e.target.value !== params.q && set({ q: e.target.value })} /></div>
         <div className="field"><label htmlFor="f-c">Category</label><select id="f-c" value={params.category} onChange={(e) => set({ category: e.target.value })}><option value="">All categories</option>{d?.facets.categories.map((c) => <option key={c}>{c}</option>)}</select></div>
         <div className="field"><label htmlFor="f-s">Competitor</label><select id="f-s" value={params.siteId} onChange={(e) => set({ siteId: e.target.value })}><option value="">All competitors</option>{competitors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+        {approvedView && <div className="field"><label htmlFor="f-m">Match type</label><select id="f-m" value={params.matchClass} onChange={(e) => set({ matchClass: e.target.value })}><option value="">All approved</option><option value="identical">The same product</option><option value="different_pack">Same product, different pack</option><option value="comparable">Compatible equivalents</option></select></div>}
         {viewName === 'prices' && <div className="field"><label htmlFor="f-m">Match type</label><select id="f-m" value={params.matchClass} onChange={(e) => set({ matchClass: e.target.value })}><option value="">All</option><option value="identical">The same product</option><option value="different_pack">Same product, different pack</option></select></div>}
-        <div className="field"><label htmlFor="f-i">Show</label><select id="f-i" value={params.include} onChange={(e) => set({ include: e.target.value === 'suggested' ? '' : e.target.value })}><option value="suggested">Confirmed and suggested</option><option value="confirmed">Confirmed only</option></select></div>
+        <div className="field"><label htmlFor="f-i">Show</label><select id="f-i" value={params.include} onChange={(e) => set({ include: e.target.value === defaultInclude ? '' : e.target.value })}><option value="suggested">{approvedView ? 'Approved and suggested' : 'Confirmed and suggested'}</option><option value="confirmed">{approvedView ? 'Approved only' : 'Confirmed only'}</option></select></div>
         <div className="field"><label htmlFor="f-f">Freshness</label><select id="f-f" value={params.freshness} onChange={(e) => set({ freshness: e.target.value })}><option value="any">Any</option><option value="fresh">Fresh only</option><option value="stale">Stale only</option></select></div>
         <div className="field"><label htmlFor="f-o">Sort by</label><select id="f-o" value={`${params.sort}:${params.dir}`} onChange={(e) => { const [s, dir] = e.target.value.split(':'); set({ sort: s!, dir: dir! }); }}>
           <option value="title:asc">Product A–Z</option><option value="gap:desc">Largest price gap</option><option value="gap:asc">Smallest price gap</option><option value="freshness:asc">Oldest data first</option><option value="category:asc">Category</option>
@@ -60,6 +65,11 @@ export function PricesPage() {
       {awaitingNote(d?.matching?.awaiting ?? 0, params.include === 'suggested' ? 'suggested' : 'confirmed') && (
         <div className="callout info" role="status" style={{ marginBottom: 12 }}>
           {awaitingNote(d!.matching!.awaiting, params.include === 'suggested' ? 'suggested' : 'confirmed')} <Link to={`/o/${orgId}/matches`}>Review them</Link>
+        </div>
+      )}
+      {approvedView && (
+        <div className="callout info" role="note" style={{ marginBottom: 12 }}>
+          Each price is labelled <b>same product</b>, <b>other pack</b> or <b>compatible equivalent</b>, with who approved it (you, the matcher, or an automatic policy that passed its accuracy check) and what it rests on. Only <b>same product</b> prices count towards “cheapest” and “most expensive”. Substitutes are suggestions only and have their own tab.
         </div>
       )}
       {substitutes && (
@@ -75,7 +85,7 @@ export function PricesPage() {
       {viewName === 'prices' && params.include === 'suggested' && (
         <div className="small muted" style={{ marginBottom: 8 }}>Prices marked <i>suggested</i> are for products the matcher thinks are the same but nobody has confirmed: they are shown, but never counted in “cheapest” or “most expensive”. Choose “Confirmed only” to hide them.</div>
       )}
-      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : related ? 'No related products found' : equivalents ? 'No compatible equivalents yet' : comparisonEmpty(viewName === 'related' || viewName === 'equivalents' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : related ? 'The matcher has not found a related product that goes with one of yours at the competitors collected so far.' : equivalents ? 'A compatible equivalent is another maker’s product checked to do the same job for the same use. None has been confirmed yet: an AI suggestion you accept as a close equivalent appears here.' : comparisonEmpty(viewName === 'related' || viewName === 'equivalents' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
+      <DataState q={q} isEmpty={(r) => r.total === 0} empty={<Card><EmptyState title={params.q || params.category || params.siteId || params.matchClass ? 'No products match these filters' : approvedView ? 'No approved matches yet' : related ? 'No related products found' : equivalents ? 'No compatible equivalents yet' : comparisonEmpty(viewName === 'related' || viewName === 'equivalents' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).title}>{params.q || params.category || params.siteId || params.matchClass ? 'Clear a filter to see more.' : approvedView ? 'Nothing has been approved yet, by you or by an automatic policy. Review suggestions in Match review; a policy approves by itself only after it has passed its accuracy check.' : related ? 'The matcher has not found a related product that goes with one of yours at the competitors collected so far.' : equivalents ? 'A compatible equivalent is another maker’s product checked to do the same job for the same use. None has been confirmed yet: an AI suggestion you accept as a close equivalent appears here.' : comparisonEmpty(viewName === 'related' || viewName === 'equivalents' ? 'substitutes' : viewName, d?.matching ?? { state: 'ok', awaiting: 0, confirmedSame: 0, confirmedSubstitutes: 0, withoutCounterpart: null }, readCompetitors.length > 0).body}{!params.q && !params.category && !params.siteId && !params.matchClass && unread.length > 0 && <> <b>Not collected:</b><UncollectedList sites={unread} orgId={orgId} /></>}</EmptyState></Card>}>
         {(r) => (
           <Card pad={false}>
             <div className="table-wrap">
@@ -109,7 +119,8 @@ export function PricesPage() {
                           <td key={s.id}>
                             <PriceTag site={c.siteName} price={c.price} diffPct={c.diffPct} unitDiffPct={c.unitDiffPct} directlyComparable={c.directlyComparable} reporting={reporting}
                               matchLabel={(() => { const r = c.relationship ?? (c.matchClass === 'identical' ? 'exact' : c.matchClass === 'different_pack' ? 'variant' : 'substitute'); return `${r === 'exact' ? 'same product' : r === 'variant' ? 'other pack' : r === 'equivalent' ? 'compatible equivalent' : r === 'related' ? 'related' : 'substitute'}${c.confirmation === 'suggested' ? ' · suggested' : ''}`; })()} href={c.url ?? null} availability={c.availability} offer={c.offerSummary} product={c.title} />
-                            <div className="small muted" style={{ marginTop: 2 }}>{c.confirmation === 'automatic' ? 'Confirmed automatically' : c.confirmation === 'suggested' ? 'Suggested, not confirmed' : c.confirmation === 'person' ? 'Confirmed by you' : ''}</div>
+                            <div className="small muted" style={{ marginTop: 2 }}>{c.approval?.by === 'policy' ? `Approved automatically (policy ${c.approval.policyVersion ?? ''})`.replace(' ()', '') : c.confirmation === 'automatic' ? 'Confirmed automatically by the matcher' : c.confirmation === 'suggested' ? 'Suggested, not confirmed' : c.confirmation === 'person' ? 'Confirmed by you' : ''}</div>
+                            {c.priceLimitation && <div className="small" style={{ color: 'var(--amber)' }}>{c.priceLimitation}</div>}
                             {c.variantTitle && c.variantTitle.toLowerCase() !== 'default title' && <div className="small muted">Variant: {c.variantTitle}</div>}
                             {(c.alternatives ?? []).length > 0 && (
                               <details className="ev">
@@ -117,12 +128,12 @@ export function PricesPage() {
                                 <ul>{c.alternatives!.map((a) => <li key={a.matchId}>{a.title}{a.variantTitle && a.variantTitle.toLowerCase() !== 'default title' ? ` — ${a.variantTitle}` : ''}: {a.relationship === 'exact' ? 'same product' : a.relationship === 'variant' ? 'other pack' : a.relationship === 'equivalent' ? 'compatible equivalent' : a.relationship === 'related' ? 'related' : 'substitute'}, {a.confirmation === 'suggested' ? 'suggested' : 'confirmed'}{a.price !== null ? `, ${a.price.toFixed(2)} ${a.currency ?? ''}` : ''}{a.quantity === 'unknown' ? ', quantity not verified' : ''} · <SourceLink href={a.url} product={a.title} text="View source" /></li>)}</ul>
                               </details>
                             )}
-                            {(substitutes || equivalents || related) && (c.differences ?? []).length > 0 && <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--amber)' }}>{(c.differences ?? []).slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul>}
-                            {(c.caveats.length > 0 || c.reasons.length > 0) && (
+                            {(substitutes || equivalents || related || approvedView) && (c.differences ?? []).length > 0 && <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--amber)' }}>{(c.differences ?? []).slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}</ul>}
+                            {(c.caveats.length > 0 || c.reasons.length > 0 || (c.approval?.evidence.length ?? 0) > 0) && (
                               <details className="ev">
                                 <summary>{c.relationship === 'equivalent' ? 'A compatible equivalent — what differs?' : (c.relationship ?? c.matchClass) === 'substitute' || c.matchClass === 'comparable' ? 'A substitute — what differs?' : 'Why this match?'}</summary>
                                 <div><b>{c.title}</b>{c.variantTitle ? ` — ${c.variantTitle}` : ''}</div>
-                                <ul>{(c.differences ?? []).map((x, i) => <li key={`d${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}{c.reasons.map((x, i) => <li key={i}>{x}</li>)}{c.caveats.map((x, i) => <li key={`c${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}</ul>
+                                <ul>{c.approval?.reason && <li><b>Approval:</b> {c.approval.reason}</li>}{(c.approval?.evidence ?? []).map((x, i) => <li key={`e${i}`}>{x}</li>)}{(c.differences ?? []).map((x, i) => <li key={`d${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}{c.reasons.filter((x) => !(c.approval?.evidence ?? []).includes(x) && x !== c.approval?.reason).map((x, i) => <li key={i}>{x}</li>)}{c.caveats.map((x, i) => <li key={`c${i}`} style={{ color: 'var(--amber)' }}>{x}</li>)}</ul>
                               </details>
                             )}
                           </td>

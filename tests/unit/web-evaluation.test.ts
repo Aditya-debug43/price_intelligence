@@ -102,3 +102,56 @@ describe('Reject is the person’s own, available on an AI suggestion', () => {
     expect(html(AiSuggestionCard, { s, orgId: 'o', isAdmin: false })).not.toContain('Not a match');
   });
 });
+
+describe('the gate screen counts families, says what is still needed, and marks goals that do not block', () => {
+  const g = {
+    domain: 'automotive', autoClass: 'compatible_equivalent', policyVersion: 'auto-2-bulb',
+    units: { families: 62, correct: 61, critical: 1, unjudgedAnswers: 3, incompleteFamilies: 2 }, needed: { toMinimum: 38, toCertainty: null },
+    result: { passed: false, lines: [
+      { name: 'automatic approval precision', interval: { estimate: 0.98, low: 0.9, high: 0.99 }, needed: 0.98, examples: 62, passed: false, required: true, why: 'only 62 independent labelled examples (at least 100 are needed)' },
+      { name: 'match recall', interval: { estimate: 0.4, low: 0.3, high: 0.5 }, needed: 0.9, examples: 80, passed: false, required: false, why: '40.0% against the goal' },
+    ] },
+  };
+  it('shows the independent families judged, the critical mistake, the unjudged answers and the shortfall', () => {
+    const out = html(GateTable, { gates: [g], flags: [], isAdmin: true, onToggle() {} });
+    expect(out).toContain('<b>62</b> independent product families judged');
+    expect(out).toContain('1 critical mistake');
+    expect(out).toContain('3 answers nobody has judged yet (2 families held out until judged)');
+    expect(out).toContain('38 more families needed to reach the minimum');
+    expect(out).toContain('Rules auto-2-bulb');
+    expect(out).toContain('match recall (a goal, does not block)');
+  });
+});
+
+describe('what a labeller’s judgments become', () => {
+  let labelPayload: (list: { variantId: string }[], judged: Record<string, string>, none: boolean, complete: boolean, expertise: string, note: string) => { judgments: { variantId: string; relationship: string; critical?: boolean }[]; complete: boolean; expertise: string; note: string };
+  beforeAll(async () => { ({ labelPayload } = (await import(/* @vite-ignore */ EVAL_MODULE)) as never); });
+  const list = [{ variantId: 'a' }, { variantId: 'b' }, { variantId: 'c' }];
+  it('leaves an unjudged product out: it is never right and never wrong', () => {
+    const p = labelPayload(list, { a: 'equivalent', b: '' }, false, false, 'knowledgeable', '');
+    expect(p.judgments).toEqual([{ variantId: 'a', relationship: 'equivalent' }]);
+    expect(p.complete).toBe(false);
+  });
+  it('turns a serious mistake into “not a counterpart” flagged critical', () => {
+    expect(labelPayload(list, { a: 'equivalent', b: 'critical', c: 'incorrect' }, false, true, 'general', 'n').judgments).toEqual([
+      { variantId: 'a', relationship: 'equivalent' }, { variantId: 'b', relationship: 'incorrect', critical: true }, { variantId: 'c', relationship: 'incorrect' },
+    ]);
+  });
+  it('“none of these” judges everything shown as not a counterpart and says the list is complete', () => {
+    const p = labelPayload(list, { a: 'equivalent' }, true, false, 'general', '');
+    expect(p.judgments.map((j) => j.relationship)).toEqual(['incorrect', 'incorrect', 'incorrect']);
+    expect(p.complete).toBe(true);
+  });
+});
+
+describe('the sample says what it represents', () => {
+  let SampleTable: Component;
+  beforeAll(async () => { ({ SampleTable } = (await import(/* @vite-ignore */ EVAL_MODULE)) as never); });
+  it('marks only the uniform sample as describing the whole catalogue', () => {
+    const out = html(SampleTable, { strata: [{ name: 'random', kind: 'uniform', population: 9245, selected: 12, labelled: 10 }, { name: 'lookalike', kind: 'enriched', population: 300, selected: 30, labelled: 5 }], estimate: { basis: 'only the uniform sample describes the catalogue', cases: 10 } });
+    expect(out).toContain('the whole catalogue');
+    expect(out).toContain('only itself (chosen on purpose)');
+    expect(out).toContain('9,245');
+    expect(out).toContain('Estimates for the whole catalogue come only from the uniform sample (10 labelled)');
+  });
+});

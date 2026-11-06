@@ -101,6 +101,10 @@ export interface ComparisonCell {
   bundle?: { verdict: BundleVerdict; note: string };
   /** Same-pack direct comparison is only valid for identical matches that are confirmed. */
   directlyComparable: boolean;
+  /** How the pair came to be approved and what it rests on (absent from reports saved before this existed). */
+  approval?: { by: 'person' | 'matcher' | 'policy' | 'suggestion'; policyVersion: string | null; reason: string | null; evidence: string[] };
+  /** What stops the price difference being a like-for-like price (null when nothing does). An equivalent or a pack variant is never the same item at the same price basis. */
+  priceLimitation?: string | null;
   /** Who stands behind this pair: a person confirmed it, the matcher confirmed it automatically (an identifier, or the same maker with identical names and consistent sizes), or it is only a suggestion nobody has confirmed. */
   confirmation?: 'person' | 'automatic' | 'suggested';
   /** Whether a person has attested that the two packs hold the same quantity and contents (needed to count a pair whose listings do not establish it). */

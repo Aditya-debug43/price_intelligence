@@ -177,7 +177,7 @@ function Body({ d, orgId, isAdmin, thr, setThr, onSave }: { d: Detail; orgId: st
                     <div className="sub">{m.other?.siteName} · {m.other?.price !== null && m.other?.price !== undefined ? formatMoney(m.other.price, m.other.currency) : 'no price'}</div>
                     <div className="small muted">{m.reasons.join(' · ')}</div>
                   </td>
-                  <td><span className="pill info">{m.matchClass.replace('_', ' ')}</span><div className="sub">{Math.round(m.confidence * 100)}% · {m.status.replace('_', ' ')}</div></td>
+                  <td><span className="pill info">{m.matchClass.replace('_', ' ')}</span><div className="sub">{m.method === 'ai_auto' ? 'approved by an automatic policy' : `${Math.round(m.confidence * 100)}%`} · {m.status.replace('_', ' ')}</div></td>
                 </tr>
               ))}</tbody></table>
             )}

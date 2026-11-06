@@ -126,7 +126,7 @@ export async function askRequest(req: PlannedRequest, deps: AskDeps): Promise<As
 }
 
 /** The same request reduced to the pairs that still need an answer. */
-function restrict(req: PlannedRequest, keys: Set<string>, deps: AskDeps): PlannedRequest {
+export function restrict(req: PlannedRequest, keys: Set<string>, deps: Pick<AskDeps, 'tokens'>): PlannedRequest {
   const groups: PayloadGroup[] = req.groups.map((g) => ({ ref: g.ref, source: g.source, candidates: g.candidates.filter((c) => keys.has(pairKey(g.ref, c.ref))) })).filter((g) => g.candidates.length);
   return planBatches(groups, { ...DEFAULT_BATCH_LIMITS, maxCandidates: 999, maxOutputTokens: 1e9, maxInputTokens: 1e9, charsPerToken: deps.tokens.charsPerToken })[0]!;
 }

@@ -76,6 +76,8 @@ const envSchema = z.object({
    * The limits below are SHELFWATCH's own ceilings, kept under Google's free-tier limits (15 requests a minute for the default model); Google's own quota errors lower them further.
    */
   GEMINI_API_KEY: optionalString,
+  /** A second Gemini API key (backend only): work is spread over the keys by each key's own headroom, and every key has its own limits, pause and stop. Optional. */
+  GEMINI_API_KEY_2: optionalString,
   GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
   /** Optional embedding model for semantic candidate search. Off unless set: the free tier allows about 100 texts a minute. */
   GEMINI_EMBEDDING_MODEL: optionalString,

@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { buildApp } from '../../apps/api/src/app.ts';
-import { aiMatchSuggestions, matchAutoApproval, matchEvalCases, matchEvalReports, orgSettings, productMatches, products, variants } from '@ci/database';
+import { aiMatchSuggestions, matchAutoApproval, matchEvalCases, orgSettings, productMatches, products, variants } from '@ci/database';
+import { AUTO_POLICY_VERSION } from '@ci/core';
 import type { GeminiHttp } from '@ci/connectors';
 import { createOrganization, runMatching, startScan } from '@ci/services';
 import { createHarness, type Harness } from '../support/harness.ts';
@@ -12,7 +13,10 @@ import { signUp } from '../support/auth.ts';
 /**
  * The independent evaluation and the gate for automatic approval. Labels are made only by people through the API (the fixtures here are TEST labels made by the test, clearly not
  * independent human truth); the system is scored against them; a class of automatic approval stays closed until a measurement that passes the release gate exists, is applied only to pairs
- * no person has decided, survives the rule engine's own runs, and can be taken back by a person. The no-counterpart list, the separate counts and the Reject action are covered here too.
+ * no person has decided, survives the rule engine’s own runs, and can be taken back by a person. The no-counterpart list, the separate counts and the Reject action are covered here too.
+ *
+ * Nothing in this file makes up a measurement. The real route to a switched-on policy (labelling → measurement → gate → activation → reconciliation → comparison) is proved in
+ * match-gate-path.test.ts; the behaviour OF a switched-on policy is tested here by setting its state directly.
  */
 const KEY = 'test-key-not-real-0123456789abcdef';
 let h: Harness;
@@ -144,32 +148,21 @@ describe('measuring the system and keeping the gate closed', () => {
   });
   it('every gate is closed: too few labelled examples is never a pass', async () => {
     const gates = (await owner.get(`${base()}/eval/status`)).body.latestReport.gates as { domain: string; autoClass: string; result: { passed: boolean; lines: { why: string }[] } }[];
-    expect(gates.length).toBe(4);
+    expect(gates.length).toBe(3); // only the policies that exist: groceries have no equivalent policy
     for (const g of gates) { expect(g.result.passed).toBe(false); expect(g.result.lines.map((l) => l.why).join(' ')).toMatch(/labelled example/); }
   });
   it('a class cannot be switched on without a passing measurement', async () => {
     const r = await owner.post(`${base()}/eval/auto-approval`, { domain: 'grocery', autoClass: 'exact_item', enabled: true });
     expect(r.status).toBe(409);
-    expect(r.body.error.message).toMatch(/not passed the release gate/);
+    expect(r.body.error.message).toMatch(/no evaluation yet|not passed the release gate/);
     expect(await db().select().from(matchAutoApproval).where(eq(matchAutoApproval.orgId, org))).toHaveLength(0);
   });
 });
 
-describe('a class that passed the gate (a synthetic passing measurement made by this test)', () => {
-  const passing = (domain: string, autoClass: string) => ({ domain, autoClass, result: { passed: true, lines: [] } });
-  it('can be switched on, but not after more labels arrived since the measurement', async () => {
-    h.advance(60_000);
-    await db().insert(matchEvalReports).values({ orgId: org, split: 'all', report: { synthetic: true }, gates: [passing('grocery', 'exact_item')], cases: 1, createdAt: h.svc.clock() });
-    h.advance(60_000);
-    // a label made after the measurement makes it stale
-    const [c] = await db().select().from(matchEvalCases).where(and(eq(matchEvalCases.orgId, org), eq(matchEvalCases.status, 'pending')));
-    await owner.post(`${base()}/eval/cases/${c!.id}/label`, { relationship: 'none', expertise: 'general' });
-    expect((await owner.post(`${base()}/eval/auto-approval`, { domain: 'grocery', autoClass: 'exact_item', enabled: true })).status).toBe(409);
-    h.advance(60_000);
-    await db().insert(matchEvalReports).values({ orgId: org, split: 'all', report: { synthetic: true }, gates: [passing('grocery', 'exact_item')], cases: 2, createdAt: h.svc.clock() });
-    const on = await owner.post(`${base()}/eval/auto-approval`, { domain: 'grocery', autoClass: 'exact_item', enabled: true });
-    expect(on.status, JSON.stringify(on.body)).toBe(200);
-    expect((await db().select().from(matchAutoApproval).where(eq(matchAutoApproval.orgId, org)))[0]).toMatchObject({ enabled: true, enabledBy: userId, autoClass: 'exact_item', domain: 'grocery' });
+describe('a policy that is switched on (its state is set directly here; the real route to it is match-gate-path.test.ts)', () => {
+  it('is on for the current rules', async () => {
+    await db().insert(matchAutoApproval).values({ orgId: org, domain: 'grocery', autoClass: 'exact_item', enabled: true, enabledBy: userId, enabledAt: h.svc.clock(), policyVersion: AUTO_POLICY_VERSION, updatedAt: h.svc.clock() });
+    expect((await db().select().from(matchAutoApproval).where(eq(matchAutoApproval.orgId, org)))[0]).toMatchObject({ enabled: true, autoClass: 'exact_item', domain: 'grocery' });
   });
 
   const analyse = async (variantIds: string[]) => {
@@ -190,7 +183,7 @@ describe('a class that passed the gate (a synthetic passing measurement made by 
     expect(m).toMatchObject({ status: 'accepted', relationship: 'exact', method: 'ai_auto', decidedBy: null });
     expect(m.autoConfirmedAt).not.toBeNull();
     for (const p of [pairs.oil!, pairs.rice!]) expect((await db().select().from(productMatches).where(and(eq(productMatches.sourceVariantId, p.s), eq(productMatches.competitorVariantId, p.c)))).filter((r) => r.status === 'accepted')).toHaveLength(0);
-    expect(await sug(pairs.juice!)).toMatchObject({ status: 'accepted', reviewNote: expect.stringMatching(/passed the measured release gate/) });
+    expect(await sug(pairs.juice!)).toMatchObject({ status: 'accepted', reviewNote: expect.stringMatching(/Approved automatically/) });
   });
 
   it('is shown as automatically approved, counts as a direct price comparison only because the quantity is verified', async () => {

@@ -4,6 +4,7 @@ import {
   boolean,
   index,
   integer,
+  primaryKey,
   jsonb,
   numeric,
   pgTable,
@@ -180,6 +181,8 @@ export const orgSettings = pgTable('org_settings', {
   matchingEngine: text('matching_engine').$type<MatchingEngine>().notNull().default('v1'),
   /** Whether engine v2 may confirm the pairs its auto-confirmation policy allows (identifiers; the same maker with identical names and consistent sizes) without a person. Off by default; turning it off reverts every confirmation the engine made. */
   matchingAutoConfirm: boolean('matching_auto_confirm').notNull().default(false),
+  /** Whether AI matching runs by itself after each collection and works through the catalogue in the background (free-tier quota permitting). Off unless the owner turns it on. */
+  aiContinuous: boolean('ai_continuous').notNull().default(false),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
 
@@ -1073,6 +1076,8 @@ export const aiMatchSuggestions = pgTable(
     /** Hash of everything the answer depends on (both products' facts, the engine's reading, model, prompt): an unchanged pair is answered from here and never sent again. */
     /** Which class of automatic approval the deterministic conditions qualify this answer for (see core `autoClassOf`), or null. Recorded for every answer so the class can be measured before it is ever used. */
     autoClass: text('auto_class'),
+    /** The version of the automatic-approval rules that qualified the answer (a changed rule set never inherits an older class). */
+    autoPolicyVersion: text('auto_policy_version'),
     inputHash: text('input_hash').notNull(),
     sourceFingerprint: text('source_fingerprint').notNull(),
     candidateFingerprint: text('candidate_fingerprint').notNull(),
@@ -1146,6 +1151,8 @@ export const aiUsageDaily = pgTable(
     id: pk(),
     day: date('day', { mode: 'string' }).notNull(),
     model: text('model').notNull(),
+    /** Which of the configured API keys sent the requests ("k1", "k2"): never the key itself. */
+    keyId: text('key_id').notNull().default('k1'),
     requests: integer('requests').notNull().default(0),
     successes: integer('successes').notNull().default(0),
     failures: integer('failures').notNull().default(0),
@@ -1158,12 +1165,14 @@ export const aiUsageDaily = pgTable(
     ms: bigint('ms', { mode: 'number' }).notNull().default(0),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('ai_usage_day_model_uq').on(t.day, t.model)],
+  (t) => [uniqueIndex('ai_usage_day_model_key_uq').on(t.day, t.model, t.keyId)],
 );
 
 /** What Google's own answers have taught Shelfwatch about the free tier (it never claims to know the remaining quota), and whether processing is paused or stopped. Global, one row per model. */
 export const aiQuotaState = pgTable('ai_quota_state', {
-  model: text('model').primaryKey(),
+  model: text('model').notNull(),
+  /** Each API key keeps its own limits, pause and stop ("k1", "k2"). */
+  keyId: text('key_id').notNull().default('k1'),
   learnedRpm: integer('learned_rpm'),
   learnedRpd: integer('learned_rpd'),
   learnedTpm: integer('learned_tpm'),
@@ -1173,7 +1182,7 @@ export const aiQuotaState = pgTable('ai_quota_state', {
   /** Set when processing must not continue without a person (a non-free-tier quota was seen, the key was rejected, the model is gone). */
   stopped: text('stopped'),
   updatedAt: ts('updated_at').notNull().defaultNow(),
-});
+}, (t) => [primaryKey({ columns: [t.model, t.keyId] })]);
 
 // ═══════════════════════════════════════════════════════ independent evaluation of matching (migration 0020)
 // A case is one of the shop's variants at one competitor website, with what an INDEPENDENT PERSON established as its true counterpart there (or that it has none). The system's own answers are never
@@ -1194,10 +1203,14 @@ export const matchEvalCases = pgTable(
     /** Why it was selected: confirmed, suggested, rejected, set_aside, ai, no_counterpart, lookalike, auto_audit, random. */
     stratum: text('stratum').notNull(),
     split: text('split').$type<'development' | 'holdout'>().notNull(),
+    /** The product family (a normalised parent title): sibling variants and duplicate listings share a family and so share a set. */
+    familyKey: text('family_key'),
     status: text('status').$type<'pending' | 'labelled' | 'skipped'>().notNull().default('pending'),
     /** The label: the competitor variant that is the true counterpart (null with relationship "none"), and what the two are. */
     truthVariantId: uuid('truth_variant_id'),
     truthRelationship: text('truth_relationship'),
+    /** The labeller says the judged candidates are all there is: any other candidate at this website is not a counterpart. Without it, a candidate nobody judged stays unjudged (never counted as wrong or right). */
+    truthComplete: boolean('truth_complete').notNull().default(false),
     /** Whether the labeller says they know these products well (for automotive parts the gate counts only these labels). */
     expertise: text('expertise').$type<'knowledgeable' | 'general'>(),
     labelledBy: uuid('labelled_by').references(() => users.id, { onDelete: 'set null' }),
@@ -1225,6 +1238,57 @@ export const aiEmbeddings = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('ai_embeddings_variant_model_uq').on(t.variantId, t.model), index('ai_embeddings_org_idx').on(t.orgId, t.model)],
+);
+
+/**
+ * What a person judged about each candidate at a case: acceptable counterparts (each with what the two are) and candidates that are explicitly NOT counterparts. A candidate nobody judged is
+ * unjudged, not wrong. Several acceptable counterparts per case are normal (two competitors' equivalents, or two valid variants).
+ */
+export const matchEvalTruths = pgTable(
+  'match_eval_truths',
+  {
+    id: pk(),
+    orgId: orgId(),
+    caseId: uuid('case_id')
+      .notNull()
+      .references(() => matchEvalCases.id, { onDelete: 'cascade' }),
+    variantId: uuid('variant_id').notNull(),
+    /** exact | variant | equivalent | substitute | related, or "incorrect" (judged and not a counterpart). */
+    relationship: text('relationship').notNull(),
+    /** A critical compatibility violation if the system were to approve it (a wrong fitment, a wrong function): blocks the rule until repaired. */
+    critical: boolean('critical').notNull().default(false),
+  },
+  (t) => [uniqueIndex('match_eval_truth_uq').on(t.caseId, t.variantId), index('match_eval_truth_org_idx').on(t.orgId)],
+);
+
+/**
+ * The durable work of AI matching, one row per own variant: what state it is in, why, and what it was last worked on from. Quota exhaustion makes a row wait for quota (never "completed"); a
+ * variant whose critical facts are missing is marked as needing evidence rather than guessed at.
+ */
+export const aiMatchWork = pgTable(
+  'ai_match_work',
+  {
+    id: pk(),
+    orgId: orgId(),
+    sourceVariantId: uuid('source_variant_id')
+      .notNull()
+      .references(() => variants.id, { onDelete: 'cascade' }),
+    status: text('status').$type<'queued' | 'running' | 'waiting_quota' | 'retry' | 'completed' | 'needs_evidence'>().notNull().default('queued'),
+    /** Why: a stage of the funnel ("no candidate", "unsupported category", "missing fitment", "ambiguous", "approved", "quota pause" …). */
+    reason: text('reason'),
+    sourceEvidence: text('source_evidence'),
+    policyVersion: text('policy_version'),
+    lastRunId: uuid('last_run_id'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: ts('next_attempt_at'),
+    candidates: integer('candidates').notNull().default(0),
+    judged: integer('judged').notNull().default(0),
+    eligible: integer('eligible').notNull().default(0),
+    approved: integer('approved').notNull().default(0),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    completedAt: ts('completed_at'),
+  },
+  (t) => [uniqueIndex('ai_match_work_source_uq').on(t.sourceVariantId), index('ai_match_work_org_idx').on(t.orgId, t.status)],
 );
 
 /** Each measurement of the system against the labelled cases (kept, so progress and regressions are visible). */
@@ -1259,6 +1323,8 @@ export const matchAutoApproval = pgTable(
     enabledAt: ts('enabled_at'),
     /** The gate result the person saw when enabling it, and why it was last switched off. */
     gateAtEnable: jsonb('gate_at_enable').$type<Record<string, unknown>>(),
+    /** The version of the rules the class was switched on for: a changed rule set is a different policy and must pass its own measurement. */
+    policyVersion: text('policy_version'),
     disabledReason: text('disabled_reason'),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },

@@ -70,7 +70,20 @@ export interface AiEngineReading {
 }
 
 /** What the deterministic policies found for the pair, shown beside the AI's answer. */
+/** What a category policy established, field by field, from sourced evidence (never from codes that merely co-occur in the catalogue). */
+export interface AiCompatReading {
+  version: string;
+  category: string;
+  fields: { code: string; function: string; colour: string };
+  sharedCode: string | null;
+  eligible: boolean;
+  blocker: string | null;
+  reasons: string[];
+}
+
 export interface AiPolicyReading {
+  /** The category policy's reading (automotive replacement bulbs), when one covers the pair. */
+  compat?: AiCompatReading | null;
   quantity: { verdict: 'same' | 'different' | 'unknown'; note: string } | null;
   bundle: { verdict: 'equivalent' | 'mismatch' | 'unknown'; note: string } | null;
 }
@@ -154,8 +167,24 @@ export interface AiRunView {
   params: Record<string, unknown>;
 }
 
+/** One API key as the page shows it: a label (never any part of the key), its own use today and its own pause or stop. */
+export interface AiKeyView {
+  id: string;
+  label: string;
+  state: 'ready' | 'paused' | 'stopped';
+  pausedUntil: string | null;
+  pauseReason: string | null;
+  stopped: string | null;
+  today: { requests: number; inputTokens: number; outputTokens: number; failures: number; rateLimited: number };
+  learned: { rpm?: number; rpd?: number; tpm?: number };
+}
+
 export interface AiStatusView {
   configured: boolean;
+  /** Each configured key with its own quota tracking; the figures below are their totals. */
+  keys?: AiKeyView[];
+  /** Whether this workspace's matching runs by itself after each collection. */
+  continuous?: boolean;
   model: string;
   /** Shelfwatch's own ceilings and what Google's answers have taught it; Google's remaining quota is NOT available through the API. */
   limits: { rpm: number; tpm: number; dailyBudget: number; learned: { rpm?: number; rpd?: number; tpm?: number } };
@@ -170,8 +199,8 @@ export interface AiStatusView {
 }
 
 export const aiRunSchema = z.object({
-  /** Which of your products to analyse. `sample`: a spread across categories and the review buckets; `unmatched`: your products with no suggestion or confirmed match yet; `products`: the given ones. */
-  scope: z.enum(['sample', 'unmatched', 'products']).default('sample'),
+  /** Which of your products to analyse. `sample`: a spread across categories and the review buckets; `unmatched`: your products with no suggestion or confirmed match yet; `products`: the given ones; `sweep`: the whole active catalogue, unseen and changed products first (what continuous matching runs). */
+  scope: z.enum(['sample', 'unmatched', 'products', 'sweep']).default('sample'),
   /** Source VARIANT ids (scope "products"). */
   variantIds: z.array(z.uuid()).max(200).optional(),
   /** How many of your variants to analyse (the free tier allows few requests a day: start small). */
@@ -190,3 +219,59 @@ export const aiReviewSchema = z.object({
   note: z.string().max(500).optional(),
 });
 export type AiReviewRequest = z.infer<typeof aiReviewSchema>;
+
+// ───────────────────────────────────────────────────────────── coverage and the matching funnel
+
+export interface FunnelStage {
+  key: 'active' | 'candidate' | 'judged' | 'eligible' | 'approved' | 'approved_automatic' | 'visible';
+  label: string;
+  /** Distinct own variants that reached this stage. */
+  variants: number;
+  /** Share of all active variants. */
+  share: number;
+}
+
+export interface FunnelReason {
+  key: string;
+  label: string;
+  variants: number;
+}
+
+export interface CoverageTarget {
+  share: number;
+  variants: number;
+  met: boolean;
+  /** How many more variants would reach it. */
+  shortfall: number;
+}
+
+/**
+ * Where your active products are in matching, counted as DISTINCT own variants (never pairs). Candidate coverage (a possible counterpart exists) is not automation: only variants with a
+ * current approved counterpart are covered. Nothing here is a model score.
+ */
+export interface MatchFunnelView {
+  generatedAt: string;
+  policyVersion: string;
+  domain: 'automotive' | 'grocery' | 'all';
+  active: number;
+  parents: number;
+  stages: FunnelStage[];
+  /** Variants with a current automatically approved identical item, pack variant or equivalent / all active; and the same for parent products. */
+  coverage: {
+    automatic: { variants: number; share: number; parents: number; parentShare: number };
+    approved: { variants: number; share: number; parents: number; parentShare: number };
+    candidate: { variants: number; share: number };
+  };
+  /** The delivery targets (automotive): half and 60% of active variants covered by an automatically approved counterpart. Null for a domain that has none. */
+  targets: { floor: CoverageTarget; stretch: CoverageTarget; parentFloor: CoverageTarget; parentStretch: CoverageTarget } | null;
+  /** Why each variant that is not approved is not (one reason each), in order of size. */
+  notApproved: FunnelReason[];
+  /** When below the floor: the shortfall attributed to causes. */
+  attribution: FunnelReason[] | null;
+  /** Work waiting for people: suggestions to review and variants waiting for more evidence. */
+  workload: { pendingSuggestions: number; needsEvidence: number; waitingForQuota: number; notYetWorked: number };
+  /** Audited pair-level precision of each policy, with its uncertainty, from the latest evaluation (null when none was made). */
+  precision: { domain: string; autoClass: string; policyVersion: string; families: number; correct: number; observed: number | null; low: number | null; high: number | null; passed: boolean; critical: number; enabled: boolean; needed: { toMinimum: number; toCertainty: number | null } }[];
+  /** Candidate recall measured against people's labels (null when none). */
+  candidateRecall: { hits: number; total: number } | null;
+}

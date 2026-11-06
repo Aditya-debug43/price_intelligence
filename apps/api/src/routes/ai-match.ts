@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AI_MATCH_TYPES, AI_SUGGESTION_STATUSES, aiReviewSchema, aiRunSchema, paginationSchema } from '@ci/shared';
-import { aiStatus, embeddingStatus, cancelAiRun, createAiRun, enqueueAiRun, getAiRun, listAiRuns, listAiSuggestions, pauseAiRun, resumeAiRun, resumeGemini, reviewAiSuggestion } from '@ci/services';
+import { DEFAULTS } from '@ci/shared';
+import { aiKeysOf, aiStatus, embeddingStatus, cancelAiRun, createAiRun, enqueueAiRun, ensureFxRates, getAiRun, getSettings, listAiRuns, listAiSuggestions, loadComparison, loadFxTable, loadMatchFunnel, pauseAiRun, resumeAiRun, resumeGemini, reviewAiSuggestion, setContinuousMatching } from '@ci/services';
 import { parse, requireRole } from '../app.ts';
 
 const uuid = z.uuid();
@@ -18,7 +19,7 @@ export async function aiMatchRoutes(app: FastifyInstance) {
 
   app.post('/ai/embeddings/run', async (req, reply) => {
     requireRole(req, 'admin');
-    if (!app.svc.config.GEMINI_EMBEDDING_MODEL || !app.svc.config.GEMINI_API_KEY) return reply.status(409).send({ error: { code: 'not_configured', message: 'Semantic search is not set up on this server (no embedding model is configured). Everything else works without it.' } });
+    if (!app.svc.config.GEMINI_EMBEDDING_MODEL || !aiKeysOf(app.svc.config).length) return reply.status(409).send({ error: { code: 'not_configured', message: 'Semantic search is not set up on this server (no embedding model is configured). Everything else works without it.' } });
     const jobId = await app.svc.queue.enqueue('ai-match', { orgId: req.orgId, task: 'embed' }, { singletonKey: `embed:${req.orgId}` });
     return reply.status(202).send({ queued: true, jobId });
   });
@@ -34,7 +35,7 @@ export async function aiMatchRoutes(app: FastifyInstance) {
   app.post('/ai/runs', async (req, reply) => {
     requireRole(req, 'admin');
     const body = parse(aiRunSchema, req.body ?? {});
-    const created = await req.tx((tx) => createAiRun(tx, app.svc.config, req.orgId!, req.user!.id, body));
+    const created = await req.tx((tx) => createAiRun(tx, app.svc.config, req.orgId!, req.user!.id, body, app.svc.clock()));
     await enqueueAiRun(app.svc.queue, req.orgId!, created.run.id);
     return reply.status(202).send(created);
   });
@@ -50,6 +51,35 @@ export async function aiMatchRoutes(app: FastifyInstance) {
       return { run };
     });
   }
+
+  /** Continuous matching: new and changed products are worked through by themselves after each collection, within the free quota of every key. A person turns it on or off. */
+  app.post('/ai/continuous', async (req) => {
+    requireRole(req, 'admin');
+    const body = parse(z.object({ enabled: z.boolean() }), req.body);
+    await req.tx((tx) => setContinuousMatching(tx, req.orgId!, req.user!.id, body.enabled, app.svc.clock()));
+    if (body.enabled) await app.svc.queue.enqueue('ai-match', {}, { singletonKey: 'ai-tick-now' });
+    return { continuous: body.enabled };
+  });
+
+  /** Re-decides the approval of every stored answer against the current rules and facts, without asking the model anything (what switching a policy on does by itself). */
+  app.post('/ai/reconcile', async (req, reply) => {
+    requireRole(req, 'admin');
+    const jobId = await app.svc.queue.enqueue('ai-match', { orgId: req.orgId, task: 'reconcile' }, { singletonKey: `reconcile:${req.orgId}` });
+    return reply.status(202).send({ queued: true, jobId });
+  });
+
+  /** Where the catalogue stands in matching: distinct own products through every stage, coverage against the targets, and why each product that is not approved is not. */
+  app.get('/ai/funnel', async (req) => {
+    const q = parse(z.object({ domain: z.enum(['automotive', 'grocery']).optional() }), req.query);
+    return req.tx(async (tx) => {
+      const now = app.svc.clock();
+      const settings = await getSettings(tx, req.orgId!);
+      await ensureFxRates({ db: tx as never, clock: app.svc.clock });
+      const fx = await loadFxTable(tx, now);
+      const rows = await loadComparison(tx, { view: 'approved', include: 'confirmed', orgId: req.orgId!, reportingCurrency: settings?.reportingCurrency ?? DEFAULTS.reportingCurrency, fx, now, staleAfterHours: DEFAULTS.staleAfterHours });
+      return loadMatchFunnel(tx, req.orgId!, { domain: q.domain, visible: new Set(rows.map((r) => r.sourceVariantId)), now });
+    });
+  });
 
   /** A person clears a stop (a rejected key, a missing model) after fixing the cause. */
   app.post('/ai/resume-gemini', async (req) => {

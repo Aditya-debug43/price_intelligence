@@ -241,7 +241,12 @@ describe('a shadow analysis', () => {
     expect(JSON.stringify(await allSuggestions())).not.toContain(KEY);
   });
 
-  it('a second analysis of the same products asks Google nothing and creates no duplicates', async () => {
+  it('a product with no acceptable counterpart is looked at more widely once; after that the same products ask Google nothing and create no duplicates', async () => {
+    // the first look found nothing acceptable for the "related" soap pair, so the next look widens its shortlist (new candidates may be asked about, once)
+    const widened = await finish(await startRun());
+    expect(widened.status).toBe('completed');
+    const asked = (await db().select().from(aiMatchRuns).where(eq(aiMatchRuns.id, widened.id)))[0]!;
+    expect(asked.usage.cachedResults).toBeGreaterThan(0); // everything already answered was reused
     const rows = (await allSuggestions()).length;
     const calls = h.gemini.calls.length;
     const run = await finish(await startRun());

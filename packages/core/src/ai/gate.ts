@@ -1,38 +1,40 @@
 /**
- * The release gate for automatic approval (pure). Nothing in Shelfwatch approves a match from an AI answer: a class of pairs may only be switched to automatic approval after it has been
- * measured against an INDEPENDENTLY labelled test set that was kept out of development and threshold tuning, and has passed every line below. The gate does the arithmetic and says which
- * line failed; it decides nothing by itself, and it never treats "too few examples" as a pass.
+ * The release gate for automatic approval (pure). Nothing in Shelfwatch approves a match from an AI answer on a hunch: a NARROW policy (one class in one domain) may only be switched on after the
+ * answers it would approve have been audited against an INDEPENDENTLY labelled holdout that was kept out of development and tuning. The gate does the arithmetic and says which line failed; it
+ * decides nothing by itself, and it never treats "too few examples" as a pass.
  *
- * "Accuracy across all possible pairs" is deliberately not a measure here: nearly every random pair of products is a non-match, so it looks excellent while real matches are missed.
+ * What blocks a policy: too few independent examples, precision below the threshold or a lower confidence bound that is too low, or ANY critical compatibility violation. What does not block it:
+ * whole-domain candidate recall and match recall. Those are product goals, reported beside the gate, because poor recall elsewhere says nothing about whether a precise policy is reliable.
+ *
+ * "Accuracy across all possible pairs" is deliberately not a measure: nearly every random pair of products is a non-match, so it looks excellent while real matches are missed.
  */
 
 export interface GateThresholds {
-  /** The correct VARIANT reaches the shortlist when a counterpart exists. */
-  candidateRecall: number;
-  /** Of the pairs that would be approved automatically, the share that are truly correct. */
+  /** Observed precision needed. */
   autoPrecision: number;
-  /** Of the real counterparts in the test set, the share the system identifies. */
-  matchRecall: number;
-  /** Fewest labelled examples a class needs before its precision means anything. */
+  /** ...and the 95% lower confidence bound must be above this. */
+  precisionLowerBound: number;
+  /** Fewest independent units (product families) needed before precision means anything. */
   minExamples: number;
+  /** Product goals (reported, not blocking). */
+  candidateRecall: number;
+  matchRecall: number;
 }
 
-export const DEFAULT_GATE: GateThresholds = { candidateRecall: 0.95, autoPrecision: 0.98, matchRecall: 0.9, minExamples: 100 };
+export const DEFAULT_GATE: GateThresholds = { autoPrecision: 0.98, precisionLowerBound: 0.9, minExamples: 100, candidateRecall: 0.95, matchRecall: 0.9 };
 
 export interface Proportion {
   hits: number;
   total: number;
 }
 
-/** What the measurement of one class of automatic approval (or of one domain) found. */
 export interface GateInput {
+  /** Independent families whose judged answers were all correct, of all judged families. */
+  precision: Proportion;
+  /** Judged answers that would have been critical compatibility violations if approved. */
+  criticalViolations: number;
   candidateRecall: Proportion;
-  autoPrecision: Proportion;
   matchRecall: Proportion;
-  /** Of the own variants known to have a counterpart: how many got a correct automatic decision, how many went to a person, how many stayed unresolved. For the report; not a pass/fail line. */
-  coverage?: { automatic: number; review: number; unresolved: number };
-  /** Products with no counterpart that received a positive suggestion, and how many such products there were: measured and reported, with its own ceiling. */
-  noCounterpartMistakes?: Proportion;
 }
 
 export interface Interval {
@@ -52,10 +54,12 @@ export function wilson(hits: number, total: number, z = 1.96): Interval {
 }
 
 export interface GateLine {
-  name: 'candidate recall' | 'automatic approval precision' | 'match recall';
+  name: 'automatic approval precision' | 'critical violations' | 'candidate recall' | 'match recall';
   interval: Interval;
   needed: number;
   examples: number;
+  /** Whether this line decides the gate. Candidate recall and match recall are goals: shown, never blocking. */
+  required: boolean;
   passed: boolean;
   why: string;
 }
@@ -63,23 +67,30 @@ export interface GateLine {
 export interface GateResult {
   passed: boolean;
   lines: GateLine[];
-  coverage: { automatic: number; review: number; unresolved: number } | null;
-  noCounterpartMistakeRate: Interval | null;
 }
 
 const pct = (x: number | null) => (x === null ? 'n/a' : `${(100 * x).toFixed(1)}%`);
 
-/** A line passes when the measured share reaches the threshold AND there are enough labelled examples to mean it. */
 export function evaluateGate(input: GateInput, t: GateThresholds = DEFAULT_GATE): GateResult {
-  const line = (name: GateLine['name'], p: Proportion, needed: number): GateLine => {
-    const interval = wilson(p.hits, p.total);
-    const enough = p.total >= t.minExamples;
-    const reached = interval.estimate !== null && interval.estimate >= needed;
-    return {
-      name, interval, needed, examples: p.total, passed: enough && reached,
-      why: !enough ? `only ${p.total} labelled example${p.total === 1 ? '' : 's'} (at least ${t.minExamples} are needed)` : reached ? `${pct(interval.estimate)} (95% interval ${pct(interval.low)}–${pct(interval.high)}) reaches ${pct(needed)}` : `${pct(interval.estimate)} (95% interval ${pct(interval.low)}–${pct(interval.high)}) is below ${pct(needed)}`,
-    };
+  const iv = wilson(input.precision.hits, input.precision.total);
+  const enough = input.precision.total >= t.minExamples;
+  const reached = iv.estimate !== null && iv.estimate >= t.autoPrecision;
+  const bound = iv.low !== null && iv.low > t.precisionLowerBound;
+  const precision: GateLine = {
+    name: 'automatic approval precision', interval: iv, needed: t.autoPrecision, examples: input.precision.total, required: true, passed: enough && reached && bound,
+    why: !enough ? `only ${input.precision.total} independent labelled example${input.precision.total === 1 ? '' : 's'} (at least ${t.minExamples} are needed)`
+      : !reached ? `${pct(iv.estimate)} (95% interval ${pct(iv.low)}–${pct(iv.high)}) is below ${pct(t.autoPrecision)}`
+      : !bound ? `${pct(iv.estimate)} reaches ${pct(t.autoPrecision)} but the 95% lower bound ${pct(iv.low)} is not above ${pct(t.precisionLowerBound)}: more examples are needed`
+      : `${pct(iv.estimate)} (95% interval ${pct(iv.low)}–${pct(iv.high)}) reaches ${pct(t.autoPrecision)} with a lower bound above ${pct(t.precisionLowerBound)}`,
   };
-  const lines = [line('candidate recall', input.candidateRecall, t.candidateRecall), line('automatic approval precision', input.autoPrecision, t.autoPrecision), line('match recall', input.matchRecall, t.matchRecall)];
-  return { passed: lines.every((l) => l.passed), lines, coverage: input.coverage ?? null, noCounterpartMistakeRate: input.noCounterpartMistakes ? wilson(input.noCounterpartMistakes.hits, input.noCounterpartMistakes.total) : null };
+  const critical: GateLine = {
+    name: 'critical violations', interval: { estimate: input.criticalViolations, low: null, high: null }, needed: 0, examples: input.precision.total, required: true, passed: input.criticalViolations === 0,
+    why: input.criticalViolations === 0 ? 'none found' : `${input.criticalViolations} critical compatibility violation${input.criticalViolations === 1 ? '' : 's'} found: this rule stays blocked until repaired and retested`,
+  };
+  const goal = (name: GateLine['name'], p: Proportion, needed: number): GateLine => {
+    const i = wilson(p.hits, p.total);
+    return { name, interval: i, needed, examples: p.total, required: false, passed: i.estimate !== null && i.estimate >= needed, why: p.total === 0 ? 'not measured (no labelled examples)' : `${pct(i.estimate)} (95% interval ${pct(i.low)}–${pct(i.high)}); the goal is ${pct(needed)}. A product goal: it does not block a precise policy` };
+  };
+  const lines = [precision, critical, goal('candidate recall', input.candidateRecall, t.candidateRecall), goal('match recall', input.matchRecall, t.matchRecall)];
+  return { passed: lines.filter((l) => l.required).every((l) => l.passed), lines };
 }

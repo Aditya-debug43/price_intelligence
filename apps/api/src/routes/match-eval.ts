@@ -28,7 +28,19 @@ export async function matchEvalRoutes(app: FastifyInstance) {
   app.post('/eval/cases/:caseId/label', async (req) => {
     requireRole(req, 'admin');
     const { caseId } = parse(z.object({ caseId: uuid }), req.params);
-    const body = parse(z.object({ relationship: z.enum(['exact', 'variant', 'equivalent', 'substitute', 'related', 'none']), truthVariantId: uuid.nullish(), expertise: z.enum(['knowledgeable', 'general']), note: z.string().max(500).optional() }), req.body);
+    const body = parse(
+      z.object({
+        // the full form: a judgment for each candidate the person looked at, and whether the list is complete
+        judgments: z.array(z.object({ variantId: uuid, relationship: z.enum(['exact', 'variant', 'equivalent', 'substitute', 'related', 'incorrect']), critical: z.boolean().optional() })).max(40).optional(),
+        complete: z.boolean().optional(),
+        // the older form: one counterpart (or none)
+        relationship: z.enum(['exact', 'variant', 'equivalent', 'substitute', 'related', 'none']).optional(),
+        truthVariantId: uuid.nullish(),
+        expertise: z.enum(['knowledgeable', 'general']),
+        note: z.string().max(500).optional(),
+      }),
+      req.body,
+    );
     const row = await req.tx((tx) => labelEvalCase(tx, req.orgId!, req.user!.id, caseId, body, app.svc.clock()));
     return { id: row.id, status: row.status };
   });
@@ -52,7 +64,7 @@ export async function matchEvalRoutes(app: FastifyInstance) {
   app.post('/eval/auto-approval', async (req) => {
     requireRole(req, 'admin');
     const body = parse(z.object({ domain: z.enum(['automotive', 'grocery']), autoClass: z.enum(['exact_item', 'compatible_equivalent']), enabled: z.boolean() }), req.body);
-    await req.tx((tx) => setAutoApproval(tx, req.orgId!, req.user!.id, body, app.svc.clock()));
+    await req.tx((tx) => setAutoApproval(tx, app.svc.queue, req.orgId!, req.user!.id, body, app.svc.clock()));
     return { ok: true };
   });
 }

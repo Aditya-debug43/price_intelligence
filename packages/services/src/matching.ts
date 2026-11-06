@@ -22,7 +22,7 @@ import {
   AUTO_ACCEPT_THRESHOLD,
 } from '@ci/core';
 import { MATCH_CLASSES, classOfRelationship, relationshipOfClass, type BundleCheck, type DecidableRelationship, type MatchClass, type MatchRelationship } from '@ci/shared';
-import { orgSettings, productMatches, products, sites, variants, auditEvents, type DbLike } from '@ci/database';
+import { aiMatchSuggestions, orgSettings, productMatches, products, sites, variants, auditEvents, type DbLike } from '@ci/database';
 import type { Services } from './context.ts';
 import { exclusionEvent, recordMatchEvents, runEngineOnInputs } from './matching-v2.ts';
 import { loadNetContent } from './net-content.ts';
@@ -311,6 +311,9 @@ export async function decideMatch(
     set.matchClass = classOfRelationship(rel);
   }
   const [row] = await db.update(productMatches).set(set).where(eq(productMatches.id, matchId)).returning();
+  // an AI answer that was approved automatically no longer stands as the system's approval once a person has the final word: it carries that person's decision
+  await db.update(aiMatchSuggestions).set({ status: d.decision === 'reject' ? 'none_of_these' : d.decision === 'accept' ? 'accepted' : 'changed', reviewedBy: userId, reviewedAt: now, reviewRelationship: d.decision === 'reject' ? null : (set.relationship as DecidableRelationship | undefined) ?? null, reviewNote: d.note ?? null, updatedAt: now })
+    .where(and(eq(aiMatchSuggestions.sourceVariantId, m.sourceVariantId), eq(aiMatchSuggestions.competitorVariantId, m.competitorVariantId), eq(aiMatchSuggestions.status, 'accepted'), isNull(aiMatchSuggestions.reviewedBy)));
   await recordMatchEvents(db, orgId, [matchId], 'decided', { actorId: userId, decision: d.decision, note: d.note ?? null });
   await db.insert(auditEvents).values({ orgId, userId, action: `match.${d.decision}`, target: matchId, meta: { from: m.matchClass, to: set.matchClass ?? m.matchClass, relationship: set.relationship ?? current } });
   return row!;

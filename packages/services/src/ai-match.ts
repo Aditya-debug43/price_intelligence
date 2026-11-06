@@ -3,12 +3,13 @@ import {
   AI_DOSSIER_VERSION,
   AI_PROMPT_VERSION,
   AI_SYSTEM_PROMPT,
-  AiLimiter,
   DEFAULT_BATCH_LIMITS,
   analyseCatalogue,
   applyGuards,
   autoClassOf,
-  CLASS_RELATIONSHIP,
+  AUTO_POLICY_VERSION,
+  evaluateBulbPolicy,
+  evaluatePair,
   buildAiDossier,
   buildRetrievalIndex,
   extractSpecTable,
@@ -22,6 +23,9 @@ import {
   type AiCandidate,
   type AiDecision,
   type AiDossier,
+  type AutoFacts,
+  type BulbPolicyResult,
+  type GuardContext,
   type AppConfig,
   type Corpus,
   type Dossier,
@@ -36,6 +40,7 @@ import {
   aiRunSchema,
   type AiConfidence,
   type AiEngineReading,
+  type AiKeyView,
   type AiMatchType,
   type AiPolicyReading,
   type AiProductView,
@@ -48,11 +53,12 @@ import {
   type AiSuggestionView,
   type DecidableRelationship,
 } from '@ci/shared';
-import { aiDossiers, aiMatchFeedback, aiMatchRuns, aiMatchSuggestions, aiQuotaState, aiUsageDaily, auditEvents, productMatches, type DbLike } from '@ci/database';
+import { aiDossiers, aiMatchFeedback, aiMatchRuns, aiMatchSuggestions, aiMatchWork, aiQuotaState, aiUsageDaily, auditEvents, orgSettings, productMatches, type DbLike } from '@ci/database';
 import type { Services, JobQueue } from './context.ts';
-import { askRequest, pairKey, type AskDeps, type UsageEvent } from './ai-gemini.ts';
+import { askRequest, pairKey, restrict, type AskDeps, type AskResult, type UsageEvent } from './ai-gemini.ts';
+import { aiKeysOf, addUsage, hydrateLimiter, markKeyStopped, pickOrder, runtimeFor, saveLimiterState, setAiClock, type AiKey, type KeyRuntime } from './ai-keys.ts';
+import { enabledPolicies, reconcileOne, tally, type EnabledPolicies, type ReconcileResult } from './match-reconcile.ts';
 import { withHeavyWork } from './heavy.ts';
-import { autoApprovePair, enabledAutoClasses } from './match-eval.ts';
 import { loadVectors, semanticHits } from './ai-embed.ts';
 import { MatchError, decideMatch, loadEngineInputs, rejectPair, setManualMatch } from './matching.ts';
 import { BUCKET_SQL, type MatchBucket } from './queries.ts';
@@ -68,6 +74,8 @@ import { BUCKET_SQL, type MatchBucket } from './queries.ts';
 
 export interface AiSettings {
   configured: boolean;
+  /** The configured API keys (labels k1, k2…): backend only, never sent to a browser. */
+  keys: AiKey[];
   model: string;
   rpm: number;
   tpm: number;
@@ -81,7 +89,8 @@ export interface AiSettings {
 
 export function aiSettings(config: AppConfig): AiSettings {
   return {
-    configured: !!config.GEMINI_API_KEY,
+    configured: aiKeysOf(config).length > 0,
+    keys: aiKeysOf(config),
     model: config.GEMINI_MODEL,
     rpm: config.GEMINI_RPM,
     tpm: config.GEMINI_TPM,
@@ -97,70 +106,7 @@ export function aiSettings(config: AppConfig): AiSettings {
 const ZERO_USAGE: AiRunUsage = { requests: 0, successes: 0, failures: 0, rateLimited: 0, inputTokens: 0, outputTokens: 0, thoughtTokens: 0, cachedResults: 0, candidatesAnswered: 0, ms: 0 };
 const ZERO_PROGRESS = { sources: 0, sourcesDone: 0, candidates: 0, answered: 0, cachedResults: 0 };
 
-/** One limiter per process and per set of ceilings, shared by every workspace's runs: the API key (and so Google's quota) is shared too. */
-const limiters = new Map<string, AiLimiter>();
-/** The limiter reads time through this, set by each job from its services (the clock tests move), so the limiter and the rest of the job always agree about "now". */
-let aiClock: () => Date = () => new Date();
 const charsPerTokenState = { charsPerToken: DEFAULT_BATCH_LIMITS.charsPerToken };
-
-function limiterFor(s: AiSettings): AiLimiter {
-  const key = `${s.model}|${s.rpm}|${s.tpm}|${s.dailyRequests}|${s.maxConcurrency}`;
-  let l = limiters.get(key);
-  if (!l) {
-    l = new AiLimiter({ rpm: s.rpm, tpm: s.tpm, dailyRequests: s.dailyRequests, maxConcurrency: s.maxConcurrency }, () => aiClock().getTime());
-    limiters.set(key, l);
-  }
-  return l;
-}
-
-/** The shared truth (the database) is loaded into the limiter before a run works: what was used today, what Google taught us, a pause or a stop. */
-async function hydrateLimiter(db: DbLike, l: AiLimiter, model: string, now: Date): Promise<void> {
-  const day = pacificDay(now.getTime());
-  const [usage] = await db.select({ n: aiUsageDaily.requests }).from(aiUsageDaily).where(and(eq(aiUsageDaily.day, day), eq(aiUsageDaily.model, model)));
-  l.setToday(day, usage?.n ?? 0);
-  const [st] = await db.select().from(aiQuotaState).where(eq(aiQuotaState.model, model));
-  l.restore({
-    learned: { ...(st?.learnedRpm ? { rpm: st.learnedRpm } : {}), ...(st?.learnedRpd ? { rpd: st.learnedRpd } : {}), ...(st?.learnedTpm ? { tpm: st.learnedTpm } : {}) },
-    pausedUntil: st?.pausedUntil?.getTime() ?? null,
-    pauseReason: st?.pauseReason ?? null,
-    stopped: st?.stopped ?? null,
-  });
-}
-
-async function saveLimiterState(db: DbLike, l: AiLimiter, model: string, now: Date): Promise<void> {
-  const s = l.snapshot();
-  const values = {
-    model,
-    learnedRpm: s.learned.rpm ?? null,
-    learnedRpd: s.learned.rpd ?? null,
-    learnedTpm: s.learned.tpm ?? null,
-    pausedUntil: s.pausedUntil ? new Date(s.pausedUntil) : null,
-    pauseReason: s.pauseReason,
-    stopped: s.stopped,
-    updatedAt: now,
-  };
-  await db.insert(aiQuotaState).values(values).onConflictDoUpdate({ target: aiQuotaState.model, set: values });
-}
-
-export async function addUsage(db: DbLike, model: string, now: Date, d: Partial<Omit<AiRunUsage, 'candidatesAnswered'>> & { candidatesAnswered?: number }): Promise<void> {
-  const day = pacificDay(now.getTime());
-  const inc = {
-    requests: d.requests ?? 0, successes: d.successes ?? 0, failures: d.failures ?? 0, rateLimited: d.rateLimited ?? 0, inputTokens: d.inputTokens ?? 0, outputTokens: d.outputTokens ?? 0,
-    thoughtTokens: d.thoughtTokens ?? 0, cachedResults: d.cachedResults ?? 0, candidatesAnswered: d.candidatesAnswered ?? 0, ms: Math.round(d.ms ?? 0),
-  };
-  await db
-    .insert(aiUsageDaily)
-    .values({ day, model, ...inc, updatedAt: now })
-    .onConflictDoUpdate({
-      target: [aiUsageDaily.day, aiUsageDaily.model],
-      set: {
-        requests: sql`${aiUsageDaily.requests} + ${inc.requests}`, successes: sql`${aiUsageDaily.successes} + ${inc.successes}`, failures: sql`${aiUsageDaily.failures} + ${inc.failures}`,
-        rateLimited: sql`${aiUsageDaily.rateLimited} + ${inc.rateLimited}`, inputTokens: sql`${aiUsageDaily.inputTokens} + ${inc.inputTokens}`, outputTokens: sql`${aiUsageDaily.outputTokens} + ${inc.outputTokens}`,
-        thoughtTokens: sql`${aiUsageDaily.thoughtTokens} + ${inc.thoughtTokens}`, cachedResults: sql`${aiUsageDaily.cachedResults} + ${inc.cachedResults}`,
-        candidatesAnswered: sql`${aiUsageDaily.candidatesAnswered} + ${inc.candidatesAnswered}`, ms: sql`${aiUsageDaily.ms} + ${inc.ms}`, updatedAt: now,
-      },
-    });
-}
 
 // ───────────────────────────────────────────────────────────── views
 
@@ -184,31 +130,49 @@ export async function getAiRun(db: DbLike, orgId: string, runId: string): Promis
   return runView(r);
 }
 
-/** What the admin page shows: the setup, today's use, the limits Shelfwatch applies and what Google's own answers taught it. Google does not expose the remaining quota, so none is claimed. */
+/**
+ * What the admin page shows: the setup, each key's own use today, the limits Shelfwatch applies and what Google's own answers taught it. Google does not expose the remaining quota, so none is claimed.
+ * The figures are totals over the configured keys; every key also appears on its own.
+ */
 export async function aiStatus(db: DbLike, config: AppConfig, orgId: string, now: Date): Promise<AiStatusView> {
   const s = aiSettings(config);
   const day = pacificDay(now.getTime());
-  const [usage] = await db.select().from(aiUsageDaily).where(and(eq(aiUsageDaily.day, day), eq(aiUsageDaily.model, s.model)));
-  const [st] = await db.select().from(aiQuotaState).where(eq(aiQuotaState.model, s.model));
+  const usageRows = await db.select().from(aiUsageDaily).where(and(eq(aiUsageDaily.day, day), eq(aiUsageDaily.model, s.model)));
+  const stateRows = await db.select().from(aiQuotaState).where(eq(aiQuotaState.model, s.model));
+  const [settings] = await db.select({ c: orgSettings.aiContinuous }).from(orgSettings).where(eq(orgSettings.orgId, orgId));
   const [active] = await db.select().from(aiMatchRuns).where(and(eq(aiMatchRuns.orgId, orgId), inArray(aiMatchRuns.status, ['queued', 'running', 'paused']))).orderBy(desc(aiMatchRuns.createdAt)).limit(1);
   const counts = await db.select({ status: aiMatchSuggestions.status, n: sql<number>`count(*)::int` }).from(aiMatchSuggestions).where(eq(aiMatchSuggestions.orgId, orgId)).groupBy(aiMatchSuggestions.status);
   const n = (k: AiSuggestionStatus) => counts.find((c) => c.status === k)?.n ?? 0;
   const total = counts.reduce((a, c) => a + c.n, 0);
-  const pausedUntil = st?.pausedUntil && st.pausedUntil > now ? st.pausedUntil : null;
-  const state: AiStatusView['state'] = !s.configured ? 'not_configured' : st?.stopped ? 'stopped' : pausedUntil ? 'paused' : active?.status === 'running' ? 'running' : 'idle';
+  const learnedOf = (st: (typeof stateRows)[number] | undefined) => ({ ...(st?.learnedRpm ? { rpm: st.learnedRpm } : {}), ...(st?.learnedRpd ? { rpd: st.learnedRpd } : {}), ...(st?.learnedTpm ? { tpm: st.learnedTpm } : {}) });
+  const keys: AiKeyView[] = s.keys.map((k) => {
+    const u = usageRows.find((x) => x.keyId === k.id);
+    const st = stateRows.find((x) => x.keyId === k.id);
+    const pausedUntil = st?.pausedUntil && st.pausedUntil > now ? st.pausedUntil : null;
+    return {
+      id: k.id, label: `Key ${k.id.slice(1)}`, state: st?.stopped ? 'stopped' : pausedUntil ? 'paused' : 'ready', pausedUntil: iso(pausedUntil), pauseReason: pausedUntil ? (st?.pauseReason ?? null) : null, stopped: st?.stopped ?? null,
+      today: { requests: u?.requests ?? 0, inputTokens: u?.inputTokens ?? 0, outputTokens: u?.outputTokens ?? 0, failures: u?.failures ?? 0, rateLimited: u?.rateLimited ?? 0 }, learned: learnedOf(st),
+    };
+  });
+  const sum = (f: (x: (typeof usageRows)[number]) => number) => usageRows.reduce((a, x) => a + f(x), 0);
+  const working = keys.filter((k) => k.state !== 'stopped');
+  const state: AiStatusView['state'] = !s.configured ? 'not_configured' : !working.length ? 'stopped' : working.every((k) => k.state === 'paused') ? 'paused' : active?.status === 'running' ? 'running' : 'idle';
+  const soonest = working.filter((k) => k.pausedUntil).sort((a, b) => a.pausedUntil!.localeCompare(b.pausedUntil!))[0];
   return {
     configured: s.configured,
+    keys,
+    continuous: settings?.c ?? false,
     model: s.model,
-    limits: { rpm: s.rpm, tpm: s.tpm, dailyBudget: s.dailyRequests, learned: { ...(st?.learnedRpm ? { rpm: st.learnedRpm } : {}), ...(st?.learnedRpd ? { rpd: st.learnedRpd } : {}), ...(st?.learnedTpm ? { tpm: st.learnedTpm } : {}) } },
-    today: { day, requests: usage?.requests ?? 0, inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, failures: usage?.failures ?? 0, rateLimited: usage?.rateLimited ?? 0, cachedResults: usage?.cachedResults ?? 0 },
+    limits: { rpm: s.rpm * Math.max(1, keys.length), tpm: s.tpm * Math.max(1, keys.length), dailyBudget: s.dailyRequests * Math.max(1, keys.length), learned: keys[0]?.learned ?? {} },
+    today: { day, requests: sum((x) => x.requests), inputTokens: sum((x) => x.inputTokens), outputTokens: sum((x) => x.outputTokens), failures: sum((x) => x.failures), rateLimited: sum((x) => x.rateLimited), cachedResults: sum((x) => x.cachedResults) },
     state,
-    pausedUntil: iso(pausedUntil),
-    pauseReason: pausedUntil ? (st?.pauseReason ?? null) : null,
-    stopped: st?.stopped ?? null,
+    pausedUntil: state === 'paused' ? (soonest?.pausedUntil ?? null) : null,
+    pauseReason: state === 'paused' ? (soonest?.pauseReason ?? null) : null,
+    stopped: state === 'stopped' ? (keys.map((k) => k.stopped).find(Boolean) ?? null) : null,
     activeRun: active ? runView(active) : null,
     counts: { pending: n('pending'), accepted: n('accepted'), changed: n('changed'), uncertain: n('uncertain'), noneOfThese: n('none_of_these'), total },
     note: s.configured
-      ? 'Gemini’s free tier is used and nothing is ever sent to a paid tier. Google does not tell us how much of its quota is left: the figures here are what Shelfwatch itself has sent, and the limits Google’s own answers revealed.'
+      ? `Gemini’s free tier is used and nothing is ever sent to a paid tier. ${keys.length > 1 ? `Work is spread over ${keys.length} keys, each with its own limits. ` : ''}Google does not tell us how much of its quota is left: the figures here are what Shelfwatch itself has sent, and the limits Google’s own answers revealed.`
       : 'No Gemini API key is configured on the server. Everything else in Shelfwatch works without it.',
   };
 }
@@ -220,12 +184,23 @@ export async function resumeGemini(db: DbLike, config: AppConfig, userId: string
   await db.insert(auditEvents).values({ orgId, userId, action: 'ai_match.resume_gemini', target: s.model, meta: {} });
 }
 
+/** A person turns continuous matching on or off for the workspace. */
+export async function setContinuousMatching(db: DbLike, orgId: string, userId: string | null, enabled: boolean, now: Date): Promise<void> {
+  await db.update(orgSettings).set({ aiContinuous: enabled, updatedAt: now }).where(eq(orgSettings.orgId, orgId));
+  await db.insert(auditEvents).values({ orgId, userId, action: enabled ? 'ai_match.continuous_on' : 'ai_match.continuous_off', target: orgId, meta: {} });
+}
+
+// ───────────────────────────────────────────────────────────── choosing what to analyse
+
 // ───────────────────────────────────────────────────────────── choosing what to analyse
 
 const uuidList = (ids: string[]) => sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `);
 const SOURCE_FILTER = sql`ss.active and ss.role = 'source' and ps.delisted_at is null`;
 /** Within a list, products of different categories first (a spread, not fifty bulbs), then a fixed pseudo-random order: the same request always picks the same products. */
 const SPREAD = sql`row_number() over (partition by coalesce(pr.category, '') order by md5(p.id::text)), md5(p.id::text)`;
+
+/** Products not yet worked through: no completed work item (never analysed, or waiting for quota, or retrying). A product that already has suggestions but unfinished work is still included. */
+const NOT_DONE = (alias: string) => sql.raw(`not exists (select 1 from ai_match_work w where w.source_variant_id = ${alias}.id and w.status = 'completed')`);
 
 async function pickFromBucket(db: DbLike, orgId: string, bucket: MatchBucket, limit: number, fresh: boolean): Promise<string[]> {
   const rows = await db.execute<{ id: string }>(sql`
@@ -235,28 +210,42 @@ async function pickFromBucket(db: DbLike, orgId: string, bucket: MatchBucket, li
       where m.org_id = ${orgId} and ${SOURCE_FILTER} and ${BUCKET_SQL[bucket]}
     )
     select p.id from picked p join variants v on v.id = p.id join products pr on pr.id = v.product_id
-    ${fresh ? sql`where not exists (select 1 from ai_match_suggestions a where a.source_variant_id = p.id)` : sql``}
+    ${fresh ? sql`where ${NOT_DONE('p')}` : sql``}
     order by ${SPREAD} limit ${limit}`);
   return rows.rows.map((r) => r.id);
 }
 
 /** Source variants with no pair at all in Match Review (the engine found no counterpart). */
-async function pickUnmatched(db: DbLike, orgId: string, limit: number): Promise<string[]> {
+async function pickUnmatched(db: DbLike, orgId: string, limit: number, fresh: boolean): Promise<string[]> {
   const rows = await db.execute<{ id: string }>(sql`
     with picked as (
       select v.id from variants v join products ps on ps.id = v.product_id join sites ss on ss.id = ps.site_id
       where v.org_id = ${orgId} and ${SOURCE_FILTER}
         and not exists (select 1 from product_matches m where m.source_variant_id = v.id)
-        and not exists (select 1 from ai_match_suggestions a where a.source_variant_id = v.id)
+        ${fresh ? sql`and ${NOT_DONE('v')}` : sql``}
     )
     select p.id from picked p join variants v on v.id = p.id join products pr on pr.id = v.product_id order by ${SPREAD} limit ${limit}`);
   return rows.rows.map((r) => r.id);
 }
 
+/**
+ * Every active variant of the shop, in the order work is most needed: products never worked on first, then work waiting for quota or retrying, then products that need evidence, then the rest
+ * (which cost no model request unless a candidate or a fact changed: their earlier answers are reused and their approval is re-checked).
+ */
+export async function sweepSources(db: DbLike, orgId: string): Promise<string[]> {
+  const rows = await db.execute<{ id: string }>(sql`
+    select v.id from variants v join products pr on pr.id = v.product_id join sites ss on ss.id = pr.site_id
+    left join ai_match_work w on w.source_variant_id = v.id
+    where v.org_id = ${orgId} and ss.active and ss.role = 'source' and pr.delisted_at is null
+    order by (case when w.id is null then 0 when w.status in ('queued','retry','waiting_quota','running') then 1 when w.status = 'needs_evidence' then 2 else 3 end), md5(v.id::text)`);
+  return rows.rows.map((r) => r.id);
+}
+
 const SAMPLE_BUCKETS: MatchBucket[] = ['review', 'substitutes', 'unclear', 'confirmed', 'rejected', 'set_aside'];
 
-/** A spread over every kind of Match Review row (waiting, stand-ins, unclear, confirmed, rejected, set aside) and over products the engine found nothing for. */
+/** A spread over every kind of Match Review row (waiting, stand-ins, unclear, confirmed, rejected, set aside) and over products the engine found nothing for. Products already worked through come last, and only to fill the limit. */
 export async function selectSources(db: DbLike, orgId: string, req: AiRunRequest): Promise<string[]> {
+  if (req.scope === 'sweep') return sweepSources(db, orgId);
   if (req.scope === 'products') {
     const ids = [...new Set(req.variantIds ?? [])];
     if (!ids.length) return [];
@@ -264,28 +253,34 @@ export async function selectSources(db: DbLike, orgId: string, req: AiRunRequest
     const ok = new Set(rows.rows.map((r) => r.id));
     return ids.filter((i) => ok.has(i));
   }
-  if (req.scope === 'unmatched') return pickUnmatched(db, orgId, req.limit);
-  const lists: string[][] = [];
-  for (const b of SAMPLE_BUCKETS) lists.push(await pickFromBucket(db, orgId, b, req.limit, true));
-  lists.push(await pickUnmatched(db, orgId, req.limit));
-  // a bucket with nothing new falls back to products already analysed (the analysis is cached, so they cost nothing)
+  const spread = (lists: string[][], out: string[], seen: Set<string>) => {
+    for (let i = 0; out.length < req.limit && lists.some((l) => i < l.length); i++) for (const l of lists) if (i < l.length && out.length < req.limit && !seen.has(l[i]!)) { seen.add(l[i]!); out.push(l[i]!); }
+  };
   const out: string[] = [];
   const seen = new Set<string>();
-  for (let i = 0; out.length < req.limit && lists.some((l) => i < l.length); i++) for (const l of lists) if (i < l.length && out.length < req.limit && !seen.has(l[i]!)) { seen.add(l[i]!); out.push(l[i]!); }
+  const build = async (fresh: boolean) => {
+    const lists: string[][] = [];
+    if (req.scope === 'sample') for (const b of SAMPLE_BUCKETS) lists.push(await pickFromBucket(db, orgId, b, req.limit, fresh));
+    lists.push(await pickUnmatched(db, orgId, req.limit, fresh));
+    spread(lists, out, seen);
+  };
+  await build(true);
+  // nothing new left for some buckets: the products already worked through fill the rest (their answers are reused, so they cost no model request)
+  if (out.length < req.limit) await build(false);
   return out;
 }
 
-export async function createAiRun(db: DbLike, config: AppConfig, orgId: string, userId: string, input: unknown): Promise<{ run: AiRunView; selected: number }> {
+export async function createAiRun(db: DbLike, config: AppConfig, orgId: string, userId: string | null, input: unknown, now?: Date): Promise<{ run: AiRunView; selected: number }> {
   const s = aiSettings(config);
   if (!s.configured) throw new MatchError('No Gemini API key is configured on the server, so AI analysis cannot start. Everything else works without it.', 409);
   const req = aiRunSchema.parse(input);
   const [open] = await db.select({ id: aiMatchRuns.id }).from(aiMatchRuns).where(and(eq(aiMatchRuns.orgId, orgId), inArray(aiMatchRuns.status, ['queued', 'running', 'paused']))).limit(1);
   if (open) throw new MatchError('An analysis is already in progress. Pause or cancel it before starting another.', 409);
   const sourceIds = await selectSources(db, orgId, req);
-  if (!sourceIds.length) throw new MatchError('There are no products to analyse for this choice (nothing left that has not been analysed, or no matching products).', 400);
+  if (!sourceIds.length) throw new MatchError('There are no products to analyse for this choice (no matching products).', 400);
   const [row] = await db
     .insert(aiMatchRuns)
-    .values({ orgId, kind: req.scope, status: 'queued', model: s.model, promptVersion: AI_PROMPT_VERSION, params: req, sourceIds, progress: { ...ZERO_PROGRESS, sources: sourceIds.length }, usage: ZERO_USAGE, createdBy: userId })
+    .values({ orgId, kind: req.scope, status: 'queued', model: s.model, promptVersion: AI_PROMPT_VERSION, params: req, sourceIds, progress: { ...ZERO_PROGRESS, sources: sourceIds.length }, usage: ZERO_USAGE, createdBy: userId, ...(now ? { createdAt: now, updatedAt: now } : {}) })
     .returning();
   await db.insert(auditEvents).values({ orgId, userId, action: 'ai_match.run_created', target: row!.id, meta: { scope: req.scope, sources: sourceIds.length, model: s.model } });
   return { run: runView(row!), selected: sourceIds.length };
@@ -349,6 +344,8 @@ interface PairCtx {
   c: AiCandidate;
   inputHash: string;
   chk: { q: 'same' | 'different' | 'unknown'; b?: 'equivalent' | 'mismatch' | 'unknown' };
+  /** What the category policy established from sourced evidence (null outside automotive). */
+  policy: BulbPolicyResult | null;
 }
 
 /**
@@ -366,8 +363,8 @@ async function loadFitmentExcerpts(db: DbLike, orgId: string): Promise<Map<strin
   return new Map(rows.rows.map((r) => [r.id, r.d]));
 }
 
-export /** The specification lines a product page states (read by `extractSpecTable`): only products whose description has such lines are returned, and only the first part of the text. */
-async function loadSpecTexts(db: DbLike, orgId: string): Promise<Map<string, PageSpecFact[]>> {
+/** The specification lines a product page states (read by `extractSpecTable`): only products whose description has such lines are returned, and only the first part of the text. */
+export async function loadSpecTexts(db: DbLike, orgId: string): Promise<Map<string, PageSpecFact[]>> {
   const rows = await db.execute<{ id: string; t: string }>(sql`
     select p.id, left(regexp_replace(left(p.description, 6000), '<[^>]+>', ' ', 'g'), 2500) as t
     from products p join sites s on s.id = p.site_id
@@ -422,6 +419,40 @@ const aiDossierOf = (ctx: Ctx, variantId: string): AiDossier => {
   return d;
 };
 
+/**
+ * What each product's facts say NOW, as the fingerprint a stored answer was made from: an answer whose fingerprints differ is stale and is neither trusted nor approved. Used by the evaluation
+ * to score only answers production would still act on.
+ */
+export async function currentFingerprints(db: DbLike, ctx: Ctx, ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)].filter((id) => ctx.corpus.byVariant.has(id));
+  await refreshFacts(db, ctx, unique);
+  return new Map(unique.map((id) => [id, aiDossierOf(ctx, id).fingerprint]));
+}
+
+/** Loads the page address of some products and forgets their cached dossiers, so they are rebuilt from today's facts. */
+async function refreshFacts(db: DbLike, ctx: Ctx, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += 2000) {
+    const part = ids.slice(i, i + 2000);
+    const urlRows = await db.execute<{ id: string; url: string | null }>(sql`select id, url from variants where id in (${uuidList(part)})`);
+    for (const r of urlRows.rows) ctx.urls.set(r.id, r.url);
+    for (const id of part) ctx.dossiers.delete(id); // rebuilt with the page address
+  }
+}
+
+/** A stored answer rebuilt as a pair against today's products, or null when either product is no longer active. */
+function pairFromRow(ctx: Ctx, row: StoredRow): PairCtx | null {
+  const src = ctx.corpus.byVariant.get(row.sourceVariantId);
+  const cand = ctx.corpus.byVariant.get(row.competitorVariantId);
+  if (!src || !cand || !ctx.sources.has(row.sourceVariantId)) return null;
+  const aiS = aiDossierOf(ctx, row.sourceVariantId);
+  const aiC = aiDossierOf(ctx, row.competitorVariantId);
+  const engine = evaluatePair(src, cand, ctx.corpus);
+  return {
+    key: pairKey(row.sourceVariantId, row.competitorVariantId), sv: row.sourceVariantId, cv: row.competitorVariantId, siteId: row.competitorSiteId, src, cand, aiS, aiC,
+    c: { variantId: row.competitorVariantId, productId: cand.productId, siteId: row.competitorSiteId, score: 0, foundBy: [], siteRank: 0, engine }, inputHash: row.inputHash, chk: { q: 'unknown' }, policy: aiS.domain === 'automotive' ? evaluateBulbPolicy(aiS, aiC) : null,
+  };
+}
+
 /** Everything the answer depends on. An unchanged pair (same facts, same checks, same model and instructions) is never sent again. */
 function inputHashOf(model: string, aiS: AiDossier, aiC: AiDossier, c: AiCandidate, chk: PairCtx['chk']): string {
   const material = [model, AI_PROMPT_VERSION, hashText(AI_SYSTEM_PROMPT), aiS.fingerprint, aiC.fingerprint, chk.q, chk.b ?? '-', c.engine?.relationship ?? '-', c.engine?.conflicts.length ?? 0].join('|');
@@ -434,12 +465,15 @@ async function setRun(db: DbLike, runId: string, now: Date, set: Partial<typeof 
   await db.update(aiMatchRuns).set({ ...set, updatedAt: now }).where(eq(aiMatchRuns.id, runId));
 }
 
-/** The job: works through a run in windows of a few products until it finishes, is paused, runs into a quota, or has used its time slice (then it queues itself again). */
+/**
+ * The job: works through a run in windows of a few products until it finishes, is paused, runs into a quota, or has used its time slice (then it queues itself again). Requests are spread over the
+ * configured keys, each held to its OWN limits. When every working key is paused the run waits (its work items wait for quota — they are never marked done) and resumes from its checkpoint.
+ */
 export async function processAiRun(svc: Services, orgId: string, runId: string): Promise<{ outcome: string }> {
   const db = svc.db as DbLike;
   const s = aiSettings(svc.config);
   const now = () => svc.clock();
-  aiClock = now;
+  setAiClock(now);
   const [run0] = await db.select().from(aiMatchRuns).where(and(eq(aiMatchRuns.id, runId), eq(aiMatchRuns.orgId, orgId)));
   if (!run0) return { outcome: 'not_found' };
   if (run0.status === 'completed' || run0.status === 'failed' || run0.status === 'cancelled') return { outcome: run0.status };
@@ -448,16 +482,18 @@ export async function processAiRun(svc: Services, orgId: string, runId: string):
     await setRun(db, runId, now(), { status: 'paused', pauseReason: 'No Gemini API key is configured on the server.', resumeAt: null });
     return { outcome: 'not_configured' };
   }
-  const limiter = limiterFor(s);
-  await hydrateLimiter(db, limiter, s.model, now());
-  const snap = limiter.snapshot();
-  if (snap.stopped) {
-    await setRun(db, runId, now(), { status: 'paused', pauseReason: snap.stopped, resumeAt: null });
+  const pool = runtimeFor(s, s.keys);
+  for (const k of pool) await hydrateLimiter(db, k.limiter, s.model, k.id, now());
+  const working = pool.filter((k) => !k.limiter.snapshot().stopped);
+  if (!working.length) {
+    await setRun(db, runId, now(), { status: 'paused', pauseReason: pool[0]?.limiter.snapshot().stopped ?? 'Gemini processing is stopped.', resumeAt: null });
     return { outcome: 'stopped' };
   }
-  if (snap.pausedUntil && snap.pausedUntil > now().getTime()) {
-    await setRun(db, runId, now(), { status: 'paused', pauseReason: pauseText(snap.pauseReason), resumeAt: new Date(snap.pausedUntil) });
-    await enqueueAiRun(svc.queue, orgId, runId, (snap.pausedUntil - now().getTime()) / 1000);
+  const waits = working.map((k) => k.limiter.snapshot().pausedUntil ?? 0);
+  if (waits.every((w) => w > now().getTime())) {
+    const until = Math.min(...waits);
+    await setRun(db, runId, now(), { status: 'paused', pauseReason: pauseText(working.find((k) => k.limiter.snapshot().pausedUntil === until)?.limiter.snapshot().pauseReason), resumeAt: new Date(until) });
+    await enqueueAiRun(svc.queue, orgId, runId, (until - now().getTime()) / 1000);
     return { outcome: 'waiting' };
   }
 
@@ -485,23 +521,23 @@ export async function processAiRun(svc: Services, orgId: string, runId: string):
         return { outcome: 'continued' };
       }
       const ids = run0.sourceIds.slice(cursor, cursor + WINDOW_SOURCES);
-      const outcome = await runWindow(svc, db, orgId, runId, ids, ctx, params.perSite, s, limiter, usage, progress);
-      await saveLimiterState(db, limiter, s.model, now());
+      const outcome = await runWindow(svc, db, orgId, runId, ids, ctx, params.perSite, s, pool, usage, progress);
       if (outcome.kind === 'complete') {
         cursor += ids.length;
         await persist();
         continue;
       }
       if (outcome.kind === 'blocked') {
+        await markWork(db, orgId, ids, 'waiting_quota', pauseText(outcome.reason), runId, now());
         await persist({ status: 'paused', pauseReason: pauseText(outcome.reason), resumeAt: new Date(outcome.resumeAt) });
         await enqueueAiRun(svc.queue, orgId, runId, (outcome.resumeAt - now().getTime()) / 1000);
         svc.log.info('ai analysis paused for quota', { orgId, runId, reason: outcome.reason });
         return { outcome: 'blocked' };
       }
       if (outcome.kind === 'stopped') return { outcome: 'stopped_by_person' };
-      // a permanent problem: processing stops until a person fixes the cause (key, model) or, for a bad request, the run fails
+      // every key is stopped (refused, wrong model, non-free quota): processing waits for a person; a bad request fails the run
       if (STOP_KINDS.has(outcome.errorKind)) {
-        await db.insert(aiQuotaState).values({ model: s.model, stopped: outcome.message, updatedAt: now() }).onConflictDoUpdate({ target: aiQuotaState.model, set: { stopped: outcome.message, updatedAt: now() } });
+        await markWork(db, orgId, ids, 'waiting_quota', outcome.message, runId, now());
         await persist({ status: 'paused', pauseReason: outcome.message, resumeAt: null });
         svc.log.warn('ai analysis stopped', { orgId, runId, kind: outcome.errorKind });
         return { outcome: 'stopped' };
@@ -517,11 +553,102 @@ export async function processAiRun(svc: Services, orgId: string, runId: string):
   }
 }
 
+/** Marks the work items of some products (creating them), without touching their counts. */
+async function markWork(db: DbLike, orgId: string, ids: string[], status: 'queued' | 'running' | 'waiting_quota' | 'retry' | 'needs_evidence' | 'completed', reason: string | null, runId: string, now: Date): Promise<void> {
+  for (const id of ids) {
+    await db.insert(aiMatchWork).values({ orgId, sourceVariantId: id, status, reason, lastRunId: runId, updatedAt: now }).onConflictDoUpdate({ target: aiMatchWork.sourceVariantId, set: { status, reason, lastRunId: runId, updatedAt: now } });
+  }
+}
+
 const pauseText = (reason: string | null | undefined): string =>
   reason === 'daily' ? 'The daily quota is used up. Analysis continues after the quota resets (midnight Pacific Time).'
     : reason === 'rate' || reason === 'rpm' || reason === 'tpm' ? 'Waiting for the per-minute limit to clear.'
     : reason === 'backoff' || reason === 'paused' ? 'Google is busy or slow; trying again shortly.'
     : 'Waiting for the quota.';
+
+/** What the guards need to know about a pair: the same evidence whether the answer is new or was stored earlier. */
+function guardCtxOf(p: PairCtx): GuardContext {
+  const eng = p.c.engine;
+  return {
+    engine: eng ? { relationship: eng.relationship, conflicts: eng.conflicts } : null,
+    quantity: eng?.quantity ?? null,
+    bundle: eng?.bundle ?? null,
+    sourceBrandKey: p.src.brand.key,
+    candidateBrandKey: p.cand.brand.key,
+    gtinEqual: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value === p.cand.identifiers.gtin.value,
+    gtinDiffer: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value !== p.cand.identifiers.gtin.value,
+    // the code is "the same" only on SOURCED evidence (a raw code, or a verified standard alias): codes that merely co-occur in the catalogue never count
+    codesAgree: p.policy?.fields.code === 'established',
+    domain: p.aiS.domain,
+    ...(p.aiS.domain === 'automotive' ? { policy: p.policy } : {}),
+    sourceFacts: groundingText(p.aiS),
+    candidateFacts: groundingText(p.aiC),
+  };
+}
+
+function autoFactsOf(p: PairCtx, g: { match_type: AiMatchType; confidence_level: AiConfidence; guards: { code: string }[] }): Omit<AutoFacts, 'decidedByPerson'> {
+  const eng = p.c.engine;
+  return {
+    matchType: g.match_type, confidence: g.confidence_level, guardCodes: g.guards.map((x) => x.code), domain: p.aiS.domain,
+    gtinEqual: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value === p.cand.identifiers.gtin.value,
+    sameBrand: !!p.src.brand.key && p.src.brand.key === p.cand.brand.key, mpnEqual: !!p.src.identifiers.mpn && p.src.identifiers.mpn.value === p.cand.identifiers.mpn?.value,
+    policy: p.policy, quantity: (eng?.quantity.verdict ?? 'unknown') as 'same' | 'different' | 'unknown', bundle: eng?.bundle?.verdict ?? null, engine: eng ? { relationship: eng.relationship, conflicts: eng.conflicts } : null,
+  };
+}
+
+const policyReadingOf = (p: PairCtx): AiPolicyReading => {
+  const eng = p.c.engine;
+  return {
+    compat: p.policy ? { version: p.policy.version, category: p.policy.category, fields: p.policy.fields, sharedCode: p.policy.sharedCode, eligible: p.policy.eligible, blocker: p.policy.blocker, reasons: p.policy.reasons } : null,
+    quantity: eng ? { verdict: eng.quantity.verdict as 'same' | 'different' | 'unknown', note: eng.quantity.note } : null,
+    bundle: eng?.bundle ? { verdict: eng.bundle.verdict, note: eng.bundle.note } : null,
+  };
+};
+
+/** What happened to each source in a window: the numbers behind its work item and the funnel. */
+interface SourceTally { candidates: number; judged: number; /** answers that name a counterpart (identical, pack variant, equivalent or substitute) */ acceptable: number; eligible: number; approved: number; /** pairs a person has already decided */ decided: number; unanswered: number; reasons: Set<string> }
+type WindowTally = Map<string, SourceTally>;
+const tallyOf = (m: WindowTally, sv: string): SourceTally => m.get(sv) ?? m.set(sv, { candidates: 0, judged: 0, acceptable: 0, eligible: 0, approved: 0, decided: 0, unanswered: 0, reasons: new Set() }).get(sv)!;
+
+const COUNTERPART_TYPES = new Set<AiMatchType>(['exact_item', 'same_product_different_pack', 'close_equivalent', 'substitute']);
+
+/** Records what happened to one judged pair in its source's tally (which the work item and the coverage funnel are made from). */
+function notePair(t: SourceTally, p: PairCtx, matchType: AiMatchType, r: ReconcileResult): void {
+  t.judged++;
+  if (COUNTERPART_TYPES.has(matchType)) t.acceptable++;
+  if (r.autoClass) t.eligible++;
+  if (r.outcome === 'approved' || r.outcome === 'already_approved') t.approved++;
+  else if (r.outcome === 'human_decision_preserved') t.decided++;
+  else t.reasons.add(r.outcome === 'not_eligible' || r.outcome === 'missing_critical_facts' || r.outcome === 'conflict' ? (p.policy?.blocker ?? r.outcome) : r.outcome);
+}
+
+/** Approval for one pair against the CURRENT evidence and rules: the single operation behind a new answer, a cache hit, a switched-on policy and a changed product. */
+async function reconcilePair(db: DbLike, orgId: string, p: PairCtx, stored: { s: string; c: string }, g: { match_type: AiMatchType; confidence_level: AiConfidence; guards: { code: string }[] }, enabled: EnabledPolicies, now: Date): Promise<ReconcileResult> {
+  const facts = autoFactsOf(p, g);
+  const eng = p.c.engine;
+  const wouldBe = autoClassOf({ ...facts, decidedByPerson: false });
+  let rivals = 0;
+  if (wouldBe === 'exact_item') {
+    const r = await db.execute<{ n: number }>(sql`select count(*)::int as n from ai_match_suggestions where org_id = ${orgId} and source_variant_id = ${p.sv}::uuid and competitor_site_id = ${p.siteId}::uuid and competitor_variant_id <> ${p.cv}::uuid and auto_class = 'exact_item'`);
+    rivals = r.rows[0]?.n ?? 0;
+  }
+  return reconcileOne(db, { orgId, sv: p.sv, cv: p.cv, siteId: p.siteId, facts, quantity: eng?.quantity ?? null, bundle: eng?.bundle ?? null, fingerprints: { stored, current: { s: p.aiS.fingerprint, c: p.aiC.fingerprint } }, rivalExactItems: rivals }, enabled, now);
+}
+
+type StoredRow = typeof aiMatchSuggestions.$inferSelect;
+
+/** A stored answer reused without asking again: its safeguards and eligibility are recomputed from the current facts, the row is brought up to date, and its approval is re-checked. */
+async function reuseStored(db: DbLike, orgId: string, p: PairCtx, row: StoredRow, enabled: EnabledPolicies, now: Date): Promise<ReconcileResult & { matchType: AiMatchType }> {
+  const raw: AiDecision = { candidate_id: p.cv, match_type: row.aiMatchType, confidence_level: row.aiConfidence, supporting_evidence: row.supporting, conflicting_evidence: row.conflicting, missing_evidence: row.missing, explanation: row.explanation, price_comparable: false, requires_human_review: row.requiresReview };
+  const g = applyGuards(raw, guardCtxOf(p));
+  const autoClass = autoClassOf({ ...autoFactsOf(p, g), decidedByPerson: false });
+  const changed = g.match_type !== row.matchType || g.confidence_level !== row.confidence || autoClass !== (row.autoClass ?? null) || row.autoPolicyVersion !== AUTO_POLICY_VERSION || g.guards.map((x) => x.code).join() !== row.guards.map((x) => x.code).join();
+  if (changed) {
+    const keep = row.status === 'pending' || row.matchType === g.match_type;
+    await db.update(aiMatchSuggestions).set({ matchType: g.match_type, confidence: g.confidence_level, priceComparable: g.price_comparable, requiresReview: g.requires_human_review, guards: g.guards, policy: policyReadingOf(p), autoClass, autoPolicyVersion: AUTO_POLICY_VERSION, updatedAt: now, ...(keep ? {} : { status: 'pending' as const, reviewedBy: null, reviewedAt: null, reviewRelationship: null, reviewNote: null }) }).where(eq(aiMatchSuggestions.id, row.id));
+  }
+  return { ...(await reconcilePair(db, orgId, p, { s: row.sourceFingerprint, c: row.candidateFingerprint }, g, enabled, now)), matchType: g.match_type };
+}
 
 async function runWindow(
   svc: Services,
@@ -532,21 +659,26 @@ async function runWindow(
   ctx: Ctx,
   perSite: number,
   s: AiSettings,
-  limiter: AiLimiter,
+  pool: KeyRuntime[],
   usage: AiRunUsage,
   progress: typeof ZERO_PROGRESS,
 ): Promise<WindowOutcome> {
   const now = () => svc.clock();
   const sources = ids.filter((id) => ctx.sources.has(id) && ctx.corpus.byVariant.has(id));
   if (!sources.length) return { kind: 'complete' };
+  const work = new Map((await db.select().from(aiMatchWork).where(and(eq(aiMatchWork.orgId, orgId), inArray(aiMatchWork.sourceVariantId, sources)))).map((w) => [w.sourceVariantId, w]));
+  const enabled = await enabledPolicies(db, orgId);
+  const tally: WindowTally = new Map();
 
-  // shortlists: several diverse candidates per competitor website, found by many local methods
+  // shortlists: several diverse candidates per competitor website, found by many local methods. A product that found no acceptable candidate last time looks wider this time.
   const shortlists = new Map<string, AiCandidate[]>();
-  for (const sv of sources) shortlists.set(sv, retrieveShortlist(ctx.index, ctx.corpus.byVariant.get(sv)!, { perSiteProducts: perSite }, await semanticFor(ctx, sv)));
+  for (const sv of sources) {
+    const w = work.get(sv);
+    const wide = w && (w.reason === 'no_acceptable_candidate' || w.reason === 'no_candidate') && w.attempts >= 1 ? Math.min(8, perSite * 2 + 2) : perSite;
+    shortlists.set(sv, retrieveShortlist(ctx.index, ctx.corpus.byVariant.get(sv)!, { perSiteProducts: wide }, await semanticFor(ctx, sv)));
+  }
   const involved = [...new Set([...sources, ...[...shortlists.values()].flatMap((l) => l.map((c) => c.variantId))])];
-  const urlRows = await db.execute<{ id: string; url: string | null }>(sql`select id, url from variants where id in (${uuidList(involved)})`);
-  for (const r of urlRows.rows) ctx.urls.set(r.id, r.url);
-  for (const id of involved) ctx.dossiers.delete(id); // rebuilt with the page address
+  await refreshFacts(db, ctx, involved);
 
   const pairs = new Map<string, PairCtx>();
   for (const sv of sources) {
@@ -558,68 +690,139 @@ async function runWindow(
       const aiC = aiDossierOf(ctx, c.variantId);
       const chk: PairCtx['chk'] = { q: (c.engine?.quantity.verdict ?? 'unknown') as 'same' | 'different' | 'unknown', ...(c.engine?.bundle ? { b: c.engine.bundle.verdict } : {}) };
       const key = pairKey(sv, c.variantId);
-      pairs.set(key, { key, sv, cv: c.variantId, siteId: c.siteId, src: srcD, cand: candD, aiS, aiC, c, inputHash: inputHashOf(s.model, aiS, aiC, c, chk), chk });
+      pairs.set(key, { key, sv, cv: c.variantId, siteId: c.siteId, src: srcD, cand: candD, aiS, aiC, c, inputHash: inputHashOf(s.model, aiS, aiC, c, chk), chk, policy: aiS.domain === 'automotive' ? evaluateBulbPolicy(aiS, aiC) : null });
+      tallyOf(tally, sv).candidates++;
     }
   }
   progress.candidates += pairs.size;
 
-  const existingRows = await db
-    .select({ id: aiMatchSuggestions.id, sv: aiMatchSuggestions.sourceVariantId, cv: aiMatchSuggestions.competitorVariantId, inputHash: aiMatchSuggestions.inputHash, status: aiMatchSuggestions.status, matchType: aiMatchSuggestions.matchType })
-    .from(aiMatchSuggestions)
-    .where(and(eq(aiMatchSuggestions.orgId, orgId), inArray(aiMatchSuggestions.sourceVariantId, sources)));
-  const existing = new Map(existingRows.map((r) => [pairKey(r.sv, r.cv), r]));
+  const existing = new Map((await db.select().from(aiMatchSuggestions).where(and(eq(aiMatchSuggestions.orgId, orgId), inArray(aiMatchSuggestions.sourceVariantId, sources)))).map((r) => [pairKey(r.sourceVariantId, r.competitorVariantId), r]));
   const todo = [...pairs.values()].filter((p) => existing.get(p.key)?.inputHash !== p.inputHash);
-  const cached = pairs.size - todo.length;
-  usage.cachedResults += cached;
-  progress.cachedResults += cached;
-  if (cached) await addUsage(db, s.model, now(), { cachedResults: cached });
-  const enabledAuto = await enabledAutoClasses(db, orgId);
+  const cachedPairs = [...pairs.values()].filter((p) => existing.get(p.key)?.inputHash === p.inputHash);
+  usage.cachedResults += cachedPairs.length;
+  progress.cachedResults += cachedPairs.length;
+  if (cachedPairs.length) await addUsage(db, s.model, pool[0]?.id ?? 'k1', now(), { cachedResults: cachedPairs.length });
+  // an unchanged pair is not asked again, but its approval is decided afresh: a policy switched on since, or a rule that changed, applies to it too
+  for (const p of cachedPairs) {
+    const r = await reuseStored(db, orgId, p, existing.get(p.key)!, enabled, now());
+    notePair(tallyOf(tally, p.sv), p, r.matchType, r);
+  }
+  // answers stored earlier for pairs that are NOT in today's shortlist (a product changed, so other candidates now rank above it): their approval is re-checked against today's facts too, so an
+  // approval can never outlive the evidence it rested on just because the pair stopped being proposed
+  const orphans = [...existing.values()].filter((r) => !pairs.has(pairKey(r.sourceVariantId, r.competitorVariantId)));
+  if (orphans.length) {
+    await refreshFacts(db, ctx, [...new Set(orphans.map((r) => r.competitorVariantId))].filter((id) => ctx.corpus.byVariant.has(id)));
+    for (const row of orphans) {
+      const p = pairFromRow(ctx, row);
+      if (!p) continue;
+      const r = await reuseStored(db, orgId, p, row, enabled, now());
+      notePair(tallyOf(tally, p.sv), p, r.matchType, r);
+    }
+  }
   await storeDossiers(db, orgId, todo.flatMap((p) => [p.aiS, p.aiC]));
-  if (!todo.length) return { kind: 'complete' };
-
-  const groups: PayloadGroup[] = sources
-    .map((sv) => ({ ref: sv, source: toWire(aiDossierOf(ctx, sv)), candidates: todo.filter((p) => p.sv === sv).map((p) => ({ id: '', ref: p.cv, wire: toWire(p.aiC), chk: p.chk })) }))
-    .filter((g) => g.candidates.length);
-  const plan = planBatches(groups, { ...DEFAULT_BATCH_LIMITS, maxCandidates: s.batchCandidates, maxInputTokens: s.maxInputTokens, maxOutputTokens: s.maxOutputTokens, charsPerToken: charsPerTokenState.charsPerToken });
-
-  let outcome: WindowOutcome = { kind: 'complete' };
-  let next = 0;
-  const deps: AskDeps = {
-    cfg: { apiKey: svc.config.GEMINI_API_KEY, model: s.model, maxOutputTokens: s.maxOutputTokens, timeoutMs: s.timeoutMs, maxWaitMs: 90_000 },
-    limiter,
-    ...(svc.geminiHttp ? { http: svc.geminiHttp } : {}),
-    sleep: svc.aiSleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
-    now: () => svc.clock().getTime(),
-    tokens: charsPerTokenState,
-    shouldStop: async () => outcome.kind !== 'complete' || (await db.select({ status: aiMatchRuns.status }).from(aiMatchRuns).where(eq(aiMatchRuns.id, runId)))[0]?.status !== 'running',
-    onRequest: async (e: UsageEvent) => {
+  if (todo.length) {
+    const groups: PayloadGroup[] = sources
+      .map((sv) => ({ ref: sv, source: toWire(aiDossierOf(ctx, sv)), candidates: todo.filter((p) => p.sv === sv).map((p) => ({ id: '', ref: p.cv, wire: toWire(p.aiC), chk: p.chk })) }))
+      .filter((g) => g.candidates.length);
+    const plan = planBatches(groups, { ...DEFAULT_BATCH_LIMITS, maxCandidates: s.batchCandidates, maxInputTokens: s.maxInputTokens, maxOutputTokens: s.maxOutputTokens, charsPerToken: charsPerTokenState.charsPerToken });
+    let outcome: WindowOutcome = { kind: 'complete' };
+    let next = 0;
+    const base = {
+      cfg: { model: s.model, maxOutputTokens: s.maxOutputTokens, timeoutMs: s.timeoutMs, maxWaitMs: 90_000 },
+      ...(svc.geminiHttp ? { http: svc.geminiHttp } : {}),
+      sleep: svc.aiSleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
+      now: () => svc.clock().getTime(),
+      tokens: charsPerTokenState,
+      shouldStop: async () => outcome.kind !== 'complete' || (await db.select({ status: aiMatchRuns.status }).from(aiMatchRuns).where(eq(aiMatchRuns.id, runId)))[0]?.status !== 'running',
+    };
+    const onRequest = async (keyId: string, e: UsageEvent) => {
       const limited = e.errorKind === 'quota_minute' || e.errorKind === 'quota_day' || e.errorKind === 'quota_tokens';
       const d = { requests: 1, successes: e.ok ? 1 : 0, failures: e.ok ? 0 : 1, rateLimited: limited ? 1 : 0, inputTokens: e.usage?.promptTokens ?? 0, outputTokens: e.usage?.outputTokens ?? 0, thoughtTokens: e.usage?.thoughtsTokens ?? 0, ms: e.ms };
       usage.requests += d.requests; usage.successes += d.successes; usage.failures += d.failures; usage.rateLimited += d.rateLimited;
       usage.inputTokens += d.inputTokens; usage.outputTokens += d.outputTokens; usage.thoughtTokens += d.thoughtTokens; usage.ms += d.ms;
-      await addUsage(db, s.model, now(), d);
-    },
-  };
+      await addUsage(db, s.model, keyId, now(), d);
+    };
+    const worker = async () => {
+      for (;;) {
+        if (outcome.kind !== 'complete') return;
+        const req: PlannedRequest | undefined = plan[next++];
+        if (!req) return;
+        const res = await askWithPool(req, pool, base, onRequest, db, s.model, now);
+        const got = res.status === 'done' ? res.decisions : res.partial;
+        const saved = await saveDecisions(db, orgId, runId, s, got, pairs, existing, enabled, tally, now());
+        usage.candidatesAnswered += saved;
+        progress.answered += saved;
+        if (saved) await addUsage(db, s.model, pool[0]?.id ?? 'k1', now(), { candidatesAnswered: saved });
+        if (res.status === 'blocked') outcome = { kind: 'blocked', reason: res.reason, resumeAt: res.resumeAt };
+        else if (res.status === 'stopped') outcome = { kind: 'stopped' };
+        else if (res.status === 'failed') outcome = { kind: 'failed', errorKind: res.error.kind, message: res.error.message };
+        else if (res.unanswered.length) for (const k of res.unanswered) tallyOf(tally, k.split('|')[0]!).unanswered++;
+      }
+    };
+    const width = pool.reduce((n, k) => n + (k.limiter.snapshot().stopped ? 0 : k.limiter.concurrency), 0);
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(width, plan.length)) }, () => worker()));
+    if (outcome.kind !== 'complete') return outcome;
+  }
+  await finishWork(db, orgId, runId, sources, tally, work, now());
+  return { kind: 'complete' };
+}
 
-  const worker = async () => {
-    for (;;) {
-      if (outcome.kind !== 'complete') return;
-      const req: PlannedRequest | undefined = plan[next++];
-      if (!req) return;
-      const res = await askRequest(req, deps);
-      const got = res.status === 'done' ? res.decisions : res.partial;
-      const saved = await saveDecisions(db, orgId, runId, s, got, pairs, existing, enabledAuto, now());
-      usage.candidatesAnswered += saved;
-      progress.answered += saved;
-      if (saved) await addUsage(db, s.model, now(), { candidatesAnswered: saved });
-      await saveLimiterState(db, limiter, s.model, now());
-      if (res.status === 'blocked') outcome = { kind: 'blocked', reason: res.reason, resumeAt: res.resumeAt };
-      else if (res.status === 'stopped') outcome = { kind: 'stopped' };
-      else if (res.status === 'failed') outcome = { kind: 'failed', errorKind: res.error.kind, message: res.error.message };
+/** Why a source variant with a counterpart candidate is not approved, in the order that matters most (the first one found names it). */
+const BLOCKERS = ['ambiguous_candidate', 'stale_analysis', 'unsupported_category', 'kit', 'missing_fitment', 'ambiguous_variant', 'conflicting_fitment', 'policy_not_enabled'];
+
+/** The durable record of where each product stands, written once a window is fully worked through. */
+async function finishWork(db: DbLike, orgId: string, runId: string, sources: string[], tally: WindowTally, work: Map<string, typeof aiMatchWork.$inferSelect>, now: Date): Promise<void> {
+  for (const sv of sources) {
+    const t = tallyOf(tally, sv);
+    const blocker = BLOCKERS.find((r) => t.reasons.has(r)) ?? null;
+    const status: 'completed' | 'needs_evidence' | 'retry' = t.unanswered > 0 ? 'retry' : !t.approved && !t.eligible && (blocker === 'missing_fitment' || blocker === 'ambiguous_variant') ? 'needs_evidence' : 'completed';
+    // why this variant is where it is: the funnel is made of these
+    const reason = t.unanswered > 0 ? 'unanswered' : t.candidates === 0 ? 'no_candidate' : t.approved > 0 ? 'approved' : t.decided > 0 && !blocker ? 'human_decision' : blocker ?? (t.acceptable > 0 ? 'awaiting_review' : 'no_acceptable_candidate');
+    const prior = work.get(sv);
+    const values = { orgId, sourceVariantId: sv, status, reason, policyVersion: AUTO_POLICY_VERSION, lastRunId: runId, candidates: t.candidates, judged: t.judged, eligible: t.eligible, approved: t.approved, attempts: (prior?.attempts ?? 0) + (reason === 'no_acceptable_candidate' || reason === 'no_candidate' || status === 'retry' ? 1 : 0), updatedAt: now, completedAt: status === 'completed' ? now : null, nextAttemptAt: status === 'retry' ? new Date(now.getTime() + 15 * 60_000) : null };
+    await db.insert(aiMatchWork).values(values).onConflictDoUpdate({ target: aiMatchWork.sourceVariantId, set: values });
+  }
+}
+
+/**
+ * One planned request, tried on the keys in the order of who can take it now: a key that Google paused is skipped, a key that was refused or reports a non-free-tier quota is stopped on its own
+ * (the others carry on), and answers already received are kept when a key runs out part-way. Only when no key can take it does the work wait.
+ */
+async function askWithPool(
+  req: PlannedRequest,
+  pool: KeyRuntime[],
+  base: Omit<AskDeps, 'cfg' | 'limiter' | 'onRequest'> & { cfg: Omit<AskDeps['cfg'], 'apiKey'> },
+  onRequest: (keyId: string, e: UsageEvent) => Promise<void>,
+  db: DbLike,
+  model: string,
+  now: () => Date,
+): Promise<AskResult> {
+  const partial = new Map<string, AiDecision>();
+  const tried = new Set<string>();
+  let last: AskResult | null = null;
+  let resumeAt = Infinity;
+  const wanted = new Set(req.groups.flatMap((g) => g.candidates.map((c) => pairKey(g.ref, c.ref))));
+  for (;;) {
+    const k = pickOrder(pool, now().getTime(), req.estimatedInputTokens + req.estimatedOutputTokens).find((x) => !tried.has(x.id));
+    if (!k) break;
+    const left = new Set([...wanted].filter((w) => !partial.has(w)));
+    const res = await askRequest(left.size === wanted.size ? req : restrict(req, left, base), { ...base, cfg: { ...base.cfg, apiKey: k.apiKey }, limiter: k.limiter, onRequest: (e) => onRequest(k.id, e) });
+    await saveLimiterState(db, k.limiter, model, k.id, now());
+    for (const [a, b] of res.status === 'done' ? res.decisions : res.partial) partial.set(a, b);
+    if (res.status === 'done') return { status: 'done', decisions: partial, unanswered: [...wanted].filter((w) => !partial.has(w)) };
+    if (res.status === 'stopped') return { status: 'stopped', partial };
+    tried.add(k.id);
+    last = res;
+    if (res.status === 'blocked') { resumeAt = Math.min(resumeAt, res.resumeAt); continue; }
+    if (res.status === 'failed') {
+      if (!STOP_KINDS.has(res.error.kind)) return { status: 'failed', error: res.error, partial };
+      await markKeyStopped(db, model, k.id, res.error.message, now());
     }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limiter.concurrency, plan.length)) }, () => worker()));
-  return outcome;
+  }
+  // every working key was tried
+  if (last?.status === 'failed') return { status: 'failed', error: last.error, partial };
+  if (Number.isFinite(resumeAt)) return { status: 'blocked', reason: last?.status === 'blocked' ? last.reason : 'daily', resumeAt, partial };
+  return { status: 'failed', error: { kind: 'not_configured', status: 0, message: 'No working Gemini key is available.' }, partial };
 }
 
 /** The dossier the AI was shown, kept per product and rebuilt only when it changed. */
@@ -637,7 +840,7 @@ async function storeDossiers(db: DbLike, orgId: string, list: AiDossier[]): Prom
   }
 }
 
-/** Applies the safeguards to each answer and stores it. One row per pair: an existing row is updated, never duplicated, and a person's review of it is kept unless the AI changed its answer. */
+/** Applies the safeguards to each answer and stores it, then decides its approval. One row per pair: an existing row is updated, never duplicated, and a person's review of it is kept unless the AI changed its answer. */
 async function saveDecisions(
   db: DbLike,
   orgId: string,
@@ -645,8 +848,9 @@ async function saveDecisions(
   s: AiSettings,
   got: Map<string, AiDecision>,
   pairs: Map<string, PairCtx>,
-  existing: Map<string, { id: string; status: AiSuggestionStatus; matchType: AiMatchType }>,
-  enabledAuto: Set<string>,
+  existing: Map<string, StoredRow>,
+  enabled: EnabledPolicies,
+  tally: WindowTally,
   now: Date,
 ): Promise<number> {
   let saved = 0;
@@ -654,32 +858,10 @@ async function saveDecisions(
     const p = pairs.get(key);
     if (!p) continue;
     const eng = p.c.engine;
-    const g = applyGuards(decision, {
-      engine: eng ? { relationship: eng.relationship, conflicts: eng.conflicts } : null,
-      quantity: eng?.quantity ?? null,
-      bundle: eng?.bundle ?? null,
-      sourceBrandKey: p.src.brand.key,
-      candidateBrandKey: p.cand.brand.key,
-      gtinEqual: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value === p.cand.identifiers.gtin.value,
-      gtinDiffer: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value !== p.cand.identifiers.gtin.value,
-      codesAgree: !!eng?.evidence.items.some((i) => i.kind === 'identity_code' && i.effect === 'supports'),
-      domain: p.aiS.domain,
-      sourceFacts: groundingText(p.aiS),
-      candidateFacts: groundingText(p.aiC),
-    });
+    const g = applyGuards(decision, guardCtxOf(p));
     const engine: AiEngineReading | null = eng ? { relationship: eng.relationship, tier: eng.tier, conflicts: eng.conflicts.slice(0, 4), summary: eng.evidence.summary } : null;
-    const policy: AiPolicyReading = {
-      quantity: eng ? { verdict: eng.quantity.verdict as 'same' | 'different' | 'unknown', note: eng.quantity.note } : null,
-      bundle: eng?.bundle ? { verdict: eng.bundle.verdict, note: eng.bundle.note } : null,
-    };
     // which class of automatic approval the deterministic conditions qualify this answer for: recorded for EVERY answer so a class can be measured before it is ever used
-    const autoClass = autoClassOf({
-      matchType: g.match_type, confidence: g.confidence_level, guardCodes: g.guards.map((x) => x.code), domain: p.aiS.domain,
-      gtinEqual: !!p.src.identifiers.gtin && !!p.cand.identifiers.gtin && p.src.identifiers.gtin.value === p.cand.identifiers.gtin.value,
-      sameBrand: !!p.src.brand.key && p.src.brand.key === p.cand.brand.key, mpnEqual: !!p.src.identifiers.mpn && p.src.identifiers.mpn.value === p.cand.identifiers.mpn?.value,
-      codesAgree: !!eng?.evidence.items.some((i) => i.kind === 'identity_code' && i.effect === 'supports'),
-      quantity: (eng?.quantity.verdict ?? 'unknown') as 'same' | 'different' | 'unknown', bundle: eng?.bundle?.verdict ?? null, engine: eng ? { relationship: eng.relationship, conflicts: eng.conflicts } : null, decidedByPerson: false,
-    });
+    const autoClass = autoClassOf({ ...autoFactsOf(p, g), decidedByPerson: false });
     const before = existing.get(key);
     const keepReview = !!before && before.status !== 'pending' && before.matchType === g.match_type;
     const values = {
@@ -687,8 +869,8 @@ async function saveDecisions(
       matchType: g.match_type, aiMatchType: g.ai_match_type, confidence: g.confidence_level as AiConfidence, aiConfidence: g.ai_confidence_level as AiConfidence,
       priceComparable: g.price_comparable, requiresReview: g.requires_human_review, explanation: g.explanation,
       supporting: g.supporting_evidence, conflicting: g.conflicting_evidence, missing: g.missing_evidence, guards: g.guards,
-      foundBy: p.c.foundBy.map((f) => ({ method: f.method, rank: f.rank, detail: f.detail })), engine, policy,
-      autoClass, inputHash: p.inputHash, sourceFingerprint: p.aiS.fingerprint, candidateFingerprint: p.aiC.fingerprint, model: s.model, promptVersion: AI_PROMPT_VERSION,
+      foundBy: p.c.foundBy.map((f) => ({ method: f.method, rank: f.rank, detail: f.detail })), engine, policy: policyReadingOf(p),
+      autoClass, autoPolicyVersion: AUTO_POLICY_VERSION, inputHash: p.inputHash, sourceFingerprint: p.aiS.fingerprint, candidateFingerprint: p.aiC.fingerprint, model: s.model, promptVersion: AI_PROMPT_VERSION,
       sourceUrl: p.aiS.url, candidateUrl: p.aiC.url, analysedAt: now, updatedAt: now,
     };
     const { orgId: _o, sourceVariantId: _s, competitorVariantId: _c, ...update } = values;
@@ -699,22 +881,70 @@ async function saveDecisions(
         target: [aiMatchSuggestions.sourceVariantId, aiMatchSuggestions.competitorVariantId],
         set: keepReview ? update : { ...update, status: 'pending', reviewedBy: null, reviewedAt: null, reviewRelationship: null, reviewNote: null },
       });
-    // a class a person switched on after it passed the measured gate: the pair is confirmed by the system (reversible, audited), and only if no person has decided it
-    if (autoClass && enabledAuto.has(`${p.aiS.domain}:${autoClass}`)) {
-      const done = await autoApprovePair(db, orgId, { sourceVariantId: p.sv, competitorVariantId: p.cv, competitorSiteId: p.siteId, autoClass, quantity: eng?.quantity ?? null, bundle: eng?.bundle ?? null }, now);
-      if (done === 'approved') await db.update(aiMatchSuggestions).set({ status: 'accepted', reviewRelationship: CLASS_RELATIONSHIP[autoClass], reviewNote: 'Approved automatically: this class passed the measured release gate.', reviewedAt: now }).where(and(eq(aiMatchSuggestions.sourceVariantId, p.sv), eq(aiMatchSuggestions.competitorVariantId, p.cv)));
-    }
+    // the approval decision for this pair, against the current evidence and the policies that are switched on
+    const r = await reconcilePair(db, orgId, p, { s: p.aiS.fingerprint, c: p.aiC.fingerprint }, g, enabled, now);
+    notePair(tallyOf(tally, p.sv), p, g.match_type, r);
     saved++;
   }
   return saved;
 }
 
 /**
- * Safety net, called every minute by the worker: a run that should be moving but has no job (the worker restarted, a delayed job was lost) is queued again. A run a person paused
- * (no resume time) is never touched, and a run is recovered at most three times.
+ * Re-decides the approval of every stored answer against the CURRENT facts and rules, without asking the model anything: what a person's switching a policy on, or a changed rule, needs. Resumable
+ * and idempotent: repeating it changes nothing and records nothing twice; an approval whose evidence changed is taken back. Work is done in slices of products and queued again until finished.
  */
-export async function aiResumeTick(svc: Services): Promise<{ queued: string[] }> {
-  if (!svc.config.GEMINI_API_KEY) return { queued: [] };
+export async function reconcileSuggestions(svc: Services, orgId: string, after: string | null = null): Promise<{ outcome: 'done' | 'continue'; processed: number; tally: Record<string, number> }> {
+  const db = svc.db as DbLike;
+  setAiClock(() => svc.clock());
+  const started = Date.now();
+  const sources = (await db.execute<{ id: string }>(sql`select distinct source_variant_id as id from ai_match_suggestions where org_id = ${orgId} ${after ? sql`and source_variant_id > ${after}::uuid` : sql``} order by 1`)).rows.map((r) => r.id);
+  if (!sources.length) return { outcome: 'done', processed: 0, tally: {} };
+  const ctx = await withHeavyWork(() => buildContext(db, orgId, svc.config.GEMINI_EMBEDDING_MODEL));
+  const enabled = await enabledPolicies(db, orgId);
+  const results: ReconcileResult[] = [];
+  let processed = 0;
+  for (let i = 0; i < sources.length; i += 25) {
+    if (Date.now() - started > TIME_BUDGET_MS) {
+      await svc.queue.enqueue('ai-match', { orgId, task: 'reconcile', after: sources[i - 1] ?? after }, { singletonKey: `reconcile:${orgId}`, startAfterSeconds: 2 });
+      return { outcome: 'continue', processed, tally: tally(results) };
+    }
+    const part = sources.slice(i, i + 25);
+    const rows = await db.select().from(aiMatchSuggestions).where(and(eq(aiMatchSuggestions.orgId, orgId), inArray(aiMatchSuggestions.sourceVariantId, part)));
+    await refreshFacts(db, ctx, [...new Set(rows.flatMap((r) => [r.sourceVariantId, r.competitorVariantId]))].filter((id) => ctx.corpus.byVariant.has(id)));
+    for (const row of rows) {
+      const p = pairFromRow(ctx, row);
+      if (!p) continue; // a product that is no longer active
+      results.push(await reuseStored(db, orgId, p, row, enabled, svc.clock()));
+      processed++;
+    }
+  }
+  svc.log.info('ai approvals reconciled', { orgId, processed, ...tally(results) });
+  // a policy switched on or off while this was running is not seen by this pass: go round again from the start (it is idempotent)
+  const now = await enabledPolicies(db, orgId);
+  const same = (a: Map<string, string>, b: Map<string, string>) => a.size === b.size && [...a].every(([k, v]) => b.get(k) === v);
+  if (!same(enabled, now)) await svc.queue.enqueue('ai-match', { orgId, task: 'reconcile', after: null }, { singletonKey: `reconcile:${orgId}`, startAfterSeconds: 2 });
+  return { outcome: 'done', processed, tally: tally(results) };
+}
+
+/** Starts the whole-catalogue sweep (continuous matching) unless some analysis is already open. */
+export async function startSweep(svc: Services, orgId: string): Promise<string | null> {
+  try {
+    const { run } = await createAiRun(svc.db as DbLike, svc.config, orgId, null, { scope: 'sweep', perSite: 3 }, svc.clock());
+    await enqueueAiRun(svc.queue, orgId, run.id);
+    return run.id;
+  } catch (e) {
+    if (e instanceof MatchError) return null; // one is already open, or there is nothing to do
+    throw e;
+  }
+}
+
+/**
+ * Safety net and scheduler, called every minute by the worker. (1) A run that should be moving but has no job (the worker restarted, a delayed job was lost) is queued again; a run a person
+ * paused (no resume time) is never touched, and a run is recovered at most three times. (2) Continuous matching: a workspace that opted in gets a sweep of its whole catalogue once a collection
+ * has finished since the last one (and at least once a day), so new and changed products are worked through by themselves, within the free quota of every key.
+ */
+export async function aiResumeTick(svc: Services): Promise<{ queued: string[]; swept: string[] }> {
+  if (!aiKeysOf(svc.config).length) return { queued: [], swept: [] };
   const now = svc.clock();
   const db = svc.db as DbLike;
   const rows = await db.select().from(aiMatchRuns).where(inArray(aiMatchRuns.status, ['queued', 'running', 'paused']));
@@ -731,7 +961,22 @@ export async function aiResumeTick(svc: Services): Promise<{ queued: string[] }>
     await enqueueAiRun(svc.queue, r.orgId, r.id);
     queued.push(r.id);
   }
-  return { queued };
+  const swept: string[] = [];
+  const orgs = await db.select({ orgId: orgSettings.orgId }).from(orgSettings).where(eq(orgSettings.aiContinuous, true));
+  for (const o of orgs) {
+    if (rows.some((r) => r.orgId === o.orgId)) continue; // something is already open
+    const [last] = await db.select().from(aiMatchRuns).where(and(eq(aiMatchRuns.orgId, o.orgId), eq(aiMatchRuns.kind, 'sweep'))).orderBy(desc(aiMatchRuns.createdAt)).limit(1);
+    const since = last ? last.createdAt : new Date(0);
+    const busy = await db.execute<{ n: number }>(sql`select count(*)::int as n from scan_runs where org_id = ${o.orgId} and status in ('queued','running')`);
+    const done = await db.execute<{ at: Date | null }>(sql`select max(finished_at) as at from scan_runs where org_id = ${o.orgId} and status in ('succeeded','partial')`);
+    const collected = done.rows[0]?.at ? new Date(done.rows[0].at) > since : false;
+    const stale = now.getTime() - since.getTime() > 24 * 3_600_000;
+    if ((busy.rows[0]?.n ?? 0) === 0 && (!last || collected || stale)) {
+      const id = await startSweep(svc, o.orgId);
+      if (id) swept.push(id);
+    }
+  }
+  return { queued, swept };
 }
 
 // ───────────────────────────────────────────────────────────── reading suggestions

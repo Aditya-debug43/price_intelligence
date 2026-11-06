@@ -162,3 +162,30 @@ describe('the price page no longer contradicts itself about suggestions', () => 
     expect(awaitingNote(0)).toBeNull();
   });
 });
+
+describe('the status panel shows each key by label, never the key', () => {
+  const status = (over: Partial<AiStatusView> = {}): AiStatusView => ({
+    configured: true, model: 'gemini-3.5-flash-lite', continuous: true,
+    keys: [
+      { id: 'k1', label: 'Key 1', state: 'ready', pausedUntil: null, pauseReason: null, stopped: null, today: { requests: 120, inputTokens: 90_000, outputTokens: 12_000, failures: 0, rateLimited: 0 }, learned: { rpd: 250 } },
+      { id: 'k2', label: 'Key 2', state: 'paused', pausedUntil: '2026-11-07T08:00:00.000Z', pauseReason: 'The daily quota is used up.', stopped: null, today: { requests: 250, inputTokens: 180_000, outputTokens: 20_000, failures: 2, rateLimited: 3 }, learned: {} },
+    ],
+    limits: { rpm: 24, tpm: 500_000, dailyBudget: 400, learned: {} }, today: { day: '2026-11-06', requests: 370, inputTokens: 270_000, outputTokens: 32_000, failures: 2, rateLimited: 3, cachedResults: 14 },
+    state: 'running', pausedUntil: null, pauseReason: null, stopped: null, activeRun: null, counts: { pending: 4, accepted: 1, changed: 0, uncertain: 0, noneOfThese: 0, total: 5 }, note: 'Work is spread over 2 keys.', ...over,
+  });
+  it('lists both keys with their own use and state', () => {
+    const out = html(AiStatusPanel, { status: status(), isAdmin: true });
+    expect(out).toContain('Key 1');
+    expect(out).toContain('Key 2');
+    expect(out).toContain('120 requests today');
+    expect(out).toContain('250 requests today');
+    expect(out).toContain('waiting for quota');
+    expect(out).toContain('Google’s answers say 250 a day');
+    expect(out).not.toMatch(/AIza|AQ\./);
+  });
+  it('shows a stopped key and why', () => {
+    const out = html(AiStatusPanel, { status: status({ keys: [{ id: 'k1', label: 'Key 1', state: 'stopped', pausedUntil: null, pauseReason: null, stopped: 'Google refused this key.', today: { requests: 0, inputTokens: 0, outputTokens: 0, failures: 1, rateLimited: 0 }, learned: {} }], state: 'stopped', stopped: 'Google refused this key.' }), isAdmin: true, onResumeGemini() {} });
+    expect(out).toContain('Google refused this key.');
+    expect(out).toContain('stopped');
+  });
+});

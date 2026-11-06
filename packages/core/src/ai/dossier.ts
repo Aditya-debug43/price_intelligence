@@ -65,6 +65,8 @@ const GROUP_OF: Record<string, FactGroup> = {
   power_w: 'physical', lumens: 'physical', colour_temperature_k: 'physical', colour: 'physical', length_mm: 'physical', dimensions: 'physical',
 };
 export const factGroupOf = (key: string): FactGroup => GROUP_OF[key.replace(/_per_spec_table$/, '')] ?? 'identity';
+/** An unknown fact that another attribute (read from the page's specification lines) now states. */
+const ALSO_STATED_BY: Record<string, string[]> = { part_codes: ['spec_part_codes'], lamp_position: ['spec_lamp_position'], model_years: ['fitment_text'], vehicle: ['fitment_text'] };
 /** The attribute each kind of page specification becomes. */
 const SPEC_ATTRIBUTE: Record<PageSpecKey, string> = {
   power_w: 'power_w', voltage_v: 'voltage_v', lumens: 'lumens', colour_temperature_k: 'colour_temperature_k', part_codes: 'spec_part_codes', lamp_position: 'spec_lamp_position', canbus: 'canbus_mentioned',
@@ -171,7 +173,8 @@ export function buildAiDossier(d: Dossier, extra: AiDossierExtra = {}): AiDossie
     attributes: attrs,
     notes: cleanNotes(extra.description),
     url: extra.url ?? null,
-    unknown: [...unknown, ...(brandName ? [] : ['brand'])],
+    // what is still unknown AFTER everything the listing states has been merged: a fact the page's specification supplied is not also listed as missing
+    unknown: [...unknown, ...(brandName ? [] : ['brand'])].filter((k) => !(k in attrs) && !(ALSO_STATED_BY[k] ?? []).some((x) => x in attrs)),
   });
 }
 

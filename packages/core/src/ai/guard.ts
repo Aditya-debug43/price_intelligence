@@ -1,4 +1,5 @@
 import type { BundleCheck, QuantityCheck } from '@ci/shared';
+import type { BulbPolicyResult } from './policy.ts';
 import { AI_TYPE_STRENGTH, type AiConfidence, type AiDecision, type AiEvidenceItem, type AiMatchType } from './schema.ts';
 
 /**
@@ -25,6 +26,8 @@ export interface GuardContext {
   codesAgree?: boolean;
   /** What kind of product this is (from the dossier): a compatible equivalent can only be verified for parts whose fit can be checked. */
   domain?: 'automotive' | 'grocery' | 'general';
+  /** What the category policy established from sourced evidence. When given it decides the compatibility gate (learned code families never count); when absent the older rule-engine evidence is used. */
+  policy?: BulbPolicyResult | null;
   /** Lower-cased text of the facts sent for each product (see `groundingText`). */
   sourceFacts: string;
   candidateFacts: string;
@@ -97,7 +100,13 @@ export function applyGuards(d: AiDecision, ctx: GuardContext): GuardedDecision {
   if (type === 'close_equivalent') {
     const why: string[] = [];
     if (ctx.domain !== 'automotive') why.push('only a part whose fit can be checked can be a verified equivalent; other goods are substitutes');
-    else {
+    else if (ctx.policy !== undefined) {
+      if (!ctx.policy) why.push('no category policy covers this pair');
+      else if (!ctx.policy.eligible) why.push(...ctx.policy.reasons);
+      if (ctx.bundle && ctx.bundle.verdict !== 'equivalent') why.push('the bundle contents are not shown to be the same');
+      if (ctx.quantity?.verdict === 'different') why.push('the quantities differ');
+      if (ctx.engine && (ctx.engine.conflicts.length > 0 || ctx.engine.relationship === 'non_match')) why.push('the rule-based check found a difference in what it fits or does');
+    } else {
       if (!ctx.codesAgree) why.push('the bulb or part code is not shown to be the same');
       if (!ctx.engine) why.push('the rule-based check has not judged this pair');
       else if (ctx.engine.conflicts.length > 0 || ctx.engine.relationship === 'non_match') why.push('the rule-based check found a difference in what it fits or does');

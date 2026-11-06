@@ -1,4 +1,5 @@
 import { collectKnownBrands, prepareVariant } from '../matching.ts';
+import { VERIFIED_CODE_ALIASES } from './code-aliases.ts';
 import { buildDossier, COMPANION_NOUNS, plain, seedColours, yearContexts, type Dossier, type DossierInput } from './dossier.ts';
 
 /**
@@ -188,6 +189,11 @@ export function analyseCatalogue(inputs: DossierInput[]): Corpus {
     const [a, b] = key.split('|') as [string, string];
     const together = e.n / Math.min(df.get(`c:${a}`) ?? 1, df.get(`c:${b}`) ?? 1);
     if (together >= 0.4) union(parent, a, b);
+  }
+  // standard designations of one lamp (verified, not learned): found together and read as aliases by the rule engine from the start
+  for (const row of VERIFIED_CODE_ALIASES) {
+    const codes = row.map((c) => c.toLowerCase().replace(/[\s-]+/g, '')).filter((c) => !c.includes('/'));
+    for (let i = 1; i < codes.length; i++) union(parent, codes[0]!, codes[i]!);
   }
   const alias = resolveAlias(parent);
   const canon = (c: string) => alias.get(c) ?? c;
