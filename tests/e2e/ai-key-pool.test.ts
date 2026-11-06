@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
 import { aiMatchRuns, aiMatchSuggestions, aiMatchWork, aiQuotaState, aiUsageDaily, productMatches } from '@ci/database';
+import { pacificDay } from '@ci/core';
 import { aiResumeTick, aiStatus, embedCatalogue } from '@ci/services';
 import { KEY1, KEY2, createBulbs, imitation, okResponse, quotaResponse, type Bulbs, type Imitation, type Seeded } from '../support/bulbs.ts';
 
@@ -181,3 +182,52 @@ describe('semantic indexing is spread over the keys and survives a stopped key',
 });
 
 void [okResponse, aiStatus];
+
+describe('the free quota is shared by every workspace, so a run waits cleanly and automatic matching leaves some for people', () => {
+  const model = () => b.h.svc.config.GEMINI_MODEL;
+  const useToday = async (perKey: number) => {
+    const day = pacificDay(b.h.svc.clock().getTime());
+    for (const keyId of ['k1', 'k2']) await b.db.insert(aiUsageDaily).values({ day, model: model(), keyId, requests: perKey, updatedAt: b.h.svc.clock() });
+  };
+  const start = async (body: Record<string, unknown>) => {
+    const res = await b.owner.post(`${b.base}/ai/runs`, body);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    await b.h.queue.drain();
+    return (await b.db.select().from(aiMatchRuns).where(eq(aiMatchRuns.id, res.body.run.id)))[0]!;
+  };
+
+  it('when every key has used its whole day, a run waits at once for the reset: it asks nothing and is not left "running"', async () => {
+    await useToday(b.h.svc.config.GEMINI_DAILY_REQUESTS);
+    const r = await start({ scope: 'products', variantIds: ids(), perSite: 2 });
+    expect(r.status).toBe('paused');
+    expect(r.resumeAt).not.toBeNull();
+    expect(r.resumeAt!.getTime()).toBeGreaterThan(b.h.svc.clock().getTime());
+    expect(r.pauseReason).toMatch(/daily quota/i);
+    expect(im.asked).toHaveLength(0);
+  });
+
+  it('when the quota runs out part-way, the run always ends paused (never stuck "running"), however the two keys race', async () => {
+    for (let i = 0; i < 4; i++) {
+      await fresh();
+      await useToday(b.h.svc.config.GEMINI_DAILY_REQUESTS - 1); // one request left on each key; the work needs many
+      const r = await start({ scope: 'products', variantIds: ids(), perSite: 2 });
+      expect(r.status, `round ${i}`).toBe('paused');
+      expect(r.resumeAt, `round ${i}`).not.toBeNull();
+      expect(im.asked.length, `round ${i}`).toBeLessThan(COUNT);
+    }
+  });
+
+  it('automatic matching stops at its share of the day and keeps the rest for analyses people start', async () => {
+    const budget = b.h.svc.config.GEMINI_DAILY_REQUESTS;
+    await useToday(Math.ceil(budget * 0.75)); // above the 70% share on both keys
+    const sweep = await start({ scope: 'sweep', perSite: 2 });
+    expect(sweep.status).toBe('paused');
+    expect(sweep.pauseReason).toMatch(/keeps the rest for analyses people start/);
+    expect(im.asked).toHaveLength(0);
+    // a person's own analysis still has the reserved quota (the waiting sweep is set aside first: a workspace has one open analysis at a time)
+    expect((await b.owner.post(`${b.base}/ai/runs/${sweep.id}/cancel`, {})).status).toBe(200);
+    const mine = await start({ scope: 'products', variantIds: ids().slice(0, 6), perSite: 2 });
+    expect(mine.status, mine.error ?? '').toBe('completed');
+    expect(im.asked.length).toBeGreaterThan(0);
+  });
+});

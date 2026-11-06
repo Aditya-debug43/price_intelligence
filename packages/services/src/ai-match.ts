@@ -16,6 +16,7 @@ import {
   factGroupOf,
   groundingText,
   hashText,
+  nextPacificMidnight,
   pacificDay,
   planBatches,
   retrieveShortlist,
@@ -459,6 +460,9 @@ function inputHashOf(model: string, aiS: AiDossier, aiC: AiDossier, c: AiCandida
   return hashText(material) + hashText(material, 7);
 }
 
+/** What ended a window outranks what merely followed it: a quota wait or a failure over a plain stop. */
+const windowRank = (o: WindowOutcome): number => (o.kind === 'complete' ? 0 : o.kind === 'stopped' ? 1 : 2);
+
 type WindowOutcome = { kind: 'complete' } | { kind: 'blocked'; reason: string; resumeAt: number } | { kind: 'stopped' } | { kind: 'failed'; errorKind: string; message: string };
 
 async function setRun(db: DbLike, runId: string, now: Date, set: Partial<typeof aiMatchRuns.$inferInsert>): Promise<void> {
@@ -469,6 +473,18 @@ async function setRun(db: DbLike, runId: string, now: Date, set: Partial<typeof 
  * The job: works through a run in windows of a few products until it finishes, is paused, runs into a quota, or has used its time slice (then it queues itself again). Requests are spread over the
  * configured keys, each held to its OWN limits. When every working key is paused the run waits (its work items wait for quota — they are never marked done) and resumes from its checkpoint.
  */
+/** The part of each day's free quota that AUTOMATIC matching (a sweep) may use. The rest is kept for analyses a person starts, in any workspace: the quota is shared by every workspace on the server. */
+export const SWEEP_SHARE = 0.7;
+
+/** When an automatic sweep has to wait because it has used its share of today's quota (null: it may go on). */
+async function sweepHold(db: DbLike, s: AiSettings, kind: string, now: Date): Promise<Date | null> {
+  if (kind !== 'sweep') return null;
+  const rows = await db.select({ n: aiUsageDaily.requests }).from(aiUsageDaily).where(and(eq(aiUsageDaily.day, pacificDay(now.getTime())), eq(aiUsageDaily.model, s.model)));
+  const used = rows.reduce((a, r) => a + r.n, 0);
+  return used >= Math.floor(s.dailyRequests * Math.max(1, s.keys.length) * SWEEP_SHARE) ? nextPacificMidnight(now) : null;
+}
+const SWEEP_PAUSE = 'Automatic matching has used its share of today’s free quota and keeps the rest for analyses people start. It continues after the quota resets (midnight Pacific Time).';
+
 export async function processAiRun(svc: Services, orgId: string, runId: string): Promise<{ outcome: string }> {
   const db = svc.db as DbLike;
   const s = aiSettings(svc.config);
@@ -489,12 +505,23 @@ export async function processAiRun(svc: Services, orgId: string, runId: string):
     await setRun(db, runId, now(), { status: 'paused', pauseReason: pool[0]?.limiter.snapshot().stopped ?? 'Gemini processing is stopped.', resumeAt: null });
     return { outcome: 'stopped' };
   }
-  const waits = working.map((k) => k.limiter.snapshot().pausedUntil ?? 0);
-  if (waits.every((w) => w > now().getTime())) {
-    const until = Math.min(...waits);
-    await setRun(db, runId, now(), { status: 'paused', pauseReason: pauseText(working.find((k) => k.limiter.snapshot().pausedUntil === until)?.limiter.snapshot().pauseReason), resumeAt: new Date(until) });
-    await enqueueAiRun(svc.queue, orgId, runId, (until - now().getTime()) / 1000);
+  // a key that has used its whole daily budget, or that Google paused, cannot take a request now: when none can, the run waits at once (not after building the catalogue's analysis for nothing)
+  const nowMs = now().getTime();
+  const holds = working.map((k) => {
+    const c = k.limiter.check(0);
+    return !c.ok && c.reason === 'daily' ? { until: nowMs + c.waitMs, why: 'daily' as string | null | undefined } : { until: k.limiter.snapshot().pausedUntil ?? 0, why: k.limiter.snapshot().pauseReason };
+  });
+  if (holds.every((h) => h.until > nowMs)) {
+    const first = holds.reduce((a, b) => (b.until < a.until ? b : a));
+    await setRun(db, runId, now(), { status: 'paused', pauseReason: pauseText(first.why), resumeAt: new Date(first.until) });
+    await enqueueAiRun(svc.queue, orgId, runId, (first.until - nowMs) / 1000);
     return { outcome: 'waiting' };
+  }
+  const reserve = await sweepHold(db, s, run0.kind, now());
+  if (reserve) {
+    await setRun(db, runId, now(), { status: 'paused', pauseReason: SWEEP_PAUSE, resumeAt: reserve });
+    await enqueueAiRun(svc.queue, orgId, runId, (reserve.getTime() - nowMs) / 1000);
+    return { outcome: 'waiting_share' };
   }
 
   await setRun(db, runId, now(), { status: 'running', startedAt: run0.startedAt ?? now(), pauseReason: null, resumeAt: null, model: s.model, promptVersion: AI_PROMPT_VERSION });
@@ -519,6 +546,13 @@ export async function processAiRun(svc: Services, orgId: string, runId: string):
         await persist({ status: 'queued' });
         await enqueueAiRun(svc.queue, orgId, runId, 1);
         return { outcome: 'continued' };
+      }
+      const hold = await sweepHold(db, s, run0.kind, now());
+      if (hold) {
+        await persist({ status: 'paused', pauseReason: SWEEP_PAUSE, resumeAt: hold });
+        await enqueueAiRun(svc.queue, orgId, runId, (hold.getTime() - now().getTime()) / 1000);
+        svc.log.info('ai sweep waits for the next day (its share of the quota is used)', { orgId, runId });
+        return { outcome: 'waiting_share' };
       }
       const ids = run0.sourceIds.slice(cursor, cursor + WINDOW_SOURCES);
       const outcome = await runWindow(svc, db, orgId, runId, ids, ctx, params.perSite, s, pool, usage, progress);
@@ -753,10 +787,11 @@ async function runWindow(
         usage.candidatesAnswered += saved;
         progress.answered += saved;
         if (saved) await addUsage(db, s.model, pool[0]?.id ?? 'k1', now(), { candidatesAnswered: saved });
-        if (res.status === 'blocked') outcome = { kind: 'blocked', reason: res.reason, resumeAt: res.resumeAt };
-        else if (res.status === 'stopped') outcome = { kind: 'stopped' };
-        else if (res.status === 'failed') outcome = { kind: 'failed', errorKind: res.error.kind, message: res.error.message };
-        else if (res.unanswered.length) for (const k of res.unanswered) tallyOf(tally, k.split('|')[0]!).unanswered++;
+        // the first thing that ended the window is what it reports: a worker that merely saw the others stop (or a person pause the run) never overwrites a quota wait or a failure
+        const ended: WindowOutcome | null = res.status === 'blocked' ? { kind: 'blocked', reason: res.reason, resumeAt: res.resumeAt } : res.status === 'failed' ? { kind: 'failed', errorKind: res.error.kind, message: res.error.message } : res.status === 'stopped' ? { kind: 'stopped' } : null;
+        if (ended) {
+          if (windowRank(ended) > windowRank(outcome)) outcome = ended;
+        } else if (res.status === 'done') for (const k of res.unanswered) tallyOf(tally, k.split('|')[0]!).unanswered++;
       }
     };
     const width = pool.reduce((n, k) => n + (k.limiter.snapshot().stopped ? 0 : k.limiter.concurrency), 0);

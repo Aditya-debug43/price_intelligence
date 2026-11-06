@@ -1090,3 +1090,7 @@ The existing Marketing Activity page, no new dashboard. The YouTube card reports
 **Verification.** Lint 0 errors (2 old warnings); typecheck; new tests: `auto-matching` 33, `ai-key-pool` 8, `match-gate-path` 20 (real labelling → measurement → gate → activation → reconciliation → comparison → deactivation; a flawed workspace fails the same gate), web render tests; `match-eval` e2e rewritten with no synthetic passed gate; full suite green apart from one unrelated social-sync test that passed alone and is recorded below.
 
 **Not done.** Independent human labels (people); fitment data; rotating the two Gemini keys that were pasted into a chat.
+
+## 2026-11-06 (later) — Directive 31 deployed
+
+Deployed `b8ea2f1` then `746b30d` (backup first each time, key 2 added to the env file only, 23 migrations, ready, human decisions/prices byte-identical). Found in production and fixed: the funnel crashed on the pre-existing evaluation report; one workspace's automatic sweep used the whole shared daily quota (automatic matching now keeps 30% for people); a run with every key at its daily limit now waits at once; a quota wait is no longer overwritten by a plain stop. Details and the real catalogue numbers: `docs/ai-matching.md`, "First day in production".
