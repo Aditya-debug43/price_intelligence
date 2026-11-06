@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
-import { aiMatchRuns, aiMatchSuggestions, aiMatchWork, matchAutoApproval, matchEvents, productMatches, products, scanRuns, variants } from '@ci/database';
+import { aiMatchRuns, aiMatchSuggestions, aiMatchWork, matchAutoApproval, matchEvalReports, matchEvents, productMatches, products, scanRuns, variants } from '@ci/database';
 import { AUTO_POLICY_VERSION } from '@ci/core';
 import { aiResumeTick, reconcileSuggestions, runMatching } from '@ci/services';
 import { KEY1, createBulbs, imitation, quotaResponse, type Bulbs, type Imitation, type Seeded } from '../support/bulbs.ts';
@@ -416,5 +416,23 @@ describe('quota: work waits, is never marked done, and resumes from its checkpoi
     for (const m of made) expect(await matchOf(m), m.s.title).toMatchObject({ status: 'accepted', method: 'ai_auto' });
     const after = await b.db.select().from(aiMatchWork).where(inArray(aiMatchWork.sourceVariantId, ids));
     expect(after.every((w) => w.status === 'completed')).toBe(true);
+  });
+});
+
+describe('a measurement made before families and policy versions existed (what production holds)', () => {
+  it('does not break the funnel or the evaluation screen, and counts for nothing under the current rules', async () => {
+    // the shape the earlier version stored: four gates, none with `units` or a policy version, one for a policy that is not offered
+    const old = (domain: string, autoClass: string) => ({ domain, autoClass, result: { passed: false, lines: [{ name: 'automatic approval precision', interval: { estimate: null, low: null, high: null }, needed: 0.98, examples: 0, passed: false, why: 'only 0 labelled examples (at least 100 are needed)' }] } });
+    await b.db.insert(matchEvalReports).values({ orgId: b.org, split: 'all', report: { all: {}, holdout: {}, development: {}, note: 'old' }, gates: [old('automotive', 'exact_item'), old('automotive', 'compatible_equivalent'), old('grocery', 'exact_item'), old('grocery', 'compatible_equivalent')], cases: 0, createdAt: new Date(b.h.svc.clock().getTime() + 10 * 60_000) });
+    const f = await b.owner.get(`${b.base}/ai/funnel`);
+    expect(f.status, JSON.stringify(f.body)).toBe(200);
+    expect(f.body.precision).toHaveLength(3); // the policies that exist
+    for (const p of f.body.precision) expect(p).toMatchObject({ families: 0, correct: 0, passed: false, critical: 0 });
+    const s = await b.owner.get(`${b.base}/eval/status`);
+    expect(s.status).toBe(200);
+    expect(s.body.latestReport.gates.map((g: { domain: string; autoClass: string }) => `${g.domain}/${g.autoClass}`).sort()).toEqual(['automotive/compatible_equivalent', 'automotive/exact_item', 'grocery/exact_item']);
+    // and it cannot be used to switch anything on
+    const on = await b.owner.post(`${b.base}/eval/auto-approval`, { domain: 'automotive', autoClass: 'compatible_equivalent', enabled: true });
+    expect(on.status).toBe(409);
   });
 });

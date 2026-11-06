@@ -1,5 +1,5 @@
 import { desc, eq, sql } from 'drizzle-orm';
-import { AUTO_POLICY_VERSION, wilson } from '@ci/core';
+import { AUTO_POLICY_VERSION, SUPPORTED_POLICIES, wilson } from '@ci/core';
 import type { CoverageTarget, FunnelReason, FunnelStage, MatchFunnelView } from '@ci/shared';
 import { aiMatchSuggestions, matchAutoApproval, matchEvalReports, type DbLike } from '@ci/database';
 import { OWN } from './match-eval.ts';
@@ -140,14 +140,17 @@ export async function loadMatchFunnel(db: DbLike, orgId: string, opts: { domain?
   // audited precision of each policy, from the latest evaluation (never a number made up here)
   const [rep] = await db.select().from(matchEvalReports).where(eq(matchEvalReports.orgId, orgId)).orderBy(desc(matchEvalReports.createdAt)).limit(1);
   const flags = await db.select().from(matchAutoApproval).where(eq(matchAutoApproval.orgId, orgId));
-  type Gate = { domain: string; autoClass: string; policyVersion?: string; units: { families: number; correct: number; critical: number }; result: { passed: boolean }; needed?: { toMinimum: number; toCertainty: number | null } };
+  // A measurement made before families and policy versions existed has gates without `units` (and one for a policy that is not offered): it counts for nothing now, and is shown as "not measured for the current rules".
+  type Gate = { domain: string; autoClass: string; policyVersion?: string; units?: { families: number; correct: number; critical: number }; result: { passed: boolean }; needed?: { toMinimum: number; toCertainty: number | null } };
   const precision = ((rep?.gates ?? []) as unknown as Gate[])
-    .filter((g) => !opts.domain || g.domain === opts.domain)
+    .filter((g) => (!opts.domain || g.domain === opts.domain) && SUPPORTED_POLICIES.some((p) => p.domain === g.domain && p.autoClass === g.autoClass))
     .map((g) => {
-      const iv = wilson(g.units.correct, g.units.families);
+      const current = !!g.units && g.policyVersion === AUTO_POLICY_VERSION;
+      const u = current ? g.units! : { families: 0, correct: 0, critical: 0 };
+      const iv = wilson(u.correct, u.families);
       return {
-        domain: g.domain, autoClass: g.autoClass, policyVersion: g.policyVersion ?? '', families: g.units.families, correct: g.units.correct, observed: iv.estimate, low: iv.low, high: iv.high, passed: g.result.passed, critical: g.units.critical,
-        enabled: flags.some((f) => f.domain === g.domain && f.autoClass === g.autoClass && f.enabled), needed: g.needed ?? { toMinimum: Math.max(0, 100 - g.units.families), toCertainty: null },
+        domain: g.domain, autoClass: g.autoClass, policyVersion: g.policyVersion ?? '', families: u.families, correct: u.correct, observed: iv.estimate, low: iv.low, high: iv.high, passed: current && g.result.passed, critical: u.critical,
+        enabled: flags.some((f) => f.domain === g.domain && f.autoClass === g.autoClass && f.enabled), needed: current && g.needed ? g.needed : { toMinimum: Math.max(0, 100 - u.families), toCertainty: null },
       };
     });
   const recall = (rep?.report as { shortlistRecall?: { hits: number; total: number } } | undefined)?.shortlistRecall ?? null;

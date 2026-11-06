@@ -208,7 +208,8 @@ export async function evalProgress(db: DbLike, orgId: string) {
     target: { minimumLabelled: 300, perClassMinimum: DEFAULT_GATE.minExamples, unit: 'independent product families' },
     policyVersion: AUTO_POLICY_VERSION,
     supported: SUPPORTED_POLICIES.map((p) => ({ domain: p.domain, autoClass: p.autoClass })),
-    latestReport: last ? { id: last.id, createdAt: last.createdAt.toISOString(), cases: last.cases, report: last.report, gates: last.gates, engineVersion: last.engineVersion, model: last.model } : null,
+    // (a measurement made before a policy existed or was withdrawn is not shown for it)
+    latestReport: last ? { id: last.id, createdAt: last.createdAt.toISOString(), cases: last.cases, report: last.report, gates: (last.gates as unknown as { domain: string; autoClass: string }[]).filter((g) => SUPPORTED_POLICIES.some((p) => p.domain === g.domain && p.autoClass === g.autoClass)), engineVersion: last.engineVersion, model: last.model } : null,
     autoApproval: flags.map((f) => ({ domain: f.domain, autoClass: f.autoClass, enabled: f.enabled, enabledAt: f.enabledAt?.toISOString() ?? null, disabledReason: f.disabledReason, policyVersion: f.policyVersion ?? null })),
   };
 }
